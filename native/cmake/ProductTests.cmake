@@ -23,6 +23,8 @@ add_executable(cod_native_base_tests
     controller_native/ads_acquisition_controller_tests.cpp
     controller_native/bodylock_follow_controller_tests.cpp
     controller_native/bodylock_target_motion_observer_tests.cpp
+    controller_native/bodylock_recoil_feedback_incident_tests.cpp
+    controller_native/bodylock_motion_anchor_incident.cpp
     controller_native/aim_dynamics_shaper_tests.cpp
     controller_native/aim_response_estimator_tests.cpp
     controller_native/startup_response_prior_tests.cpp
@@ -161,4 +163,31 @@ add_executable(cod_native_ads_near_target_slowdown_incident_regression
 cod_native_defaults(cod_native_ads_near_target_slowdown_incident_regression)
 target_link_libraries(
     cod_native_ads_near_target_slowdown_incident_regression PRIVATE
+    controller_native_core)
+
+# Diagnostic RED remains open: a local learning repair must also preserve the
+# matched acquisition/tracking matrix before it can enter the product suites.
+add_executable(cod_native_held_ads_response_learning_incident
+    EXCLUDE_FROM_ALL
+    controller_native/held_ads_response_learning_incident.cpp)
+cod_native_defaults(cod_native_held_ads_response_learning_incident)
+target_link_libraries(cod_native_held_ads_response_learning_incident PRIVATE
+    controller_native_core)
+
+# User-confirmed AI signal contract. Remains RED until both the ownership
+# fixture and protected closed-loop comparisons pass; failed candidates are
+# archived outside production and must not replace the runtime.
+add_executable(cod_native_gamepad_signal_onset_incident
+    EXCLUDE_FROM_ALL
+    controller_native/gamepad_signal_onset_incident.cpp)
+cod_native_defaults(cod_native_gamepad_signal_onset_incident)
+target_link_libraries(cod_native_gamepad_signal_onset_incident PRIVATE
+    controller_native_core)
+
+add_executable(cod_native_bodylock_motion_anchor_incident
+    EXCLUDE_FROM_ALL
+    test_support/bodylock_motion_anchor_incident_main.cpp
+    controller_native/bodylock_motion_anchor_incident.cpp)
+cod_native_defaults(cod_native_bodylock_motion_anchor_incident)
+target_link_libraries(cod_native_bodylock_motion_anchor_incident PRIVATE
     controller_native_core)

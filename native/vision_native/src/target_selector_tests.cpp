@@ -1496,6 +1496,28 @@ void test_selector_generation_survives_frame_local_observation_changes() {
                  "continued replacement must not publish another identity change");
 }
 
+void test_motion_anchor_cannot_retain_background_outside_person() {
+    vision_native::VisionTargetSelector selector(640,512);
+    auto frame=full_bgra_frame();
+    draw_motion_pattern(frame,375,242);
+    auto batch=single_target_batch(375,256,.92f);
+    selector.select_with_frame(batch,frame.view);
+    const auto before=selector.select_with_frame(batch,frame.view);
+    require_true(before.has_selected_detection,"background fixture must first establish an anchor");
+    // The old identical patch remains visible on the background, but the
+    // currently selected person is now supported by a different body box.
+    for (int step=1;step<=55;++step) {
+        batch=single_target_batch(375.f-step,256,.92f);
+        const auto moved=selector.select_with_frame(batch,frame.view);
+        require_true(moved.has_selected_detection,"rejecting an anchor must preserve current person acquisition");
+        const auto& detection=moved.detections[moved.selected_detection_index];
+        require_true(!detection.has_motion_anchor ||
+            (detection.motion_anchor_x>=detection.x1 && detection.motion_anchor_x<=detection.x2 &&
+             detection.motion_anchor_y>=detection.y1 && detection.motion_anchor_y<=detection.y2),
+            "a perfectly correlated background patch is not an observed person motion anchor");
+    }
+}
+
 void test_confirmed_frame_replacement_bootstraps_a_new_motion_anchor() {
     vision_native::VisionTargetSelector selector(640, 512);
     auto old_target = single_target_batch(260.0f, 256.0f, 0.92f);
@@ -1750,6 +1772,7 @@ void test_cue_geometry_identity_and_residual_regressions() {
 }  // namespace
 
 void register_target_selector_tests(native_test::Registry& registry) {
+    registry.add_case("BaseVisionSelection", "motion_anchor_person_support", test_motion_anchor_cannot_retain_background_outside_person);
     registry.add_context_case("BaseVisionSelection", "cue_geometry_identity_and_residual_regressions", [](const native_test::TestContext& context) {
         if (g_cue_geometry_regression_report_path.empty()) {
             g_cue_geometry_regression_report_path = context.artifact_path("cue_geometry_regression.json").string();

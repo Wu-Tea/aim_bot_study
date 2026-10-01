@@ -199,17 +199,22 @@ private:
     void record_aim_response_command(
         double at_seconds,
         pipeline_contract::Vec2f stick,
+        pipeline_contract::Vec2f tracking_stick,
         bool manual_ambiguous) noexcept;
     bool average_aim_response_command(
         double begin_seconds,
         double end_seconds,
         pipeline_contract::Vec2f* average_stick,
+        pipeline_contract::Vec2f* average_tracking_stick,
         bool* manual_ambiguous) const noexcept;
     double now_seconds() const;
 
     struct TimedAimResponseCommand {
         double at_seconds = 0.0;
         pipeline_contract::Vec2f stick{};
+        // Same delivered interval, with the independent recoil contribution
+        // removed. Response identification still owns the full final command.
+        pipeline_contract::Vec2f tracking_stick{};
         bool manual_ambiguous = false;
     };
 
@@ -260,6 +265,8 @@ private:
     std::uint64_t last_ads_response_epoch_ = 0;
     double last_aim_response_capture_seconds_ = 0.0;
     pipeline_contract::Vec2f last_aim_response_source_error_px_{};
+    pipeline_contract::Vec2f last_aim_response_motion_anchor_error_px_{};
+    bool has_last_aim_response_motion_anchor_ = false;
     bool has_last_aim_response_observation_ = false;
     PhysicalGamepadState sampled_physical_{};
     pipeline_contract::IntentState sampled_intent_{};

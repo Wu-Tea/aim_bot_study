@@ -1156,6 +1156,13 @@ void VisionTargetSelector::update_selected_motion_anchor(
     std::array<float, kMotionPatchSamples> best_patch{};
     for (int dy = -search_radius; dy <= search_radius; ++dy) {
         for (int dx = -search_radius; dx <= search_radius; ++dx) {
+            // The correlation anchor must lie inside this currently observed
+            // person. An identical background patch outside the body is not
+            // evidence of this person's motion, regardless of match score.
+            const float sample_x = search_center_x + static_cast<float>(dx);
+            const float sample_y = search_center_y + static_cast<float>(dy);
+            if (sample_x < box.left || sample_x > box.right ||
+                sample_y < box.top || sample_y > box.bottom) continue;
             if (!sample_motion_patch(
                     frame,
                     search_center_x + static_cast<float>(dx),

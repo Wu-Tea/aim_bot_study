@@ -42,7 +42,8 @@ BoundaryReport boundaries(std::ostream& out) {
             const auto raw = along(sign * (k ? .24999f : .25001f), a);
             const auto intent = filter.update({}, raw, true, false, 1 + k * .004, true);
             AssistControlStateMachineInput in;
-            in.aiming = in.target_authoritative = true;
+            in.activation = pipeline_contract::AssistActivation::Engaged;
+            in.target_authoritative = true;
             in.target_id = in.selector_target_generation = 1;
             in.mode = pipeline_contract::ControlMode::BodyLockFollow;
             in.now_seconds = 1 + k * .004;
@@ -297,6 +298,10 @@ int main(int argc,char** argv) {
                     918.611084f,1,0,0,sign*39.4805908f,0,true,false};
                 auto fixture_config=config;
                 fixture_config.ai_aim.aim_response_initial_scale=control==2?spec.response:650.f;
+                fixture_config.ai_aim.body_free_initial_scale=0;
+                fixture_config.ai_aim.body_slow_initial_scale=0;
+                fixture_config.ai_aim.ads_free_initial_scale=0;
+                fixture_config.ai_aim.ads_slow_initial_scale=0;
                 if(written++) out<<',';
                 const auto m=closed_loop(spec,fixture_config,out,trace.is_open()?&trace:nullptr,quantized_receipt);
                 if(m.body<8000 || m.observer<8000)

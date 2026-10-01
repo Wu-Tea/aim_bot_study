@@ -307,6 +307,8 @@ void NativeGamepadController::reset() {
     last_ads_response_epoch_ = 0;
     last_aim_response_capture_seconds_ = 0.0;
     last_aim_response_source_error_px_ = {};
+    last_aim_response_motion_anchor_error_px_ = {};
+    has_last_aim_response_motion_anchor_ = false;
     has_last_aim_response_observation_ = false;
     sampled_physical_ = {};
     sampled_intent_ = {};
@@ -345,6 +347,8 @@ void NativeGamepadController::clear_learning() noexcept {
     last_aim_response_frame_id_ = last_aim_response_target_id_ = last_ads_response_epoch_ = 0;
     last_aim_response_capture_seconds_ = 0.0;
     last_aim_response_source_error_px_ = {};
+    last_aim_response_motion_anchor_error_px_ = {};
+    has_last_aim_response_motion_anchor_ = false;
     has_last_aim_response_observation_ = false;
     // ACKs, frame pairs and excitation anchors from the old configuration may
     // not become samples for the new one. Target and ADS state stay owned.
@@ -842,6 +846,32 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         observations.frame_id != last_aim_response_frame_id_;
     if (new_observed_frame) {
         const double capture_seconds = observations.source_time_seconds;
+        pipeline_contract::Vec2f motion_anchor_error_px{};
+        bool has_motion_anchor = false;
+        if (plan.direct_person_observation) {
+            for (std::size_t index = 0; index < observations.count; ++index) {
+                const auto& candidate = observations.candidates[index];
+                if (candidate.source_id != plan.source_observation_id) continue;
+                const auto& box = candidate.body_box_px;
+                const auto anchor = candidate.motion_anchor_px;
+                // Match the existing tracked-anchor quality boundary. A new
+                // template has score .35 and establishes position, not a
+                // correspondence with the previous feature. Require current
+                // person-box support at this measurement trust boundary.
+                has_motion_anchor = candidate.has_motion_anchor &&
+                    candidate.motion_anchor_score >= 0.45f &&
+                    candidate.has_body_box && box.w > 0 && box.h > 0 &&
+                    pipeline_contract::finite(anchor) &&
+                    anchor.x >= box.x && anchor.x <= box.x + box.w &&
+                    anchor.y >= box.y && anchor.y <= box.y + box.h;
+                if (has_motion_anchor) {
+                    motion_anchor_error_px = {
+                        anchor.x - screen_center.x,
+                        anchor.y - screen_center.y};
+                }
+                break;
+            }
+        }
         bool advance_response_anchor = true;
         const bool same_response_target =
             has_last_aim_response_observation_ &&
@@ -873,6 +903,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                 (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
                  plan.physical_ads_epoch != last_ads_response_epoch_);
             pipeline_contract::Vec2f average_stick{};
+            pipeline_contract::Vec2f average_tracking_stick{};
             bool manual_ambiguous = false;
             const bool command_window_available =
                 advance_response_anchor &&
@@ -882,20 +913,28 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                         aim_response_effect_delay_seconds_,
                     capture_seconds - aim_response_effect_delay_seconds_,
                     &average_stick,
+                    &average_tracking_stick,
                     &manual_ambiguous);
             if (command_window_available) {
-                // Use the unfiltered source-position delta here. The
-                // coordinator's BodyLock velocity deliberately limits target
-                // acceleration; feeding that limited value into plant
-                // identification aliases a fast camera into a slow one.
+                // Corresponding person pixels measure camera/target motion;
+                // a semantic box-derived aim point can shift as box geometry
+                // changes even when those pixels do not. Keep D and geometry
+                // ownership out of this derivative. Legacy observations with
+                // no supported correspondence retain their source-point
+                // measurement; never subtract one domain from the other.
+                const bool pixel_pair = has_motion_anchor &&
+                    has_last_aim_response_motion_anchor_;
+                const auto measured_position = pixel_pair
+                    ? motion_anchor_error_px : source_error_px;
+                const auto previous_position = pixel_pair
+                    ? last_aim_response_motion_anchor_error_px_
+                    : last_aim_response_source_error_px_;
                 const pipeline_contract::Vec2f observed_error_rate{
                     static_cast<float>(
-                        (source_error_px.x -
-                         last_aim_response_source_error_px_.x) /
+                        (measured_position.x - previous_position.x) /
                         interval_seconds),
                     static_cast<float>(
-                        (source_error_px.y -
-                         last_aim_response_source_error_px_.y) /
+                        (measured_position.y - previous_position.y) /
                         interval_seconds),
                 };
                 if (config_.ai_aim.aim_response_learning_enabled) {
@@ -934,7 +973,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                     capture_seconds,
                     static_cast<float>(interval_seconds),
                     observed_error_rate,
-                    average_stick,
+                    average_tracking_stick,
                     plan.response_scale,
                     plan.reliability,
                     plan.direct_person_observation,
@@ -950,6 +989,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             last_aim_response_target_id_ = plan.target_id;
             last_aim_response_capture_seconds_ = capture_seconds;
             last_aim_response_source_error_px_ = source_error_px;
+            last_aim_response_motion_anchor_error_px_ = motion_anchor_error_px;
+            has_last_aim_response_motion_anchor_ = has_motion_anchor;
             has_last_aim_response_observation_ = plan.target_id != 0 &&
                 std::isfinite(capture_seconds) &&
                 pipeline_contract::finite(source_error_px);
@@ -1417,17 +1458,29 @@ void NativeGamepadController::observe_delivered_output(
         nonfiring_pov_motion_snapshot_ = {};
         return;
     }
+    const auto delivered_stick = transfer_game_stick(
+        {output.right_x, output.right_y}, config_.output_transfer, true);
+    // Recoil feed-forward compensates an independent weapon disturbance. Its
+    // contribution must not become another sustaining target-motion command
+    // and then receive recoil again downstream. Remove it in stick space,
+    // BEFORE the nonlinear vector curve; subtracting normalized Y afterwards
+    // would also corrupt the horizontal camera-work coordinate.
+    const pipeline_contract::Vec2f tracking_delivered{
+        delivered_stick.x - last_output_components_.recoil_stick.x,
+        delivered_stick.y - last_output_components_.recoil_stick.y};
     record_aim_response_command(submitted_at_seconds,
-        forward_aim_response_curve(transfer_game_stick(
-            {output.right_x, output.right_y}, config_.output_transfer, true),
-            config_.aim_response_curve), pending_response_ambiguous_);
+        forward_aim_response_curve(delivered_stick, config_.aim_response_curve),
+        forward_aim_response_curve(tracking_delivered, config_.aim_response_curve),
+        pending_response_ambiguous_);
 }
 
 void NativeGamepadController::record_aim_response_command(
     double at_seconds,
     pipeline_contract::Vec2f stick,
+    pipeline_contract::Vec2f tracking_stick,
     bool manual_ambiguous) noexcept {
-    if (!std::isfinite(at_seconds) || !pipeline_contract::finite(stick)) {
+    if (!std::isfinite(at_seconds) || !pipeline_contract::finite(stick) ||
+        !pipeline_contract::finite(tracking_stick)) {
         return;
     }
     if (aim_response_history_count_ > 0) {
@@ -1439,7 +1492,7 @@ void NativeGamepadController::record_aim_response_command(
             if (at_seconds ==
                 aim_response_command_history_[latest_index].at_seconds) {
                 aim_response_command_history_[latest_index] = {
-                    at_seconds, stick, manual_ambiguous};
+                    at_seconds, stick, tracking_stick, manual_ambiguous};
             }
             return;
         }
@@ -1457,15 +1510,17 @@ void NativeGamepadController::record_aim_response_command(
             kAimResponseHistoryCapacity;
     }
     aim_response_command_history_[write_index] = {
-        at_seconds, stick, manual_ambiguous};
+        at_seconds, stick, tracking_stick, manual_ambiguous};
 }
 
 bool NativeGamepadController::average_aim_response_command(
     double begin_seconds,
     double end_seconds,
     pipeline_contract::Vec2f* average_stick,
+    pipeline_contract::Vec2f* average_tracking_stick,
     bool* manual_ambiguous) const noexcept {
-    if (average_stick == nullptr || manual_ambiguous == nullptr ||
+    if (average_stick == nullptr || average_tracking_stick == nullptr ||
+        manual_ambiguous == nullptr ||
         !std::isfinite(begin_seconds) || !std::isfinite(end_seconds) ||
         end_seconds <= begin_seconds || aim_response_history_count_ == 0) {
         return false;
@@ -1488,6 +1543,7 @@ bool NativeGamepadController::average_aim_response_command(
     if (active_offset == aim_response_history_count_) return false;
 
     pipeline_contract::Vec2f integral{};
+    pipeline_contract::Vec2f tracking_integral{};
     bool ambiguous = false;
     double cursor = begin_seconds;
     TimedAimResponseCommand active = aim_response_command_history_[
@@ -1504,6 +1560,8 @@ bool NativeGamepadController::average_aim_response_command(
         if (duration > 0.0) {
             integral.x += active.stick.x * static_cast<float>(duration);
             integral.y += active.stick.y * static_cast<float>(duration);
+            tracking_integral.x += active.tracking_stick.x * static_cast<float>(duration);
+            tracking_integral.y += active.tracking_stick.y * static_cast<float>(duration);
             ambiguous = ambiguous || active.manual_ambiguous;
         }
         cursor = segment_end;
@@ -1513,6 +1571,8 @@ bool NativeGamepadController::average_aim_response_command(
     if (tail_duration > 0.0) {
         integral.x += active.stick.x * static_cast<float>(tail_duration);
         integral.y += active.stick.y * static_cast<float>(tail_duration);
+        tracking_integral.x += active.tracking_stick.x * static_cast<float>(tail_duration);
+        tracking_integral.y += active.tracking_stick.y * static_cast<float>(tail_duration);
         ambiguous = ambiguous || active.manual_ambiguous;
     }
     const float inverse_duration = static_cast<float>(
@@ -1521,7 +1581,11 @@ bool NativeGamepadController::average_aim_response_command(
         integral.x * inverse_duration,
         integral.y * inverse_duration};
     *manual_ambiguous = ambiguous;
-    return pipeline_contract::finite(*average_stick);
+    *average_tracking_stick = {
+        tracking_integral.x * inverse_duration,
+        tracking_integral.y * inverse_duration};
+    return pipeline_contract::finite(*average_stick) &&
+        pipeline_contract::finite(*average_tracking_stick);
 }
 
 bool NativeGamepadController::manual_fire_pressed(

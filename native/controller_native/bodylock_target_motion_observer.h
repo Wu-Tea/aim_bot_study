@@ -28,7 +28,9 @@ struct BodylockTargetMotionObservation {
     double capture_seconds = 0.0;
     float interval_seconds = 0.0f;
     pipeline_contract::Vec2f observed_screen_rate_px_per_sec{};
-    // Normalized camera-response command, not raw post-curve virtual stick.
+    // Normalized tracking camera-response command, excluding the independent
+    // recoil feed-forward contribution before curve mapping. Including recoil
+    // would recursively train the compensator into sustaining target motion.
     pipeline_contract::Vec2f average_delivered_stick{};
     float response_px_per_stick_second = 500.0f;
     float reliability = 0.0f;
