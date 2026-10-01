@@ -1,6 +1,7 @@
 #pragma once
 
 #include "xinput_reader.h"
+#include "touchpad_regions.h"
 #include <cmath>
 
 namespace controller_native {
@@ -25,7 +26,8 @@ public:
         bool inside = false;
         for (const auto& finger : physical.touchpad_fingers) {
             inside |= finger.active && std::isfinite(finger.x) && std::isfinite(finger.y) &&
-                finger.x >= .75f && finger.x <= 1 && finger.y > .5f && finger.y <= 1;
+                finger.x >= .75f && finger.x <= 1 &&
+                finger.y > kTouchpadMacroSplitY && finger.y <= 1;
         }
         const bool entered = inside && !was_inside_;
         was_inside_ = inside;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "xinput_reader.h"
+#include "touchpad_regions.h"
 
 #include <cmath>
 
@@ -27,7 +28,7 @@ public:
                 result.requested |= finger.active &&
                     std::isfinite(finger.x) && std::isfinite(finger.y) &&
                     finger.x >= 0.75f && finger.x <= 1.0f &&
-                    finger.y >= 0.0f && finger.y <= 0.5f;
+                    finger.y >= 0.0f && finger.y <= kTouchpadMacroSplitY;
             }
         }
         if (!result.requested) {

@@ -31,10 +31,10 @@ void region_and_release() {
     require(!fire.update(input, 1.101, 30, 100).requested, "lifting cancels an in-flight pulse");
     input.touchpad = true;
     require(!fire.update(input, 1.102, 30, 100).requested, "click is not contact");
-    input.touchpad_fingers[1] = {true, .75f, .5f};
+    input.touchpad_fingers[1] = {true, .75f, .75f};
     require(fire.update(input, 1.103, 30, 100).pressed, "either finger and exact region boundary work");
     for (const auto position : {TouchpadFingerState{true,.749f,.1f},
-            {true,.9f,.501f}, {true,1.1f,.1f}, {true,.9f,-.1f},
+            {true,.9f,.751f}, {true,1.1f,.1f}, {true,.9f,-.1f},
             {true,std::numeric_limits<float>::quiet_NaN(),.1f}}) {
         input.touchpad_fingers[1] = position;
         require(!fire.update(input, 1.104, 30, 100).requested,
@@ -80,6 +80,7 @@ void sdl_contact_lifecycle() {
 
 void native_hold_fire_without_recoil() {
     for (const auto output_button : {"RB", "RT"}) {
+      for (float contact_y : {.1f, .7f}) {
         GamepadRuntimeConfig config;
         config.auto_fire.enabled = false; // Human touch does not require Vision AutoFire.
         config.auto_fire.fire_output = output_button;
@@ -87,6 +88,7 @@ void native_hold_fire_without_recoil() {
         double now = 10;
         NativeGamepadController controller(config, &now);
         auto input = touching();
+        input.touchpad_fingers[0].y = contact_y;
         input.left_x = .21f; input.right_x = .013f; input.right_y = -.023f;
         input.a = input.touchpad = true;
         int rising_edges = 0;
@@ -131,6 +133,7 @@ void native_hold_fire_without_recoil() {
         input.connected = true;
         const auto ignored = mouse.build_output(input);
         require(!ignored.rb && ignored.right_trigger == 0, "mouse adapter does not consume gamepad touches");
+      }
     }
 }
 
@@ -215,14 +218,14 @@ void touch_regions_and_triangle_lifecycle() {
     TouchpadFire fire;
     TouchpadTriangle triangle;
     auto input = touching();
-    for (float y : {.25f, .49f, .5f}) {
+    for (float y : {0.f, .25f, .49f, .5f, .501f, .7f, .749f, .75f}) {
         input.touchpad_fingers[0].y = y;
         require(fire.update(input, 1, 30, 100).requested && !triangle.update(input, 1),
-                "expanded upper half including center line belongs only to fire");
+                "top 75 percent including split line belongs only to fire");
     }
-    input.touchpad_fingers[0].y = .501f;
+    input.touchpad_fingers[0].y = .751f;
     require(!fire.update(input, 1, 30, 100).requested && triangle.update(input, 1),
-            "lower half belongs only to triangle");
+            "bottom 25 percent belongs only to triangle");
     input.touchpad_fingers[1] = input.touchpad_fingers[0];
     require(!triangle.update(input, 1.020), "second finger must not restart first press");
     input.touchpad_fingers[0].active = false;
@@ -246,6 +249,22 @@ void touch_regions_and_triangle_lifecycle() {
     require(!triangle.update(input, 3.122), "lower width remains rightmost 25 percent");
     input.touchpad_fingers[0] = {true,.9f,std::numeric_limits<float>::quiet_NaN()};
     require(!triangle.update(input, 3.123), "invalid lower coordinate cannot start gesture");
+
+    // Literal expected boundaries are independent of the shared production constant.
+    // Sweep both axes, including out-of-range contacts; restart gesture state each time.
+    for (int xi = -1; xi <= 41; ++xi) {
+        for (int yi = -1; yi <= 41; ++yi) {
+            const float x = xi / 40.f, y = yi / 40.f;
+            fire.reset(); triangle.reset();
+            input.touchpad_fingers = {};
+            input.touchpad_fingers[0] = {true, x, y};
+            const bool valid = x >= .75f && x <= 1 && y >= 0 && y <= 1;
+            require(fire.update(input, 4, 30, 100).requested == (valid && y <= .75f),
+                    "grid contacts must match the top 75 percent fire region");
+            require(triangle.update(input, 4) == (valid && y > .75f),
+                    "grid contacts must match the remaining triangle region");
+        }
+    }
 }
 
 void auxiliary_triangle_output_contract() {
