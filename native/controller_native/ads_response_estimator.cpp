@@ -27,8 +27,7 @@ pipeline_contract::Vec2f control_coordinates(
 
 AdsResponseEstimator::AdsResponseEstimator(AimResponseEstimatorConfig config)
     : config_(config) {
-    free_region_.learned_scale = config.fallback_scale;
-    slow_region_.learned_scale = config.fallback_scale;
+    reset();
 }
 
 bool AdsResponseEstimator::eligible(
@@ -176,8 +175,10 @@ AimResponseEstimate AdsResponseEstimator::estimate(
         (free_region_.learned_scale - config_.fallback_scale);
     const float slow_confidence = std::clamp(
         slow_region_.confidence, 0.0f, 1.0f);
-    const float slow_scale = free_scale + slow_confidence *
-        (slow_region_.learned_scale - free_scale);
+    const float slow_prior = config_.slow_fallback_scale > 0.0f
+        ? config_.slow_fallback_scale : free_scale;
+    const float slow_scale = slow_prior + slow_confidence *
+        (slow_region_.learned_scale - slow_prior);
     const float weight = std::clamp(slow_zone_weight, 0.0f, 1.0f);
     const float confidence = free_confidence + weight *
         (std::max(free_confidence, slow_confidence) - free_confidence);
@@ -198,7 +199,8 @@ void AdsResponseEstimator::reset() noexcept {
     free_region_ = {};
     slow_region_ = {};
     free_region_.learned_scale = config_.fallback_scale;
-    slow_region_.learned_scale = config_.fallback_scale;
+    slow_region_.learned_scale = config_.slow_fallback_scale > 0.0f
+        ? config_.slow_fallback_scale : config_.fallback_scale;
     target_id_ = 0;
     previous_region_was_slow_ = false;
     has_previous_region_ = false;

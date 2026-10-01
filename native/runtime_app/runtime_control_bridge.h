@@ -18,6 +18,9 @@ inline std::string hot_reload_restrictions(const controller_native::RuntimeConfi
     static const std::set<std::string> allowed{
         "gamepad.ads.strength_scale", "gamepad.ads.vertical_strength_scale",
         "gamepad.bodylock.strength", "gamepad.bodylock.vertical_strength",
+        "gamepad.ai_aim.aim_response_initial_scale",
+        "gamepad.ai_aim.body_free_initial_scale", "gamepad.ai_aim.body_slow_initial_scale",
+        "gamepad.ai_aim.ads_free_initial_scale", "gamepad.ai_aim.ads_slow_initial_scale",
         "gamepad.recoil.enabled", "gamepad.recoil.feedback_amount", "gamepad.recoil.hipfire_multiplier",
         "gamepad.auto_fire.fire_output", "gamepad.auto_fire.manual_fire_input",
         "gamepad.auto_fire.manual_fire_activates_ai_aim",

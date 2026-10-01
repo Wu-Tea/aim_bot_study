@@ -256,9 +256,68 @@ void test_reset_clears_learned_response() {
             "reset clears confidence");
 }
 
+template <typename Estimator>
+void check_independent_region_priors() {
+    // Fixed independent seeds, bounds, short/long sample counts and oracles.
+    // This checks estimator policy, not a calibrated live-game plant.
+    for (std::uint32_t seed : {20260930u, 7311985u}) {
+        auto random = [&]() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+            return static_cast<float>(seed % 100000u) / 100000.0f; };
+        for (int scenario=0; scenario<256; ++scenario) {
+            AimResponseEstimatorConfig config;
+            config.fallback_scale = 80.0f + 3920.0f*random();
+            config.slow_fallback_scale = 80.0f + 3920.0f*random();
+            const float free_plant = 100.0f + 3800.0f*random();
+            const float slow_plant = 100.0f + 3800.0f*random();
+            const int samples = scenario % 2 ? 160 : 8;
+            Estimator estimator(config);
+            require_near(estimator.estimate(1).scale_px_per_stick_second,
+                config.slow_fallback_scale, .001f, "cold slow region uses its own prior");
+            require(estimator.estimate(.5f).confidence==0 && estimator.estimate().accepted_samples==0,
+                "configured endpoints carry no learned evidence");
+            train_zone(estimator, free_plant, 0, samples);
+            require(estimator.learning_region(false).accepted_samples>0,
+                "randomized free scenario must execute learning");
+            require_near(estimator.estimate(1).scale_px_per_stick_second,
+                config.slow_fallback_scale, .001f, "free learning cannot overwrite an explicit slow prior");
+            train_zone(estimator, slow_plant, 1, samples);
+            const auto free = estimator.learning_region(false), slow = estimator.learning_region(true);
+            require(slow.accepted_samples>0, "randomized slow scenario must execute learning");
+            const float expected_free = config.fallback_scale + free.confidence*(free.learned_scale-config.fallback_scale);
+            const float expected_slow = config.slow_fallback_scale + slow.confidence*(slow.learned_scale-config.slow_fallback_scale);
+            for (int index=0; index<=16; ++index) {
+                const float weight = index/16.0f;
+                require_near(estimator.estimate(weight).scale_px_per_stick_second,
+                    expected_free+weight*(expected_slow-expected_free), .001f,
+                    "spatial blend must preserve independent endpoint semantics");
+            }
+            if (samples==160) {
+                require_near(expected_free, free_plant, 30, "long free scenario must converge");
+                require_near(expected_slow, slow_plant, 30, "long slow scenario must converge");
+            }
+            estimator.begin_target(99);
+            require_near(estimator.estimate(1).scale_px_per_stick_second, expected_slow, .001f,
+                "target handover preserves learned regional response");
+            estimator.reset();
+            require_near(estimator.estimate().scale_px_per_stick_second, config.fallback_scale, .001f,
+                "reset restores free prior");
+            require_near(estimator.estimate(1).scale_px_per_stick_second, config.slow_fallback_scale, .001f,
+                "reset restores slow prior");
+            require(estimator.estimate(1).accepted_samples==0 && estimator.estimate(1).confidence==0,
+                "reset must clear new evidence");
+        }
+    }
+}
+
+void test_independent_region_priors() {
+    check_independent_region_priors<AimResponseEstimator>();
+    check_independent_region_priors<AdsResponseEstimator>();
+}
+
 }  // namespace
 
 void register_aim_response_estimator_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "independent_region_priors_randomized", test_independent_region_priors);
     registry.add_case("BaseBodyLock", "configured_prior_retains_learning", test_configured_prior_retains_learning);
     registry.add_case("BaseBodyLock", "response_fallback_and_convergence", test_fallback_and_convergence_across_response_scales);
     registry.add_case("BaseBodyLock", "response_persists_and_adapts_to_slowdown", test_persists_across_targets_and_adapts_to_slowdown);

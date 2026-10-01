@@ -10,6 +10,10 @@ GAME_FIELDS = [
     ('gamepad.ads.strength_scale', 'ADS 水平力度', float, 1.0, (0, 3)),
     ('gamepad.ads.vertical_strength_scale', 'ADS 垂直力度', float, 1.0, (0, 3)),
     ('gamepad.bodylock.strength', '持续跟随力度', float, 1.0, (0, 3)),
+    ('gamepad.ai_aim.body_free_initial_scale', '跟随普通区响应初值（0=继承）', float, 0.0, (0, 4000)),
+    ('gamepad.ai_aim.body_slow_initial_scale', '跟随减速区响应初值（0=继承）', float, 0.0, (0, 4000)),
+    ('gamepad.ai_aim.ads_free_initial_scale', 'ADS 普通区响应初值（0=继承）', float, 0.0, (0, 4000)),
+    ('gamepad.ai_aim.ads_slow_initial_scale', 'ADS 减速区响应初值（0=继承）', float, 0.0, (0, 4000)),
     ('gamepad.recoil.enabled', '固定力度压枪', bool, True, None),
     ('gamepad.recoil.feedback_amount', 'ADS 压枪力度', float, .2, (0, 1)),
     ('gamepad.recoil.hipfire_multiplier', '腰射压枪倍率', float, 1.0, (0, 1)),
@@ -45,6 +49,8 @@ def field_value(field, raw):
         raise ValueError(f'“{label}”应在 {limits[0]}～{limits[1]} 之间。')
     if kind is str and limits and value not in limits:
         raise ValueError(f'“{label}”的选项无效。')
+    if field[0].endswith('_initial_scale') and value != 0 and value < 80:
+        raise ValueError(f'“{label}”应为 0（继承）或 80～4000。')
     return value
 
 

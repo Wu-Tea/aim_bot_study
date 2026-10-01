@@ -31,8 +31,7 @@ float smoothstep(float value) noexcept {
 
 AimResponseEstimator::AimResponseEstimator(AimResponseEstimatorConfig config)
     : config_(config) {
-    free_region_.learned_scale = config.fallback_scale;
-    slow_region_.learned_scale = config.fallback_scale;
+    reset();
 }
 
 float aim_response_slow_zone_weight(
@@ -150,10 +149,12 @@ AimResponseEstimate AimResponseEstimator::estimate(float slow_zone_weight) const
         (free_region_.learned_scale - config_.fallback_scale);
     const float slow_confidence = std::clamp(
         slow_region_.confidence, 0.0f, 1.0f);
-    // Until a slowdown-region response has been measured, inherit the learned
-    // free-space response. No game-specific attenuation is assumed.
-    const float slow_scale = free_scale + slow_confidence *
-        (slow_region_.learned_scale - free_scale);
+    // A supplied local prior is independent of free-region learning. Without
+    // one, preserve the established free-region inheritance policy.
+    const float slow_prior = config_.slow_fallback_scale > 0.0f
+        ? config_.slow_fallback_scale : free_scale;
+    const float slow_scale = slow_prior + slow_confidence *
+        (slow_region_.learned_scale - slow_prior);
     const float weight = std::clamp(slow_zone_weight, 0.0f, 1.0f);
     const float confidence = free_confidence + weight *
         (std::max(free_confidence, slow_confidence) - free_confidence);
@@ -174,7 +175,8 @@ void AimResponseEstimator::reset() noexcept {
     free_region_ = {};
     slow_region_ = {};
     free_region_.learned_scale = config_.fallback_scale;
-    slow_region_.learned_scale = config_.fallback_scale;
+    slow_region_.learned_scale = config_.slow_fallback_scale > 0.0f
+        ? config_.slow_fallback_scale : config_.fallback_scale;
     target_id_ = 0;
     previous_region_was_slow_ = false;
     has_previous_region_ = false;

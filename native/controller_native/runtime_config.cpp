@@ -232,6 +232,8 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "body_lock_max_ai_force", "body_lock_max_ai_force_y",
         "body_lock_box_tolerance_px", "body_lock_activation_box_px",
         "aim_response_effect_delay_ms", "aim_response_initial_scale",
+        "body_free_initial_scale", "body_slow_initial_scale",
+        "ads_free_initial_scale", "ads_slow_initial_scale",
         "desired_point_traversal_ms", "desired_point_boundary_exit_ms",
         "visual_authority_enabled"};
     if (section == "runtime") return runtime_keys.count(key) != 0;
@@ -416,6 +418,16 @@ void apply_gamepad_ai_aim_value(
     } else if (key == "aim_response_initial_scale") {
         config.aim_response_initial_scale = parse_float_value(
             value, config.aim_response_initial_scale);
+    } else if (key == "body_free_initial_scale" || key == "body_slow_initial_scale" ||
+               key == "ads_free_initial_scale" || key == "ads_slow_initial_scale") {
+        std::size_t used = 0;
+        const auto text = trim(value);
+        const float scale = std::stof(text, &used);
+        if (used != text.size()) throw std::runtime_error("invalid response prior: " + key);
+        if (key == "body_free_initial_scale") config.body_free_initial_scale = scale;
+        else if (key == "body_slow_initial_scale") config.body_slow_initial_scale = scale;
+        else if (key == "ads_free_initial_scale") config.ads_free_initial_scale = scale;
+        else config.ads_slow_initial_scale = scale;
     } else if (key == "desired_point_traversal_ms") {
         config.desired_point_traversal_ms =
             parse_float_value(value, config.desired_point_traversal_ms);
@@ -753,6 +765,15 @@ void validate_runtime_config(RuntimeConfig& config) {
     if (!std::isfinite(initial_response) ||
         (initial_response != 0.0f && (initial_response < 80.0f || initial_response > 4000.0f)))
         invalid("gamepad.ai_aim.aim_response_initial_scale", "0 inherits calibration; otherwise 80..4000");
+    for (const auto& prior : {
+            std::make_pair("body_free_initial_scale", config.gamepad.ai_aim.body_free_initial_scale),
+            std::make_pair("body_slow_initial_scale", config.gamepad.ai_aim.body_slow_initial_scale),
+            std::make_pair("ads_free_initial_scale", config.gamepad.ai_aim.ads_free_initial_scale),
+            std::make_pair("ads_slow_initial_scale", config.gamepad.ai_aim.ads_slow_initial_scale)}) {
+        if (!std::isfinite(prior.second) ||
+            (prior.second != 0.0f && (prior.second < 80.0f || prior.second > 4000.0f)))
+            invalid(std::string("gamepad.ai_aim.") + prior.first, "0 inherits legacy policy; otherwise 80..4000");
+    }
     if (!std::isfinite(config.mouse.speed) || config.mouse.speed < 0.5f || config.mouse.speed > 3.0f)
         invalid("mouse.speed", "0.5..3");
     if (!std::isfinite(config.mouse.breakaway) || config.mouse.breakaway < 1.0f ||

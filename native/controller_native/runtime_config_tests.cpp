@@ -369,6 +369,26 @@ void test_response_prior_config_boundaries() {
     }
 }
 
+void test_region_prior_config_boundaries() {
+    for (const char* key : {"body_free_initial_scale", "body_slow_initial_scale",
+                            "ads_free_initial_scale", "ads_slow_initial_scale"}) {
+        for (const char* value : {"0", "80", "1363.69", "4000"}) {
+            TempConfig file("cod_region_prior_valid.toml", std::string("[gamepad.ai_aim]\n")+key+"="+value+"\n");
+            const auto config = controller_native::load_runtime_config(file.path());
+            require(config.diagnostics.empty(), "region priors must parse without unknown-key diagnostics");
+            TempConfig empty("cod_region_prior_empty.toml", "[gamepad.ai_aim]\n");
+            require(runtime_app::hot_reload_restrictions(controller_native::load_runtime_config(empty.path()), config).empty(),
+                "region priors must be eligible for hot reload");
+        }
+        for (const char* value : {"-1", "79", "4001", "nan", "inf", "wrong", "123junk", "\"900\""}) {
+            TempConfig file("cod_region_prior_invalid.toml", std::string("[gamepad.ai_aim]\n")+key+"="+value+"\n");
+            bool rejected = false;
+            try { (void)controller_native::load_runtime_config(file.path()); } catch (const std::exception&) { rejected = true; }
+            require(rejected, "invalid regional prior must fail at the config boundary");
+        }
+    }
+}
+
 void test_invalid_safety_boundary_fails_closed() {
     TempConfig file(
         "cod_native_invalid_fire_pulse.toml",
@@ -554,6 +574,7 @@ void test_hot_reload_diff_and_control_channel() {
 }
 
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "region_prior_config_boundaries", test_region_prior_config_boundaries);
     registry.add_case("BaseContracts", "hot_reload_diff_control_channel", test_hot_reload_diff_and_control_channel);
     registry.add_case("BaseContracts", "external_stop_signal_listener_lifetime", test_external_stop_signal_obeys_listener_lifetime);
     registry.add_case("BaseContracts", "game_blocks_resolve_before_deriving_gains", test_game_blocks_resolve_before_deriving_gains);

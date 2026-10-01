@@ -33,6 +33,24 @@ deadzone = 0.20
 
 
 class DesktopConfigTests(unittest.TestCase):
+    def test_region_prior_ranges_and_game_isolation(self):
+        keys = ('body_free_initial_scale', 'body_slow_initial_scale',
+                'ads_free_initial_scale', 'ads_slow_initial_scale')
+        for key in keys:
+            for value in (0, 80, 1363.69, 4000):
+                validate_fields({'gamepad': {'ai_aim': {key: value}}}, ['default'])
+            for value in (-1, 79, 4001, float('nan'), float('inf'), '900'):
+                with self.assertRaises(ValueError):
+                    validate_fields({'gamepad': {'ai_aim': {key: value}}}, ['default'])
+        expected = (1363.69, 1008.82, 1656.79, 1397.20)
+        updates = {f'gamepad.ai_aim.{key}': value for key, value in zip(keys, expected)}
+        updates.update({f'games.{game}.gamepad.ai_aim.{key}': 0
+                        for game in ('apex', 'bo3') for key in keys})
+        document = tomllib.loads(update_text(CONFIG, updates))
+        self.assertEqual(tuple(effective(document, 'default')['gamepad']['ai_aim'][key] for key in keys), expected)
+        for game in ('apex', 'bo3'):
+            self.assertEqual(tuple(effective(document, game)['gamepad']['ai_aim'][key] for key in keys), (0, 0, 0, 0))
+
     def test_runtime_stop_does_not_stop_fusion(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = RuntimeManager(directory)

@@ -36,6 +36,9 @@ float aim_response_slow_zone_weight(
 
 struct AimResponseEstimatorConfig {
     float fallback_scale = 500.0f;
+    // Zero inherits the effective free region. A positive value is an
+    // independent slowdown prior, blended with new local learning evidence.
+    float slow_fallback_scale = 0.0f;
     float minimum_scale = 80.0f;
     // High-sensitivity games measured in pixels at the capture resolution can
     // legitimately exceed 2,000 px/(stick*s). The prior 1,200 ceiling made

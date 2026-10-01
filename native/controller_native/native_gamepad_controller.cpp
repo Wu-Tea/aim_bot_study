@@ -176,6 +176,11 @@ float initial_response_scale(const GamepadRuntimeConfig& config) {
 AimResponseEstimatorConfig response_estimator_config(const GamepadRuntimeConfig& config) {
     AimResponseEstimatorConfig result{};
     result.fallback_scale = initial_response_scale(config);
+    if (!config.ai_aim.adapter_direct_mouse_manual) {
+        if (config.ai_aim.body_free_initial_scale > 0.0f)
+            result.fallback_scale = config.ai_aim.body_free_initial_scale;
+        result.slow_fallback_scale = config.ai_aim.body_slow_initial_scale;
+    }
     return result;
 }
 
@@ -193,6 +198,11 @@ AimDynamicsShaperConfig dynamics_config(const GamepadRuntimeConfig& config) {
 AimResponseEstimatorConfig ads_response_estimator_config(const GamepadRuntimeConfig& config) {
     AimResponseEstimatorConfig result{};
     result.fallback_scale = initial_response_scale(config);
+    if (!config.ai_aim.adapter_direct_mouse_manual) {
+        if (config.ai_aim.ads_free_initial_scale > 0.0f)
+            result.fallback_scale = config.ai_aim.ads_free_initial_scale;
+        result.slow_fallback_scale = config.ai_aim.ads_slow_initial_scale;
+    }
     // ADS needs accumulated evidence, but should approach a measured
     // slowdown conservatively before it is allowed to replace the established
     // response estimate used by the rest of the controller.
@@ -341,6 +351,13 @@ void NativeGamepadController::clear_learning() noexcept {
 }
 
 void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& config) {
+    config_.ai_aim.aim_response_initial_scale = config.ai_aim.aim_response_initial_scale;
+    config_.ai_aim.body_free_initial_scale = config.ai_aim.body_free_initial_scale;
+    config_.ai_aim.body_slow_initial_scale = config.ai_aim.body_slow_initial_scale;
+    config_.ai_aim.ads_free_initial_scale = config.ai_aim.ads_free_initial_scale;
+    config_.ai_aim.ads_slow_initial_scale = config.ai_aim.ads_slow_initial_scale;
+    aim_response_estimator_ = AimResponseEstimator(response_estimator_config(config_));
+    ads_response_estimator_ = AdsResponseEstimator(ads_response_estimator_config(config_));
     config_.ai_aim.ads_snap_max_ai_force = config.ai_aim.ads_snap_max_ai_force;
     config_.ai_aim.ads_snap_max_ai_force_y = config.ai_aim.ads_snap_max_ai_force_y;
     config_.ai_aim.body_lock_max_ai_force = config.ai_aim.body_lock_max_ai_force;
@@ -725,10 +742,14 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             // evidence rather than one apparent slowdown transition.
             constexpr std::uint32_t kMinimumAdsResponseSamples = 8;
             constexpr float kMinimumAdsResponseConfidence = 0.35f;
-            if (ads_response.accepted_samples >=
+            // Explicit ADS priors select the ADS model from startup; the
+            // confidence still represents only this run's measured evidence.
+            const bool configured_ads_prior = !config_.ai_aim.adapter_direct_mouse_manual &&
+                (config_.ai_aim.ads_free_initial_scale > 0.0f || config_.ai_aim.ads_slow_initial_scale > 0.0f);
+            if (configured_ads_prior || (ads_response.accepted_samples >=
                     kMinimumAdsResponseSamples &&
                 ads_response.confidence >=
-                    kMinimumAdsResponseConfidence) {
+                    kMinimumAdsResponseConfidence)) {
                 plan.response_scale = std::max(
                     50.0f, ads_response.scale_px_per_stick_second);
                 plan.response_confidence = ads_response.confidence;

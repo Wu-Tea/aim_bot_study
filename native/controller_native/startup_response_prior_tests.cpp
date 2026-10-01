@@ -69,6 +69,76 @@ void cold_prior(const native_test::TestContext& context) {
             "untrained prior must not be replaced by a stronger fallback command");
 }
 
+void four_region_snapshot_priors() {
+    const auto path = std::filesystem::temp_directory_path()/"cod_four_region_priors.toml";
+    { std::ofstream file(path); file << "[gamepad.ai_aim]\naim_response_initial_scale=650\n"
+        "body_free_initial_scale=1363.69\nbody_slow_initial_scale=1008.82\n"
+        "ads_free_initial_scale=1656.79\nads_slow_initial_scale=1397.20\n"; }
+    const auto loaded = load_runtime_config(path);
+    std::filesystem::remove(path);
+    require(loaded.diagnostics.empty(), "four region priors must be recognized configuration");
+    const float expected[] = {1363.69f, 1008.82f, 1656.79f, 1397.20f};
+    auto check = [&](const NativeGamepadController& controller) {
+        const auto snapshot = controller.learning_snapshot();
+        for (int index=0; index<4; ++index) {
+            require(std::fabs(snapshot[index].scale_px_per_stick_second-expected[index])<.01f,
+                "cold or cleared runtime must use each configured region prior");
+            require(snapshot[index].confidence==0 && snapshot[index].accepted_samples==0,
+                "imported priors must not invent sample evidence");
+        }
+    };
+    NativeGamepadController controller(loaded.gamepad);
+    check(controller);
+    controller.clear_learning(); check(controller);
+    controller.reset(); check(controller);
+    auto active = loaded.gamepad;
+    active.recoil.enabled = false;
+    double now = 10;
+    NativeGamepadController ads(active, &now);
+    incident_fixture::TargetSpec spec;
+    spec.observation_id = spec.selector_generation = 1;
+    spec.has_enemy_cue = spec.enemy_identity_confirmed = true;
+    for (unsigned frame=1; frame<=2; ++frame) {
+        ads.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, frame, now, 80, 0));
+        ads.build_output(incident_fixture::ads_input()); now += .005;
+    }
+    const auto& plan = ads.last_target_plan();
+    require(plan.mode==pipeline_contract::ControlMode::AdsAcquire, "prior fixture must exercise active ADS");
+    const float weight = aim_response_slow_zone_weight(plan.error_px, plan.ads_target_size_px);
+    require(std::fabs(plan.response_scale-(expected[2]+weight*(expected[3]-expected[2])))<.01f &&
+        plan.response_confidence==0, "ADS control must consume its own cold priors without inventing confidence");
+    const auto target_id = plan.target_id;
+    require(target_id!=0, "active prior fixture must own a real target");
+    active.ai_aim.ads_free_initial_scale = 1500;
+    active.ai_aim.ads_slow_initial_scale = 1100;
+    ads.apply_hot_config(active);
+    ads.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, 3, now, 80, 0));
+    ads.build_output(incident_fixture::ads_input());
+    const auto& reloaded = ads.last_target_plan();
+    const float reloaded_weight = aim_response_slow_zone_weight(reloaded.error_px, reloaded.ads_target_size_px);
+    require(reloaded.target_id==target_id && reloaded.mode==pipeline_contract::ControlMode::AdsAcquire,
+        "changing priors must preserve active target and ADS lifecycle ownership");
+    require(std::fabs(reloaded.response_scale-(1500+reloaded_weight*(1100-1500)))<.01f,
+        "hot prior must reach the active plan on the next tick");
+    auto released_input = incident_fixture::ads_input(.21f,-.13f);
+    released_input.left_trigger = 0;
+    const auto released = ads.build_output(released_input);
+    require(released.right_x==released_input.right_x && released.right_y==released_input.right_y,
+        "regional prior changes must preserve raw manual authority on release");
+    auto changed = loaded.gamepad;
+    changed.ai_aim = GamepadAiAimConfig{};
+    controller.apply_hot_config(changed);
+    for (const auto& region : controller.learning_snapshot())
+        require(region.scale_px_per_stick_second==500 && region.confidence==0 && region.accepted_samples==0,
+            "hot reload must replace priors and clear old evidence");
+    controller.apply_hot_config(loaded.gamepad); check(controller);
+    changed = loaded.gamepad;
+    changed.ai_aim.adapter_direct_mouse_manual = true;
+    NativeGamepadController mouse(changed);
+    for (const auto& region : mouse.learning_snapshot())
+        require(region.scale_px_per_stick_second==500, "gamepad region priors must not change mouse calibration");
+}
+
 void native_prior() {
     const auto path=std::filesystem::temp_directory_path()/"cod_startup_prior_test.toml";
     { std::ofstream file(path); file << "[gamepad.ai_aim]\naim_response_initial_scale = 650\n"; }
@@ -295,9 +365,11 @@ void high_rate_source_keeps_response_learning(const native_test::TestContext& co
     report << "]}"; report.close();
     require(all_valid,"high-rate learning must converge without bypassing disabled/fire ambiguity controls");
 }
+
 }
 
 void register_startup_response_prior_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock","four_region_snapshot_priors",four_region_snapshot_priors);
     registry.add_context_case("BaseBodyLock","high_rate_camera_observation",high_rate_source_keeps_camera_observation);
     registry.add_context_case("BaseBodyLock","high_rate_response_learning",high_rate_source_keeps_response_learning);
     registry.add_case("BaseBodyLock","unpublished_commands_cannot_train_motion",undelivered_commands_cannot_train_motion);
