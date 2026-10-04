@@ -1,12 +1,12 @@
 # Agent Handoff
 
 Last updated: 2026-10-04
-Active scope: completed isolated C++ runtime refactor; use the current project model for continuation.
+Active scope: test cleanup complete; user now authorizes removal of all Python participation and migration of useful capabilities to C++.
 
 ## Current State
 
 - User authorized one-pass work in a new worktree without repeated coordination. `codex/cognition-refactor-20261004` inherits current source/doc changes at `1251273`; original workspace is untouched. The subsequent scoped refactor commit is the review unit.
-- Default product path is C++. Python GUI/config/process control and native bridges remain dependencies; explicit Python gameplay fallback is retained. Default C++ does not authorize removal of all Python.
+- Latest user authorization supersedes the earlier Python-retention boundary: remove Python runtime/build/tool paths and dependencies; migrate useful capabilities to C++. Current Python GUI still exists until its native replacement is ready.
 - SHA256 validation/provenance and benchmark acceptance/comparison/release tooling are retired. Keep ordinary functional tests and numerical simulations; do not restore historical manifests or gate requirements from older context.
 - Long-term model and source links: [Current State](../docs/project/CURRENT_STATE.md). It covers capabilities, owners, initialization, operation, configuration commit and shutdown; implementation remains the source of truth.
 - Shared Engine Adapter, reload policy and Bridge RAII from the inherited first batch are retained. Current work separates Loop diagnostics, moves IPC implementation out of its header, consolidates telemetry payloads and Fusion conversion, and removes redundant derived state. No controller algorithm change.
@@ -24,8 +24,10 @@ Active scope: completed isolated C++ runtime refactor; use the current project m
 - Keep raw zero-deadzone manual passthrough, continuous 15–30% authority, target acquisition/identity/handover, same-tick controller chain and resource/button release.
 - VisionService request/policy fences and DeliveryGate source identity/age protect different invariants. Keep boundary checks unless their ownership and redundancy are proved.
 - Diagnostics consume actual receipts; output-disabled records are not proof of delivery. Add scalar fields to the existing payload and producer/serializer/reader, not another parallel DTO.
-- No automatic merge into the original workspace, no Python/UI/training feature retirement, no algorithm optimization and no extra governance/service framework are part of this change.
+- No automatic merge into the original workspace or control algorithm optimization. Python retirement is now authorized; preserve native control/lifecycle contracts and prepare useful GUI/config/process capabilities in C++ before removing their old implementation.
 
 ## Context Review
 
 SyncSet: replace this outdated active handoff and append one milestone to session-log, within this isolated worktree only. Reviewer disposition: accept_draft (self-review): authorization is the user's one-pass completion request; current facts, historic decisions and unverified device behavior are distinguished; no secrets, raw captures, logs or project data are written into project-cognition. No existing decision is rewritten.
+
+- Test cleanup: 117 obsolete test/fixture files removed, current product assertions migrated into base tests, 13 source-shape cases removed; default pytest 123 pass, remaining full collection 258, native CTest 50 groups pass. Actual benchmark helper imports remain valid until Python tools are retired. Latest scope is Python removal, currently in progress.

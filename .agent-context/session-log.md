@@ -119,3 +119,11 @@ and machine-local runtime assets out of project context.
 - Fresh Release full build, CTest 50/50 groups and affected Python tests 134/134 pass. Actual output-disabled TensorRT runtime completes control-value and vision-policy reloads via Python IPC/Loop and named-event stop, with current telemetry serialized. Device receiver, gameplay, Fusion window and independent review remain unverified.
 - Scope/details/source/verification: `docs/project/CURRENT_STATE.md`. Old SHA256 validation and benchmark acceptance framework remain retired; retained simulation tests do not constitute a release verdict.
 - SyncSet reviewer: accept_draft (self-review); user's current one-pass authorization covers this worktree handoff/milestone update. No decision rewrite, raw telemetry, personal captures or secrets included. No subagents or cross-chat confirmation claimed.
+
+
+## 2026-10-04 — Test cleanup and C++-only authorization
+
+- User authorized deletion/consolidation of old tests, emphasizing pre-August scenarios. Removed 74 Python test modules, 29 native historical incident drivers and 14 test-only fixtures; removed 13 source-shape assertions and migrated current product authority/manual-correction assertions into native base contracts.
+- Release all-target build and CTest 50/50 groups pass. Remaining Python full collection was 270 pass/1 skip before removing 13 static assertions; affected startup 18 pass and final default basic set 123 pass, full collection now 258. Old detailed fallback/research/incident coverage is intentionally retired, not equivalent coverage.
+- Latest user explicitly authorizes eliminating Python runtime/build/tool participation and dependencies, with useful capabilities implemented in C++. This supersedes earlier retention boundaries. Migration is in progress; GUI/config/start-stop/hot-reload/learning display are selected useful capabilities.
+- SyncSet self-review accept_draft under continuing one-pass authorization: current scope and completed checks only; no secrets/raw logs/decision rewrites. Original workspace remains untouched.

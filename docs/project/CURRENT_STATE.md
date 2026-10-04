@@ -170,3 +170,21 @@ VisionDeliveryGate → adapt_vision_result → controller vision snapshot
 **保留限制。** 未测真实手柄/鼠标接收端、Fusion 真实窗口排除捕获、实时游戏表现、训练效果、独立协调复核或冷启动阅读效率。无 matched live A/B，不能推断帧率、延迟或手感改善。本次没有新算法候选或新的验收平台。
 
 **接续。** 本文是长期能力/关系入口；handoff 只保留当前约定、完成状态和未验证边界，session-log 保留任务里程碑。后续新增同类配置先查 parser/派生/CLI/reload policy 的各自输入责任；新增诊断标量从现有 payload 与生产者开始，避免重新建立平行 DTO 或校验框架。
+
+
+## 测试精简：2026-10-04
+
+**用户确认。** 精简整套测试，旧用例中仍有效的行为归入基础测试，功能和 benchmark 视覆盖价值保留；约 8 月之前的历史用例缺少参考价值。时间用于识别旧架构/场景，不能依据文件 mtime 或目录迁移后的 Git 日期，把现行协议测试误认作旧行为。
+
+**删除范围与影响。** 删除 74 个 Python 测试模块（旧手柄/鼠标 gameplay、Python Vision 替代路径、采集/武器研究及旧 benchmark 测试驱动）、29 个原生历史 incident/独立驱动源码、14 个仅供已删研究测试使用的 JSON/PNG fixtures，共 117 个文件。另从启动测试中删除 13 个只验证源码文本形状的用例。测试删除不删除相应生产功能；旧 Python fallback 和采集/研究工具不再保有原来的详细回归覆盖。多数历史 incident 的完整时间轨迹/报告断言不再运行；剩余基础测试不能证明与原集合等价。
+
+**归入基础。** controller V1 incident 的有效行为已迁入 `state_machine_contract_tests.cpp`：ADS 权限不被 cue 改变、兼容手动轴得到补足、ADS 对冲方向、射击时手动调整期望点；删除其报告/命令行/状态裁决驱动。现有 owner-level tests 继续覆盖输入 reducers、目标身份/生命周期、ADS/BodyLock、手动 authority/零死区、输出协议与资源边界。保留高频观测/学习、近期 zero crossing 和 motion anchor 等仍有独特触发价值的数值用例，不因名称有 incident 就机械删除。
+
+**当前入口。**
+
+- Python 默认基础：pytest.ini 明列配置、CLI、GUI、曲线、启动、repository layout、原生 selector/image ops 桥接，收集 123 个用例。
+- Python 可选功能/工具：native_runner 适配、原生遥测分析、relay 生命周期、recoil runtime/sidecar、训练/导出/dataset、Fusion 分析、Vision 数据集 benchmark、日志维护；全保留集合收集 258 个用例，分布于 20 个 `python/tests` 测试模块及 1 个 tools 模块。`pytest python/tests python/tools/tests` 显式运行全部。
+- C++ 基础：现有 Base 六组、340 个命名用例；Feature 四组、91 个命名用例。Mouse/Fusion 保留当前 transport/释放/恢复/展示契约测试。数量是测试注册数，不是场景子样本数。
+- 数值 benchmark：保留当前原生 AimLab/Sustained 模拟器及 scenario/score/trace/adapter 检查和可选 CPU/GPU 测量入口。不建立新比较门禁或发布裁决。Python benchmark 辅助模块虽然在 tests/gamepad 和 tests/mouse 下，却被实际 tools 导入，因此保留这些非 test_ 模块和包入口；删除它们会破坏工具运行。
+
+**依赖与验证。** 删除同步修改 ProductTests.cmake 和 base_tests_main，取消未入默认集合的历史独立 executable，不留下构建引用。保留 Python 的 AST import 检查未发现对已删 test 模块的引用，CMake Release 全目标通过，CTest 50/50 组通过（分组数未变，历史组内用例已减少）。剩余 Python 全集合第一轮 270 通过、1 跳过；删去 13 项文本断言后受影响启动测试 18/18 通过，最终集合为 258。跳过的 relay 父进程退出检查需要独立 relay build；原生 session/supervisor 生命周期检查已经执行，但不能替代该独立进程检查。最终默认 pytest 123/123 通过；保留的 Python 手柄/鼠标 benchmark CLI `--help` 均返回 0，确认辅助模块删除边界未破坏工具导入。

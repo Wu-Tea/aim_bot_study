@@ -10,7 +10,7 @@
 | `runtime_app/runtime_targets.cmake` | 手柄 runtime、构建身份与运行依赖 |
 | `overlay_canvas/fusion_targets.cmake` | Fusion Canvas 与显示契约测试 |
 | `mouse_native/mouse_targets.cmake` | 鼠标 runtime、传输和契约测试 |
-| `cmake/ProductTests.cmake` | Base/Feature 产品测试和独立事故回归目标 |
+| `cmake/ProductTests.cmake` | Base 基础契约与可选 Feature 功能测试 |
 | `cmake/OfflineBenchmarks.cmake` | 显式启用的离线 benchmark 与扫描目标 |
 
 包含的 `.cmake` 文件按 `native/` 解析源码路径；Vision 使用独立子目录。
@@ -39,6 +39,8 @@ Canvas、Vision smoke 工具和 Python 扩展 `vision_native_cpp`。
 ```powershell
 ctest --test-dir native/build -C Release --output-on-failure
 ```
+
+基础测试按配置/协议、视觉、freshness、ADS、BodyLock 和端到端归属组织；旧 incident 报告驱动已精简，当前产品约定直接在基础测试断言。Feature、Mouse、Fusion 保留现行功能和资源边界检查。离线仿真由 `-OfflineBenchmarks` 显式启用，不恢复比较门禁或发布裁决。
 
 手柄启动入口仍是根目录 `启动助手.vbs` 和 `scripts/launch/`。本机配置、
 模型、日志和数据集仍以项目根目录作为资源根。

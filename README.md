@@ -23,7 +23,7 @@ python/                 全部项目 Python 代码、工具与测试
   recoil_app/           Python 压枪工具
   training/             数据集准备与训练支持代码
   tools/                分析、训练、benchmark 和验证工具
-  tests/                Python 测试与 fixtures
+  tests/                基础测试、可选功能测试及工具依赖的仿真辅助模块
 scripts/                Windows 启动、验证、训练和发布入口
 tools/                  Windows 原生构建、smoke 工具及独立静态工具
 models/                 本机模型和导出文件
@@ -115,6 +115,8 @@ max_files = 10
 python -B -m pytest -q
 ctest --test-dir native/build -C Release --output-on-failure
 ```
+
+默认 pytest 只收集当前配置、桌面进程控制、启动与 C++ 桥接基础测试（123 个）；运行保留的全部 Python 功能/工具测试用 `python -B -m pytest -q python/tests python/tools/tests`（258 个）。原生基础契约在 CTest；离线 benchmark 测试需构建时显式 `-OfflineBenchmarks`。具体取舍见 [当前项目模型](docs/project/CURRENT_STATE.md#测试精简2026-10-04)。
 
 更完整的构建、fallback 和 smoke test 说明见
 [Native C++ Runtime](docs/project/NATIVE_CPP_RUNTIME.md) 与

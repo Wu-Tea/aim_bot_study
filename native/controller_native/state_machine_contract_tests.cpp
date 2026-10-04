@@ -176,9 +176,147 @@ void selection_state_owns_identity() {
     owner.clear();
     require(!owner.has_identity() && owner.generation() == generation + 1, "clear reused generation");
 }
+
+namespace product_contract {
+
+
+using controller_native::AssistControlStateMachine;
+using controller_native::AssistControlStateMachineInput;
+using controller_native::NativeGamepadController;
+using controller_native::incident_fixture::TargetSpec;
+
+struct AdsSample {
+    float aim_authority = 0.0f;
+    float requested_magnitude = 0.0f;
+};
+
+AdsSample ads_sample(bool has_enemy_cue) {
+    auto config = controller_native::incident_fixture::base_config(1000.0f, 180.0f);
+    config.ai_aim.ads_completion_fresh_frames = 1000;
+    config.ai_aim.ads_extension_budget_ms = 500.0f;
+
+    double now = 120.0;
+    NativeGamepadController controller(config, &now);
+    TargetSpec target;
+    target.observation_id = has_enemy_cue ? 9102 : 9101;
+    target.selector_generation = has_enemy_cue ? 102 : 101;
+    target.color_classified = true;
+    target.has_enemy_cue = has_enemy_cue;
+    target.enemy_identity_confirmed = has_enemy_cue;
+    controller.submit_vision_snapshot(
+        controller_native::incident_fixture::observed_snapshot(
+            target, 1, now, 83.0f, -18.0f, true));
+    (void)controller.build_output(
+        controller_native::incident_fixture::ads_input());
+    const auto& requested =
+        controller.last_output_components().requested_assist_stick;
+    return {
+        controller.last_target_plan().aim_authority,
+        std::hypot(requested.x, requested.y),
+    };
+}
+
+struct FusionSample {
+    pipeline_contract::Vec2f mixed_axis{};
+    pipeline_contract::Vec2f opposing_ads{};
+};
+
+FusionSample fusion_sample() {
+    AssistControlStateMachine mixed_state;
+    AssistControlStateMachineInput mixed;
+    mixed.activation = pipeline_contract::AssistActivation::Engaged;
+    mixed.target_authoritative = true;
+    mixed.target_id = 1;
+    mixed.selector_target_generation = 1;
+    mixed.mode = pipeline_contract::ControlMode::BodyLockFollow;
+    mixed.visual_authority = 1.0f;
+    mixed.firing = true;
+    mixed.manual_stick = {0.18f, -0.12f};
+    mixed.filtered_manual_stick = mixed.manual_stick;
+    mixed.ai_stick = {0.45f, 0.20f};
+
+    AssistControlStateMachine opposing_state;
+    AssistControlStateMachineInput opposing = mixed;
+    opposing.target_id = 2;
+    opposing.selector_target_generation = 2;
+    opposing.mode = pipeline_contract::ControlMode::AdsAcquire;
+    opposing.firing = false;
+    opposing.manual_stick = {0.18f, 0.0f};
+    opposing.filtered_manual_stick = opposing.manual_stick;
+    opposing.ai_stick = {-0.60f, 0.0f};
+    return {
+        mixed_state.update(mixed).stick,
+        opposing_state.update(opposing).stick,
+    };
+}
+
+struct DesiredPointSample {
+    bool manual_correction_y = false;
+    float before_y = 0.0f;
+    float after_y = 0.0f;
+};
+
+DesiredPointSample firing_down_sample() {
+    auto config = controller_native::incident_fixture::base_config(1000.0f, 180.0f);
+    config.ai_aim.ads_completion_fresh_frames = 1000;
+    config.ai_aim.desired_point_traversal_ms = 100.0f;
+    double now = 140.0;
+    NativeGamepadController controller(config, &now);
+    TargetSpec target;
+    target.observation_id = 9201;
+    target.selector_generation = 201;
+    target.has_enemy_cue = true;
+    target.enemy_identity_confirmed = true;
+    controller.submit_vision_snapshot(
+        controller_native::incident_fixture::observed_snapshot(
+            target, 1, now, 0.0f, 0.0f, true));
+    (void)controller.build_output(
+        controller_native::incident_fixture::ads_input());
+    const float before_y = controller.last_target_plan().aim_px.y;
+
+    now += 0.050;
+    (void)controller.build_output(
+        controller_native::incident_fixture::ads_input(0.0f, -0.80f, true));
+    const auto& after = controller.last_target_plan();
+    return {after.manual_correction_y, before_y, after.aim_px.y};
+}
+
+
+void current_product_contract() {
+const AdsSample no_cue = ads_sample(false);
+        const AdsSample cue = ads_sample(true);
+        const FusionSample fusion = fusion_sample();
+        const DesiredPointSample desired = firing_down_sample();
+
+        constexpr float kEpsilon = 1.0e-4f;
+        const bool ads_full_without_cue = no_cue.aim_authority >= 0.999f;
+        const bool ads_full_with_cue = cue.aim_authority >= 0.999f;
+        const bool cue_does_not_change_ads_gain =
+            std::fabs(no_cue.aim_authority - cue.aim_authority) <= kEpsilon &&
+            std::fabs(no_cue.requested_magnitude - cue.requested_magnitude) <=
+                0.002f;
+        const bool firing_down_is_not_opposed =
+            fusion.mixed_axis.y <= -0.12f + kEpsilon;
+        const bool compatible_axis_still_gets_fill =
+            fusion.mixed_axis.x > 0.18f + kEpsilon;
+        const bool ads_owns_wrong_manual =
+            std::fabs(fusion.opposing_ads.x + 0.60f) <= kEpsilon;
+        const bool firing_down_updates_d =
+            desired.manual_correction_y &&
+            desired.after_y > desired.before_y + 0.5f;
+        const bool pass = ads_full_without_cue && ads_full_with_cue &&
+            cue_does_not_change_ads_gain && firing_down_is_not_opposed &&
+            compatible_axis_still_gets_fill && ads_owns_wrong_manual &&
+            firing_down_updates_d;
+
+
+require(pass, "current ADS authority, compatible manual axes and desired-point correction contract");
+}
+} // namespace product_contract
 }  // namespace
 
 void register_state_machine_contract_tests(native_test::Registry& registry) {
+    registry.add_case("BaseEndToEnd", "current_product_authority_and_manual_correction", product_contract::current_product_contract);
     registry.add_case("BaseContracts", "custom_curve_keeps_manual_passthrough", custom_curve_keeps_manual_passthrough);
     registry.add_case("BaseContracts", "activation_transitions", activation_transitions);
     registry.add_case("BaseEndToEnd", "application_activation_end_to_end", application_activation_end_to_end);
