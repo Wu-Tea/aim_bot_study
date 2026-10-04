@@ -72,7 +72,7 @@ VisionObservationBatch + IntentState
 
 ### Result
 
-[仓库证据] 四个 production-style chase 的 BodyLock 从 0 帧恢复到 1997 帧，moving chase 最大过冲 `28.031 -> 5.615 px`，adversarial manual-fight `132 -> 2`，continuity fixture 无 jerk、无短 BodyLock run。与此同时 moving chase mean error `27.09 -> 31.44 px`、P95 `83.52 -> 95.36 px`，表明架构正确性提高但跟随力度有所损失。见 [Refactor B acceptance](REFACTOR_B_ACCEPTANCE_20260716.md)。
+[仓库证据] 四个 production-style chase 的 BodyLock 从 0 帧恢复到 1997 帧，moving chase 最大过冲 `28.031 -> 5.615 px`，adversarial manual-fight `132 -> 2`，continuity fixture 无 jerk、无短 BodyLock run。与此同时 moving chase mean error `27.09 -> 31.44 px`、P95 `83.52 -> 95.36 px`，表明架构正确性提高但跟随力度有所损失。见 Refactor B acceptance（旧验收材料已删除）。
 
 [用户确认] 体感上重构后更自然、更平滑，也更像用户自己在控制；但 ADS、BodyLock 力度与阻尼明显下降。这个现象后来被视为重要发现：旧系统有用的“抓力”不能简单等同于旧实现中的重复 gate。
 
@@ -125,7 +125,7 @@ Refactor B 后 ADS 长距离获取偏弱，BodyLock 接近目标时抓力不足�
 
 ### Per-Axis Experiment and Its Limit
 
-[仓库证据] 早期 per-axis correction 在 wrong-X 等定向 fixture 上有效：ordinary human-error mean error 约改善 4.35%，practical stress mean/P95 约改善 5.0%/9.1%；但 normal combat 几乎不变，destructive stress 甚至轻微退步。见 [Axis stress A/B](../../benchmarks/axis-stress-ab-seed1337.md)。
+[仓库证据] 早期 per-axis correction 在 wrong-X 等定向 fixture 上有效：ordinary human-error mean error 约改善 4.35%，practical stress mean/P95 约改善 5.0%/9.1%；但 normal combat 几乎不变，destructive stress 甚至轻微退步。见 Axis stress A/B（旧验收材料已删除）。
 
 [用户确认] 实战仍有“黏糊糊、距离目标 10-20 px 拉不过去、跟抢谨慎”的感受。用户进一步指出，X/Y 分开并不等于全向纠正：错误方向可能是斜向、切向或径向，不能先按轴判断再只抵消一个分量。
 
@@ -133,7 +133,7 @@ Refactor B 后 ADS 长距离获取偏弱，BodyLock 接近目标时抓力不足�
 
 ### AutoFire Contract
 
-[仓库证据] 同期恢复 AutoFire：100 Hz vision 与 1000 Hz controller 间不再把“没有新 frame”误当作 miss；稳定强目标可每 100 ms 启动一次 synthetic pulse，每次至少按住 30 ms；fresh processed miss、cue/weak target、ADS release 或 manual takeover 同 tick 撤销；物理 RB/RT 始终直通。见 [Native controller benchmarks](../benchmark-results/NATIVE_CONTROLLER_BENCHMARKS.md#autofire-pulse-cadence-and-physical-fire-ownership-2026-07-17)。
+[仓库证据] 同期恢复 AutoFire：100 Hz vision 与 1000 Hz controller 间不再把“没有新 frame”误当作 miss；稳定强目标可每 100 ms 启动一次 synthetic pulse，每次至少按住 30 ms；fresh processed miss、cue/weak target、ADS release 或 manual takeover 同 tick 撤销；物理 RB/RT 始终直通。见 Native controller benchmarks（旧验收材料已删除）。
 
 ## Phase 4 - Sustained Tracking and Meaningful Brake Metrics
 
@@ -151,7 +151,7 @@ BodyLock cohort 必须在有效 ADS capture 后才开始计分，避免 ADS pre-
 
 [仓库证据] `55bbb10` 用一个在线 response-model solver 取代 ADS/BodyLock 各自的 force heuristic。它观察“已交付 stick -> 屏幕运动”，预测短期 residual error，再生成二维 bounded correction；状态只在内存中按 ADS epoch 保留，不记录武器名，ambiguous manual、coasting/stale、低可靠观察或坏 cadence 时停止学习。
 
-固定三 seed 结果相对冻结基线：ADS acquisition points 在四个 ordinary/small × pure/mixed cohort 中提高 13.6%-56.0%，tracking 提高 27.3%-42.2%；BodyLock tracking 提高 0.9%-6.7%。mixed small 的 interruption 诊断仍有小幅退步，因此没有为它增加新 gate。见 [Response-model acceptance](RESPONSE_MODEL_AIM_CONTROL_ACCEPTANCE_20260718.md)。
+固定三 seed 结果相对冻结基线：ADS acquisition points 在四个 ordinary/small × pure/mixed cohort 中提高 13.6%-56.0%，tracking 提高 27.3%-42.2%；BodyLock tracking 提高 0.9%-6.7%。mixed small 的 interruption 诊断仍有小幅退步，因此没有为它增加新 gate。见 Response-model acceptance（旧验收材料已删除）。
 
 ### Brake Episodes
 
@@ -162,7 +162,7 @@ BodyLock cohort 必须在有效 ADS capture 后才开始计分，避免 ADS pre-
 - ADS acquisition points `+25.0%`、tracking `+40.8%`、acquired targets `+26.4%`；post-cross area/target `-23.6%`、circle exits/target `-10.6%`、mean run P95 error `-17.2%`。
 - BodyLock tracking `+8.4%`、settled targets `+5.2%`；post-cross area/target `-5.0%`、circle exits/target `-4.0%`；代价是 P95 output delta `+5.1%`、jerk `+1.9%`。
 
-`100 ms` ADS 虽更快，但 worst post-cross excursion 变差，按 brake-first rule 被拒绝。这个 candidate 当时没有自动写入用户 live config，仍需实战确认。见 [Brake episode acceptance](BRAKE_EPISODE_BENCHMARK_ACCEPTANCE_20260719.md)。
+`100 ms` ADS 虽更快，但 worst post-cross excursion 变差，按 brake-first rule 被拒绝。这个 candidate 当时没有自动写入用户 live config，仍需实战确认。见 Brake episode acceptance（旧验收材料已删除）。
 
 ## Phase 5 - Counterfactual Local/Global Optimization
 
@@ -180,7 +180,7 @@ BodyLock cohort 必须在有效 ADS capture 后才开始计分，避免 ADS pre-
 - both harmful、wrong-way commitment 和 destructive stacking；
 - causal oracle 与 hindsight oracle 的差距。
 
-固定 revision `ebf3b45`、config fingerprint `16587694727024197693`、三 seed、12 个 60 秒 run 的 baseline 分析 455 个 episode；重复运行的 core rows、causal gap 和 future burden delta 全为零。hindsight 只量化上限，不可复制到 runtime。见 [Counterfactual acceptance](COUNTERFACTUAL_CONFLICT_BENCHMARK_ACCEPTANCE_20260719.md)。
+固定 revision `ebf3b45`、config fingerprint `16587694727024197693`、三 seed、12 个 60 秒 run 的 baseline 分析 455 个 episode；重复运行的 core rows、causal gap 和 future burden delta 全为零。hindsight 只量化上限，不可复制到 runtime。见 Counterfactual acceptance（旧验收材料已删除）。
 
 ### Lesson
 
@@ -314,15 +314,15 @@ TargetPlan.fire_authority
 ### Primary acceptance records
 
 - [Refactor B baseline](REFACTOR_B_BASELINE_20260716.md)
-- [Refactor B acceptance](REFACTOR_B_ACCEPTANCE_20260716.md)
+- Refactor B acceptance（旧验收材料已删除）
 - [Legacy aim feel restoration](LEGACY_AIM_FEEL_RESTORE_20260716.md)
 - [Controller config audit](CONTROLLER_CONFIG_AUDIT_20260716.md)
 - [ADS/BodyLock tuning sweep](AIM_TUNING_SWEEP_20260718.md)
-- [Response-model acceptance](RESPONSE_MODEL_AIM_CONTROL_ACCEPTANCE_20260718.md)
-- [Brake episode acceptance](BRAKE_EPISODE_BENCHMARK_ACCEPTANCE_20260719.md)
-- [Counterfactual conflict acceptance](COUNTERFACTUAL_CONFLICT_BENCHMARK_ACCEPTANCE_20260719.md)
+- Response-model acceptance（旧验收材料已删除）
+- Brake episode acceptance（旧验收材料已删除）
+- Counterfactual conflict acceptance（旧验收材料已删除）
 - [Sustained AimLab benchmark contract](../../benchmarks/sustained-aimlab.md)
-- [Axis stress A/B](../../benchmarks/axis-stress-ab-seed1337.md)
+- Axis stress A/B（旧验收材料已删除）
 
 ### Architecture and roadmap
 

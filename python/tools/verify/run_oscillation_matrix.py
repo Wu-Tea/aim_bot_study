@@ -1,11 +1,10 @@
 """Frozen production-controller matrix; every report has identical paired inputs.
 
 Synthetic plant values are assumptions. This runner does not infer game AA from
-the telemetry and does not alter the accepted AimLab comparison policy.
+the telemetry and produces measurements without a baseline acceptance decision.
 """
 import argparse
 import concurrent.futures
-import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -39,9 +38,7 @@ def main():
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     plan = scenarios(args.holdout)
-    identity = {"exe_sha256": hashlib.sha256(args.exe.read_bytes()).hexdigest(),
-                "config_sha256": hashlib.sha256(args.config.read_bytes()).hexdigest(),
-                "matrix": plan, "plant_source": "assumption"}
+    identity = {"matrix": plan, "plant_source": "assumption"}
     identity_path = args.output / "identity.json"
     if identity_path.exists():
         raise SystemExit("refusing to overwrite matrix")
@@ -59,9 +56,7 @@ def main():
             completed.stdout + completed.stderr, encoding="utf-8")
         print(case["id"], completed.returncode, flush=True)
         return {"id": case["id"], "command": command, "exit_code": completed.returncode,
-                "seconds": time.perf_counter() - started,
-                "report_sha256": hashlib.sha256(output.read_bytes()).hexdigest()
-                if output.exists() else None}
+                "seconds": time.perf_counter() - started}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(run, plan))

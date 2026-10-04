@@ -4,7 +4,6 @@ Two passive receiver processes independently check the exact output sequence.
 This never captures physical input, presses buttons, or installs drivers.
 """
 import argparse
-import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -15,7 +14,7 @@ from fakerinput_virtual_mouse_probe import ROOT, start_receiver, measure, matche
 def run(args):
     args.out.mkdir(parents=True, exist_ok=False)
     processes = []
-    result = {'native_sender_sha256': hashlib.sha256(args.sender.read_bytes()).hexdigest(),
+    result = {
               'error': None, 'receivers': [], 'virtual_output_verified': False,
               'physical_exclusion_verified': False}
     try:

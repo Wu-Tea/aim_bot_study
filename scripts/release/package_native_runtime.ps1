@@ -250,13 +250,12 @@ $manifestFiles = @(
             [ordered]@{
                 path = Normalize-RelativePath -Path (Get-RelativePath -BasePath $resolvedOutput -Path $_.FullName)
                 size = $_.Length
-                sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
             }
         }
 )
 
 $manifest = [ordered]@{
-    schema_version = 1
+    schema_version = 2
     source_commit = $SourceCommit.ToLowerInvariant()
     created_at_utc = [DateTime]::UtcNow.ToString('o')
     entrypoint = 'scripts/launch/gamepad_start.bat'

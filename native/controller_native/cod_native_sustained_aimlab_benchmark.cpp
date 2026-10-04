@@ -157,13 +157,6 @@ std::vector<RuntimeTargetSample> parse_target_pattern(
     return result;
 }
 
-bool is_sha256(const std::string& value) {
-    return value.size() == 64 && std::all_of(
-        value.begin(), value.end(), [](unsigned char character) {
-            return std::isxdigit(character) != 0;
-        });
-}
-
 struct Options {
     std::filesystem::path config_path = "config.native.example.toml";
     std::filesystem::path output_path;
@@ -191,14 +184,7 @@ struct Options {
     double sensitivity_multiplier = 1.0;
     std::string plant_source;
     std::string runtime_profile_id;
-    std::string runtime_profile_sha256;
-    std::string runtime_audit_sha256;
-    std::string runtime_source_runtime_sha256;
-    std::string runtime_source_config_sha256;
-    std::string runtime_source_engine_sha256;
     std::string config_relationship;
-    std::string benchmark_config_file_sha256;
-    std::string benchmark_executable_sha256;
     std::string runtime_vision_mode;
     double runtime_source_vision_hz = 0.0;
     double runtime_requested_vision_hz = 0.0;
@@ -272,22 +258,8 @@ Options parse_options(int argc, char** argv) {
             options.plant_source = value();
         } else if (argument == "--runtime-profile-id") {
             options.runtime_profile_id = value();
-        } else if (argument == "--runtime-profile-sha256") {
-            options.runtime_profile_sha256 = value();
-        } else if (argument == "--runtime-audit-sha256") {
-            options.runtime_audit_sha256 = value();
-        } else if (argument == "--runtime-source-runtime-sha256") {
-            options.runtime_source_runtime_sha256 = value();
-        } else if (argument == "--runtime-source-config-sha256") {
-            options.runtime_source_config_sha256 = value();
-        } else if (argument == "--runtime-source-engine-sha256") {
-            options.runtime_source_engine_sha256 = value();
         } else if (argument == "--config-relationship") {
             options.config_relationship = value();
-        } else if (argument == "--benchmark-config-file-sha256") {
-            options.benchmark_config_file_sha256 = value();
-        } else if (argument == "--benchmark-executable-sha256") {
-            options.benchmark_executable_sha256 = value();
         } else if (argument == "--runtime-vision-mode") {
             options.runtime_vision_mode = value();
         } else if (argument == "--runtime-source-vision-hz") {
@@ -363,14 +335,7 @@ Options parse_options(int argc, char** argv) {
                  << "[--control-response-delay-ms N] [--short-occlusion-ms N] "
                  << "[--short-occlusion-evidence gap|same-generation-cue] "
                  << "[--target-slot-ms N (default 1575; 0 is legacy)] "
-                 << "[--runtime-profile-id ID --runtime-profile-sha256 SHA256 "
-                 << "--runtime-audit-sha256 SHA256 "
-                 << "--runtime-source-runtime-sha256 SHA256 "
-                 << "--runtime-source-config-sha256 SHA256 "
-                 << "--runtime-source-engine-sha256 SHA256 "
-                 << "--config-relationship matched|counterfactual "
-                 << "--benchmark-config-file-sha256 SHA256 "
-                 << "--benchmark-executable-sha256 SHA256 "
+                 << "[--runtime-profile-id ID --config-relationship matched|counterfactual "
                  << "--runtime-vision-mode audited_runtime_profile|scaled_runtime_profile "
                  << "--runtime-source-vision-hz N "
                  << "--runtime-requested-vision-hz N "
@@ -453,14 +418,7 @@ Options parse_options(int argc, char** argv) {
     const bool runtime_requested = options.profile == "runtime";
     const bool any_runtime_option =
         !options.runtime_profile_id.empty() ||
-        !options.runtime_profile_sha256.empty() ||
-        !options.runtime_audit_sha256.empty() ||
-        !options.runtime_source_runtime_sha256.empty() ||
-        !options.runtime_source_config_sha256.empty() ||
-        !options.runtime_source_engine_sha256.empty() ||
         !options.config_relationship.empty() ||
-        !options.benchmark_config_file_sha256.empty() ||
-        !options.benchmark_executable_sha256.empty() ||
         !options.runtime_vision_mode.empty() ||
         options.runtime_source_vision_hz != 0.0 ||
         options.runtime_requested_vision_hz != 0.0 ||
@@ -479,18 +437,11 @@ Options parse_options(int argc, char** argv) {
     }
     if (runtime_requested) {
         if (options.runtime_profile_id.empty() ||
-            !is_sha256(options.runtime_profile_sha256) ||
-            !is_sha256(options.runtime_audit_sha256) ||
-            !is_sha256(options.runtime_source_runtime_sha256) ||
-            !is_sha256(options.runtime_source_config_sha256) ||
-            !is_sha256(options.runtime_source_engine_sha256) ||
-            !is_sha256(options.benchmark_config_file_sha256) ||
-            !is_sha256(options.benchmark_executable_sha256) ||
             options.runtime_observation_pattern.empty() ||
             options.runtime_manual_segments.empty() ||
             options.runtime_target_samples.empty()) {
             throw std::invalid_argument(
-                "runtime profile identity and all three patterns are required");
+                "runtime profile name and all three patterns are required");
         }
         if ((options.runtime_vision_mode != "audited_runtime_profile" &&
              options.runtime_vision_mode != "scaled_runtime_profile") ||
@@ -786,7 +737,7 @@ void write_report(
     const Options& options,
     const BenchmarkConfig& config,
     const std::vector<BenchmarkResult>& results) {
-    const bool runtime_profile = !options.runtime_profile_sha256.empty();
+    const bool runtime_profile = options.profile == "runtime";
     std::size_t runtime_manual_sample_count = 0;
     for (const auto& segment : config.runtime_manual_segments) {
         runtime_manual_sample_count += segment.samples.size();
@@ -928,22 +879,8 @@ void write_report(
         << "  \"runtime_profile\": ";
     if (runtime_profile) {
         out << "{\"id\":\"" << json_escape(options.runtime_profile_id)
-            << "\",\"profile_payload_sha256\":\""
-            << options.runtime_profile_sha256
-            << "\",\"audit_artifact_sha256\":\""
-            << options.runtime_audit_sha256
-            << "\",\"source_runtime_sha256\":\""
-            << options.runtime_source_runtime_sha256
-            << "\",\"source_config_sha256\":\""
-            << options.runtime_source_config_sha256
-            << "\",\"source_engine_sha256\":\""
-            << options.runtime_source_engine_sha256
             << "\",\"config_relationship\":\""
             << options.config_relationship
-            << "\",\"benchmark_config_file_sha256\":\""
-            << options.benchmark_config_file_sha256
-            << "\",\"benchmark_executable_sha256\":\""
-            << options.benchmark_executable_sha256
             << "\",\"observation_samples\":"
             << config.runtime_observation_pattern.size()
             << ",\"manual_segments\":"

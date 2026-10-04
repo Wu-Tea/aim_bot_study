@@ -1,0 +1,183 @@
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  auto_fire_gate.cpp
+  native_gamepad_controller.cpp
+  fusion_shared.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\fusion_shared.lib
+  vision_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\vision_native\Release\vision_native_core.lib
+  recoil_reducer.cpp
+  runtime_config.cpp
+  正在生成代码...
+  controller_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\controller_native_core.lib
+  main.cpp
+  runtime_loop.cpp
+  runtime_timing.cpp
+  vision_service.cpp
+  viewport_controller.cpp
+  fusion_channel_publisher.cpp
+  perf_logger.cpp
+  log_session_manager.cpp
+  runtime_telemetry.cpp
+  telemetry_collectors.cpp
+  telemetry_target_identity.cpp
+  telemetry_event_sampler.cpp
+  ads_visual_transition.cpp
+  ads_transition_collector.cpp
+  downward_diagnostics.cpp
+  native_replay_writer.cpp
+  native_replay_runner.cpp
+  replay_reader.cpp
+  replay_metrics.cpp
+  vision_controller_adapter.cpp
+  正在生成代码...
+  正在编译...
+  virtual_gamepad.cpp
+  io_recovery_policy.cpp
+  xinput_reader.cpp
+  sdl_gamepad_reader.cpp
+  正在生成代码...
+  cod_native_runtime.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\cod_native_runtime.exe
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  controller_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\controller_native_core.lib
+  vision_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\vision_native\Release\vision_native_core.lib
+  mouse_controller_facade.cpp
+  mouse_controller_runtime_core.cpp
+  mouse_controller_session.cpp
+  mouse_diagnostics.cpp
+  正在生成代码...
+  mouse_native_control.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\mouse_native_control.lib
+  mouse_runtime_main.cpp
+  cod_native_mouse_runtime.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\cod_native_mouse_runtime.exe
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  fusion_shared.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\fusion_shared.lib
+  fusion_overlay_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\fusion_overlay_core.lib
+  fusion_capture_support.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\fusion_capture_support.lib
+  fusion_canvas.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\fusion_canvas.exe
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  vision_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\vision_native\Release\vision_native_core.lib
+  vision_native_module.cpp
+    正在创建库 D:/work/AI/yolo-study-001/native/build/Release/vision_native_cpp.lib 和对象 D:/work/AI/yolo-study-001/native/build/Release/vision_native_cpp.exp
+  正在生成代码
+  已完成代码的生成
+  vision_native_cpp.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\vision_native_cpp.cp311-win_amd64.pyd
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  controller_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\controller_native_core.lib
+  vision_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\vision_native\Release\vision_native_core.lib
+  acquisition_gesture_purpose_incident_regression.cpp
+  ads_bodylock_september_incident_tests.cpp
+  ads_center_cross_late_exit_incident_regression.cpp
+  ads_cross_epoch_pickup_revalidation_incident_regression.cpp
+  ads_incomplete_acquisition_safety_incident_regression.cpp
+  ads_initial_scope_existing_target_incident_regression.cpp
+  ads_scope_ready_authority_incident_regression.cpp
+  ads_single_press_token_incident_regression.cpp
+  bodylock_high_frequency_incident_regression.cpp
+  bodylock_motion_anchor_incident.cpp
+  bodylock_position_motion_conflict_incident_regression.cpp
+  bodylock_pov_fire_cue_continuity_incident_regression.cpp
+  bodylock_recoil_feedback_incident_tests.cpp
+  bodylock_response_coordinate_incident_regression.cpp
+  bodylock_target_direction_latency_incident_regression.cpp
+  bodylock_target_motion_total_incident_regression.cpp
+  close_cue_hold_authority_incident_regression.cpp
+  control_pipeline_primitives_tests.cpp
+  controller_product_contract_incident_regression.cpp
+  far_selected_person_ads_admission_incident_regression.cpp
+  正在生成代码...
+  正在编译...
+  intent_filter_tests.cpp
+  manual_residual_authority_incident_regression.cpp
+  neutral_drift_arbitration_incident_regression.cpp
+  runtime_config_tests.cpp
+  startup_response_prior_tests.cpp
+  state_machine_contract_tests.cpp
+  state_machine_replay_tests.cpp
+  target_pipeline_integration_tests.cpp
+  touchpad_fire_tests.cpp
+  vertical_correction_release_incident_regression.cpp
+  zero_target_hold_incident.cpp
+  visible_selection_pipeline_tests.cpp
+  正在生成代码...
+  cod_native_base_tests.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\cod_native_base_tests.exe
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  controller_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\controller_native_core.lib
+  recoil_calibration.cpp
+  recoil_profile.cpp
+  正在生成代码...
+  recoil_compensation.cpp
+  recoil_compensation.cpp
+  recoil_profile_tools.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\recoil_profile_tools.lib
+  auto_fire_gate_tests.cpp
+  benchmark_metrics_tests.cpp
+  recoil_contract_tests.cpp
+  recoil_reducer_tests.cpp
+  weapon_recognizer.cpp
+  weapon_recognizer_tests.cpp
+  ads_transition_collector.cpp
+  ads_transition_collector_tests.cpp
+  ads_visual_transition.cpp
+  ads_visual_transition_tests.cpp
+  log_session_manager.cpp
+  log_session_manager_tests.cpp
+  perf_logger.cpp
+  runtime_telemetry.cpp
+  runtime_telemetry_production_shape_tests.cpp
+  runtime_telemetry_tests.cpp
+  telemetry_collectors.cpp
+  telemetry_collectors_tests.cpp
+  telemetry_event_sampler.cpp
+  telemetry_event_sampler_tests.cpp
+  正在生成代码...
+  正在编译...
+  telemetry_target_identity.cpp
+  telemetry_target_identity_tests.cpp
+  functional_tests_main.cpp
+  正在生成代码...
+  cod_native_functional_tests.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\cod_native_functional_tests.exe
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  vision_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\vision_native\Release\vision_native_core.lib
+  controller_native_core.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\controller_native_core.lib
+  cod_native_sustained_aimlab_benchmark.cpp
+  native_benchmark_controller_adapter.cpp
+  sustained_aimlab_scenario.cpp
+  sustained_aimlab_score.cpp
+  sustained_aimlab_simulator.cpp
+  sustained_aimlab_trace.cpp
+  正在生成代码...
+  cod_native_sustained_aimlab_benchmark.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\cod_native_sustained_aimlab_benchmark.exe
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  Building Custom Rule D:/work/AI/yolo-study-001/native/CMakeLists.txt
+  sustained_aimlab_scenario_tests.cpp
+  sustained_aimlab_scenario.cpp
+  正在生成代码...
+  cod_native_sustained_aimlab_scenario_tests.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\cod_native_sustained_aimlab_scenario_tests.exe
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  Building Custom Rule D:/work/AI/yolo-study-001/native/CMakeLists.txt
+  sustained_aimlab_score_tests.cpp
+  sustained_aimlab_score.cpp
+  正在生成代码...
+  cod_native_sustained_aimlab_score_tests.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\cod_native_sustained_aimlab_score_tests.exe
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  Building Custom Rule D:/work/AI/yolo-study-001/native/CMakeLists.txt
+  sustained_aimlab_simulator_tests.cpp
+  sustained_aimlab_simulator.cpp
+  sustained_aimlab_score.cpp
+  sustained_aimlab_scenario.cpp
+  正在生成代码...
+  cod_native_sustained_aimlab_simulator_tests.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\cod_native_sustained_aimlab_simulator_tests.exe
+适用于 .NET Framework MSBuild 版本 17.14.19+164abd434
+
+  Building Custom Rule D:/work/AI/yolo-study-001/native/CMakeLists.txt
+  sustained_aimlab_trace_tests.cpp
+  sustained_aimlab_trace.cpp
+  sustained_aimlab_scenario.cpp
+  正在生成代码...
+  cod_native_sustained_aimlab_trace_tests.vcxproj -> D:\work\AI\yolo-study-001\native\build\Release\cod_native_sustained_aimlab_trace_tests.exe

@@ -1,0 +1,424 @@
+{
+  "status": "SCAN_ONLY / PROPOSED_NOT_EXECUTED",
+  "scope": "All project-owned SHA256 checks and old benchmark acceptance requested for future removal; numerical simulation may remain. Ordinary unit tests, hardware benchmarks, historical records, and functional hashing explicitly distinguished.",
+  "groups": {
+    "remove_acceptance_candidates": [
+      {
+        "path": "scripts/verify/compare_sustained_aimlab.ps1",
+        "proposed_action": "remove_file",
+        "reason": "已有产品约束、绝对门槛和保护指标验收器",
+        "already_modified": false
+      },
+      {
+        "path": "scripts/verify/compare_oscillation_matrix.ps1",
+        "proposed_action": "remove_file",
+        "reason": "批量调用 Sustained AimLab 验收比较",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/verify/compare_oscillation_matrix.py",
+        "proposed_action": "remove_file",
+        "reason": "SHA 身份匹配、执行完整性和受保护指标验收",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/verify/compare_state_machine_replay.py",
+        "proposed_action": "remove_file",
+        "reason": "逐场景 trace 一致性与覆盖验收；保留 trace 生成器",
+        "already_modified": false
+      },
+      {
+        "path": "scripts/verify/native_tracker_bodylock_refactor_acceptance.ps1",
+        "proposed_action": "remove_file",
+        "reason": "旧 tracker/BodyLock 门槛验收",
+        "already_modified": false
+      },
+      {
+        "path": "scripts/verify/native_runtime_performance_acceptance.ps1",
+        "proposed_action": "remove_file",
+        "reason": "调用 Base/Functional 与 pipeline 验收",
+        "already_modified": false
+      },
+      {
+        "path": "scripts/verify/native_pipeline_contract.ps1",
+        "proposed_action": "remove_or_split",
+        "reason": "混合静态架构检查、测试构建、BaseEndToEnd 与模拟 smoke；先保留需要的构建入口",
+        "already_modified": false
+      },
+      {
+        "path": "scripts/verify/native_pipeline_contract.bat",
+        "proposed_action": "remove_with_ps1",
+        "reason": "pipeline 验收包装入口",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/native_runtime_acceptance.py",
+        "proposed_action": "remove_file",
+        "reason": "运行时证据分段评分、release decision 与二进制 SHA",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/tests/test_native_runtime_acceptance.py",
+        "proposed_action": "remove_file",
+        "reason": "专门测试上述验收器",
+        "already_modified": false
+      }
+    ],
+    "sha256_remove_or_split": [
+      {
+        "path": "native/runtime_app/runtime_provenance.cpp",
+        "proposed_action": "remove_hash_implementation",
+        "reason": "文件/上下文 SHA 生产者；须先拆调用者",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/runtime_provenance.h",
+        "proposed_action": "remove_hash_api",
+        "reason": "生产者声明",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/main.cpp",
+        "proposed_action": "edit",
+        "reason": "启动时生成配置、engine、exe、合同身份并输出",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/mouse_runtime_main.cpp",
+        "proposed_action": "edit",
+        "reason": "mouse 运行时 SHA 身份输出",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/runtime_targets.cmake",
+        "proposed_action": "edit",
+        "reason": "构建时合同 SHA 与编译宏，及 provenance 源注册",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/runtime_config.h",
+        "proposed_action": "edit",
+        "reason": "运行时 SHA 字段",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/runtime_loop.cpp",
+        "proposed_action": "edit",
+        "reason": "将 SHA 身份传给日志与遥测",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/log_session_manager.cpp",
+        "proposed_action": "edit",
+        "reason": "session manifest SHA 序列化",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/log_session_manager.h",
+        "proposed_action": "edit",
+        "reason": "session manifest SHA 数据结构",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/perf_logger.cpp",
+        "proposed_action": "edit",
+        "reason": "performance 元数据 SHA 字段",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/perf_logger.h",
+        "proposed_action": "edit",
+        "reason": "performance 元数据 SHA 字段",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/runtime_telemetry.cpp",
+        "proposed_action": "edit",
+        "reason": "telemetry SHA 字段序列化",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/telemetry_schema.h",
+        "proposed_action": "edit",
+        "reason": "telemetry 身份字段",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/telemetry_collectors.cpp",
+        "proposed_action": "edit",
+        "reason": "runtime 元数据采集",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/telemetry_collectors.h",
+        "proposed_action": "edit",
+        "reason": "采集器 SHA 字段",
+        "already_modified": false
+      },
+      {
+        "path": "native/runtime_app/runtime_provenance_tests.cpp",
+        "proposed_action": "remove_or_rewrite",
+        "reason": "原 SHA API 测试",
+        "already_modified": false
+      },
+      {
+        "path": "scripts/release/package_native_runtime.ps1",
+        "proposed_action": "edit",
+        "reason": "移除 manifest SHA 生成；保留打包",
+        "already_modified": false
+      },
+      {
+        "path": "scripts/verify/verify_native_release.ps1",
+        "proposed_action": "edit",
+        "reason": "移除文件 SHA 比对；启动 smoke 是独立功能",
+        "already_modified": false
+      },
+      {
+        "path": "scripts/verify/build_mouse_link.ps1",
+        "proposed_action": "edit",
+        "reason": "下载包与解压依赖 SHA 校验；保留依赖构建",
+        "already_modified": false
+      },
+      {
+        "path": "native/mouse_link/CMakeLists.txt",
+        "proposed_action": "edit",
+        "reason": "Interception DLL 固定 SHA 校验；保留构建与 DLL 复制",
+        "already_modified": false
+      },
+      {
+        "path": "native/mouse_native/mouse_targets.cmake",
+        "proposed_action": "edit",
+        "reason": "同一 Interception DLL 固定 SHA 校验",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/run_sustained_aimlab_runtime_profile.py",
+        "proposed_action": "split",
+        "reason": "保留 profile->模拟参数映射，拆 SHA 身份/校验",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/extract_sustained_aimlab_runtime_profile.py",
+        "proposed_action": "split",
+        "reason": "保留日志到 profile 推断，拆 SHA provenance",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/cod_native_sustained_aimlab_benchmark.cpp",
+        "proposed_action": "split",
+        "reason": "保留模拟 CLI，拆 SHA 参数与验收身份输出",
+        "already_modified": false
+      },
+      {
+        "path": ".agents/skills/native-telemetry-audit/scripts/audit_evidence.py",
+        "proposed_action": "split",
+        "reason": "混合日志解析、身份审计与 acceptance verdict",
+        "already_modified": false
+      },
+      {
+        "path": ".agents/skills/incident-to-regression/scripts/regression_contract.py",
+        "proposed_action": "remove_or_split",
+        "reason": "旧 RED/GREEN 合同验证器、payload/文件 SHA",
+        "already_modified": false
+      }
+    ],
+    "functional_sha_requires_replacement_if_all_sha_removed": [
+      {
+        "path": "python/desktop_app/settings.py",
+        "proposed_action": "replace_hash_with_content_comparison",
+        "reason": "保存配置并发修改检测；不能直接删检查而造成覆盖",
+        "already_modified": true
+      },
+      {
+        "path": "python/desktop_app/runtime.py",
+        "proposed_action": "replace_stable_lock_key",
+        "reason": "运行时启动互斥锁命名",
+        "already_modified": true
+      },
+      {
+        "path": "python/desktop_app/gui.py",
+        "proposed_action": "replace_stable_lock_key",
+        "reason": "桌面 UI 单实例互斥锁命名",
+        "already_modified": true
+      },
+      {
+        "path": "python/tests/gamepad/benchmark_scenarios.py",
+        "proposed_action": "retain_or_replace_deterministic_derivation",
+        "reason": "场景 seed 推导，不是文件校验",
+        "already_modified": false
+      },
+      {
+        "path": "python/tests/gamepad/ads_benchmark_scenarios.py",
+        "proposed_action": "retain_or_replace_deterministic_derivation",
+        "reason": "ADS 场景 seed 推导",
+        "already_modified": false
+      },
+      {
+        "path": "python/tests/gamepad/manual_mix_inputs.py",
+        "proposed_action": "retain_or_replace_deterministic_derivation",
+        "reason": "人工输入 seed 推导",
+        "already_modified": false
+      },
+      {
+        "path": "python/tests/gamepad/ads_manual_inputs.py",
+        "proposed_action": "retain_or_replace_deterministic_derivation",
+        "reason": "ADS 人工输入 seed 推导",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/training/game_specialists.py",
+        "proposed_action": "split",
+        "reason": "训练划分、样本 ID 与 augmentation seed 使用 SHA；另有文件身份记录和标签一致性检查",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/training/bf6_specialist.py",
+        "proposed_action": "split",
+        "reason": "SHA 重复数据分组、基线身份与训练/导出记录",
+        "already_modified": true
+      },
+      {
+        "path": "python/tools/training/compare_bf6_specialists.py",
+        "proposed_action": "split",
+        "reason": "模型/manifest 身份约束与评测输出；已有未提交文件",
+        "already_modified": true
+      }
+    ],
+    "simulation_keep_or_split_examples": [
+      {
+        "path": "native/cmake/OfflineBenchmarks.cmake",
+        "proposed_action": "retain_edit_registration",
+        "reason": "八个离线工具测试与 AimLab 执行器；不要整文件删除",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/sustained_aimlab_simulator.cpp",
+        "proposed_action": "retain",
+        "reason": "数字 plant、时间推进与闭环模拟",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/sustained_aimlab_scenario.cpp",
+        "proposed_action": "retain",
+        "reason": "目标轨迹和场景生成",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/sustained_aimlab_score.cpp",
+        "proposed_action": "retain",
+        "reason": "获取/跟踪/平滑指标计算",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/sustained_aimlab_trace.cpp",
+        "proposed_action": "retain",
+        "reason": "人工轨迹和模拟输入",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/native_benchmark_controller_adapter.cpp",
+        "proposed_action": "retain",
+        "reason": "生产控制器模拟适配",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/state_machine_replay_tests.cpp",
+        "proposed_action": "retain_split_runner",
+        "reason": "确定性随机状态机数字测试；内部 digest 是 FNV 风格，不是 SHA256",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/oscillation_scan.cpp",
+        "proposed_action": "retain",
+        "reason": "原生数字振荡扫描",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/zero_target_hold_incident.cpp",
+        "proposed_action": "retain_review_oracle",
+        "reason": "数字事故场景，含注册与 standalone 两种入口",
+        "already_modified": false
+      },
+      {
+        "path": "native/controller_native/bodylock_motion_anchor_incident.cpp",
+        "proposed_action": "retain_review_oracle",
+        "reason": "数字事故场景，共享运行器依赖",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/run_gamepad_benchmark.py",
+        "proposed_action": "retain_split_scoreboard",
+        "reason": "Python 数字模拟入口，imports 指向 tests 下共享模拟模块",
+        "already_modified": false
+      },
+      {
+        "path": "python/tools/run_mouse_benchmark.py",
+        "proposed_action": "retain_split_scoreboard",
+        "reason": "复用 gamepad 场景与 scoreboard 的 mouse 数字模拟",
+        "already_modified": false
+      },
+      {
+        "path": "python/tests/gamepad/test_gamepad_adaptive_delta_gain_simulation.py",
+        "proposed_action": "retain",
+        "reason": "纯数字随机模拟；执行 legacy 控制路径，不能代替当前原生行为",
+        "already_modified": false
+      }
+    ],
+    "build_and_test_dependencies": [
+      {
+        "path": "native/CMakeLists.txt",
+        "proposed_action": "edit",
+        "reason": "ProductTests/OfflineBenchmarks include、测试辅助函数与硬件 benchmark targets",
+        "already_modified": false
+      },
+      {
+        "path": "native/cmake/ProductTests.cmake",
+        "proposed_action": "split_not_bulk_delete",
+        "reason": "10 个 product suites 混合单元测试、事故回归与数字模拟；生产 cpp 也列在测试源清单",
+        "already_modified": false
+      },
+      {
+        "path": "native/test_support/base_tests_main.cpp",
+        "proposed_action": "edit",
+        "reason": "register_* 声明及调用必须匹配留下的源码",
+        "already_modified": false
+      },
+      {
+        "path": "native/test_support/functional_tests_main.cpp",
+        "proposed_action": "edit",
+        "reason": "功能测试注册入口",
+        "already_modified": false
+      },
+      {
+        "path": "python/tests/test_repository_layout.py",
+        "proposed_action": "edit",
+        "reason": "包含 compare_oscillation_matrix 验收器 import 与 SHA fixtures",
+        "already_modified": false
+      },
+      {
+        "path": "python/tests/skills/test_project_skill_contracts.py",
+        "proposed_action": "edit_or_remove_acceptance_cases",
+        "reason": "旧 skill 审计/回归合同测试",
+        "already_modified": false
+      },
+      {
+        "path": "python/tests/test_extract_sustained_aimlab_runtime_profile.py",
+        "proposed_action": "edit",
+        "reason": "profile SHA / provenance 假设",
+        "already_modified": false
+      },
+      {
+        "path": "pytest.ini",
+        "proposed_action": "review",
+        "reason": "测试发现入口，保留模拟不能盲删 testpaths",
+        "already_modified": false
+      }
+    ]
+  },
+  "notes": [
+    "This is a curated dependency/action review; inventory.json contains broader lexical matches.",
+    "No delete commands were executed. No implementation changes made.",
+    "remove_file entries are candidates, not proof that all other files are retainable.",
+    "Exact file deletion set remains to be frozen after separating mixed-purpose source and fixtures."
+  ]
+}

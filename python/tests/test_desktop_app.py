@@ -34,6 +34,16 @@ deadzone = 0.20
 
 
 class DesktopConfigTests(unittest.TestCase):
+    def test_restore_inheritance_preserves_comments_and_other_games(self):
+        before = update_text(CONFIG, {'games.apex.gamepad.ads.strength_scale': .5})
+        before = before.replace('strength_scale = 0.5', 'strength_scale = 0.5 # game calibration')
+        after = update_text(before, {'games.apex.gamepad.ads.strength_scale': None})
+        data = tomllib.loads(after)
+        self.assertEqual(effective(data, 'apex')['gamepad']['ads']['strength_scale'], .8)
+        self.assertEqual(data['games']['bo3'], tomllib.loads(CONFIG)['games']['bo3'])
+        self.assertIn('# game calibration', after)
+        self.assertEqual(update_text(after, {'games.apex.gamepad.ads.strength_scale': None}), after)
+
     def test_preferences_handle_invalid_json_and_preserve_other_preferences(self):
         with tempfile.TemporaryDirectory() as directory:
             preferences = UiPreferences(directory)
@@ -186,6 +196,50 @@ class DesktopConfigTests(unittest.TestCase):
 
 
 class DesktopWidgetTests(unittest.TestCase):
+    def test_restore_inheritance_is_a_draft_until_save(self):
+        self.app.game.set('COD：Black Ops III')
+        self.app.change_game()
+        path = 'games.bo3.gamepad.output_transfer.deadzone'
+        self.app.inherit_field(path)
+        self.assertEqual(self.app.variables[path].get(), '0.16')
+        self.assertEqual(self.app.collect_changes(), {path: None})
+        self.assertEqual(self.app.store.path.read_text(encoding='utf-8'), CONFIG)
+        self.app.game.set('Apex Legends')
+        self.app.change_game()
+        self.app.game.set('COD：Black Ops III')
+        self.app.change_game()
+        self.assertEqual(self.app.variables[path].get(), '0.16')
+        with patch.object(self.app.manager, 'validate'):
+            self.app.commit(self.app.collect_changes())
+        self.assertNotIn('deadzone', self.app.store.read()[1]['games']['bo3']['gamepad']['output_transfer'])
+
+    def test_slider_and_entry_preserve_precision_invalid_text_and_busy_state(self):
+        from desktop_app.components import StrengthInput
+        variable = self.app.variables['gamepad.ads.strength_scale']
+        widget = next(widget for widget in self.app.inputs if isinstance(widget, StrengthInput) and widget.variable is variable)
+        variable.set('0.876543')
+        self.assertAlmostEqual(widget.knob.get(), .876543)
+        widget.drag('1.237')
+        self.assertEqual(variable.get(), '1.24')
+        widget.state(['disabled'])
+        self.assertIn('disabled', widget.entry.state())
+        self.assertIn('disabled', widget.scale.state())
+        variable.set('invalid')
+        self.app.game.set('Apex Legends')
+        self.app.change_game()
+        self.app.game.set('通用 / COD')
+        self.app.change_game()
+        self.assertEqual(self.app.variables['gamepad.ads.strength_scale'].get(), 'invalid')
+        with self.assertRaisesRegex(ValueError, '输入格式'):
+            self.app.collect_changes()
+
+    def test_task_navigation_preserves_drafts_and_has_one_visible_workspace(self):
+        self.app.variables['gamepad.ads.strength_scale'].set('0.6')
+        for key in ('assist', 'common', 'learning', 'prepare'):
+            self.app.show_page(key)
+            self.assertEqual([name for name, page in self.app.page_frames.items() if page.winfo_manager() == 'pack'], [key])
+            self.assertEqual(self.app.collect_changes(), {'gamepad.ads.strength_scale': .6})
+
     @classmethod
     def setUpClass(cls):
         # Tk supports one application interpreter; each case owns a window.
@@ -245,6 +299,50 @@ class DesktopWidgetTests(unittest.TestCase):
         self.app.change_game()
         self.assertEqual(self.app.collect_changes(), {path: 900.0})
         self.assertIn('Black Ops III 1 项', self.app.change_summary.get())
+
+    def test_absent_values_use_native_defaults_instead_of_gui_fallbacks(self):
+        production = Path(__file__).resolve().parents[2] / 'native/build/Release/cod_native_runtime.exe'
+        self.app.manager.executable = production
+        self.app.saved()
+        values = self.app.manager.inspect_defaults('default')
+        self.assertEqual(float(self.app.variables['gamepad.bodylock.strength'].get()), values['gamepad.bodylock.strength'])
+        self.assertEqual(float(self.app.variables['runtime.vision.target_height_ratio'].get()), values['runtime.vision.target_height_ratio'])
+        self.assertEqual(int(self.app.variables['runtime.vision.capture_height'].get()), values['runtime.vision.capture_height'])
+        self.assertEqual(self.app.drafts, {})
+        self.assertEqual(self.app.store.path.read_text(encoding='utf-8'), CONFIG)
+
+    def test_native_default_resolution_uses_the_same_snapshot_as_form_values(self):
+        production = Path(__file__).resolve().parents[2] / 'native/build/Release/cod_native_runtime.exe'
+        self.app.manager.executable = production
+        original_defaults = self.app.manager.inspect_defaults('default', self.app.text)
+        changed = update_text(CONFIG, {'runtime.vision.target_height_ratio': .75})
+        self.app.store.path.write_text(changed, encoding='utf-8')
+        self.app.build_forms()
+        self.assertEqual(float(self.app.variables['runtime.vision.target_height_ratio'].get()), original_defaults['runtime.vision.target_height_ratio'])
+        with self.assertRaisesRegex(ValueError, '其他程序修改'):
+            self.app.commit({'gamepad.ads.strength_scale': .6})
+        self.assertEqual(list(self.project.glob('.inspect-config-*.toml')), [])
+
+    def test_failed_game_inspection_preserves_fields_drafts_and_selection(self):
+        self.app.variables['gamepad.ads.strength_scale'].set('0.6')
+        old_variable = self.app.variables['gamepad.ads.strength_scale']
+        self.app.game.set('Apex Legends')
+        with patch.object(self.app.manager, 'inspect_defaults', side_effect=ValueError('NATIVE_INVALID')), patch('desktop_app.gui.messagebox.showerror') as error:
+            self.app.change_game()
+        error.assert_called_once()
+        self.assertEqual(self.app.selected_game(), 'default')
+        self.assertIs(self.app.variables['gamepad.ads.strength_scale'], old_variable)
+        self.assertFalse(self.app.loading)
+        self.assertEqual(self.app.collect_changes(), {'gamepad.ads.strength_scale': .6})
+
+    def test_chinese_curve_choices_write_canonical_native_values(self):
+        variable = self.app.variables['gamepad.aim_response_curve.algorithm']
+        widget = next(widget for widget in self.app.inputs if widget.winfo_class() == 'TCombobox' and
+                      'COD 动态曲线' in widget.cget('values'))
+        widget.set('COD 动态曲线')
+        widget.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(variable.get(), 'cod_dynamic_legacy_lut')
+        self.assertEqual(self.app.collect_changes()['gamepad.aim_response_curve.algorithm'], 'cod_dynamic_legacy_lut')
 
     def test_active_runtime_takes_precedence_over_remembered_editor_game(self):
         self.app.preferences.save_game('apex')

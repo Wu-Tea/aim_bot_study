@@ -10,7 +10,6 @@ import argparse
 import csv
 import ctypes
 from ctypes import wintypes
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -181,8 +180,6 @@ def run(output: Path, listener: Path) -> int:
                          "duplicate_reports_rejected": not receiver_matches(doubled, REPORTS)}
     report = {
         "schema": 1, "stimulus": "controlled_SendInput_not_physical_mouse",
-        "listener_sha256": hashlib.sha256(listener.read_bytes()).hexdigest(),
-        "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "phases": phases, "negative_controls": negative_controls,
         "experiment_passed": all(p["passed"] for p in phases) and all(negative_controls.values()),
         "physical_exclusion_verified": False, "virtual_mouse_created": False,

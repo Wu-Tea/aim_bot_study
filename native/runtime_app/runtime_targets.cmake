@@ -10,15 +10,10 @@ if(NOT COD_BUILD_COMMIT)
     set(COD_BUILD_COMMIT "unknown")
 endif()
 
-file(READ "${PROJECT_SOURCE_DIR}/control_contract/architecture.json"
-    COD_CONTROL_ARCHITECTURE_CONTRACT)
-string(SHA256 COD_CONTROL_CONTRACT_HASH
-    "${COD_CONTROL_ARCHITECTURE_CONTRACT}")
-
 add_executable(cod_native_runtime
     runtime_app/main.cpp
-    runtime_app/runtime_provenance.cpp
     runtime_app/runtime_loop.cpp
+    runtime_app/runtime_reload_policy.cpp
     runtime_app/runtime_timing.cpp
     runtime_app/vision_service.cpp
     runtime_app/viewport_controller.cpp
@@ -44,7 +39,6 @@ add_executable(cod_native_runtime
 cod_native_defaults(cod_native_runtime)
 target_compile_definitions(cod_native_runtime PRIVATE
     COD_BUILD_COMMIT="${COD_BUILD_COMMIT}"
-    COD_CONTROL_CONTRACT_HASH="${COD_CONTROL_CONTRACT_HASH}"
     COD_CONTROL_ARCHITECTURE_VERSION=5
     COD_CONTROL_EVENT_SCHEMA_VERSION=2
     $<$<BOOL:${NATIVE_ENABLE_VIGEM}>:NATIVE_ENABLE_VIGEM>)

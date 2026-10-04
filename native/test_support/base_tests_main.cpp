@@ -6,6 +6,7 @@ void register_ads_bodylock_september_incidents(native_test::Registry&);
 void register_startup_response_prior_tests(native_test::Registry&);
 void register_touchpad_fire_tests(native_test::Registry&);
 void register_runtime_config_tests(native_test::Registry&);
+void register_runtime_reload_policy_tests(native_test::Registry&);
 void register_target_plan_contract_tests(native_test::Registry&);
 void register_committed_capture_observation_tests(native_test::Registry&);
 void register_input_edge_reducer_tests(native_test::Registry&);
@@ -75,6 +76,7 @@ int main(int argc, char** argv) {
     register_startup_response_prior_tests(registry);
     register_touchpad_fire_tests(registry);
     register_runtime_config_tests(registry);
+    register_runtime_reload_policy_tests(registry);
     register_target_plan_contract_tests(registry);
     register_committed_capture_observation_tests(registry);
     register_input_edge_reducer_tests(registry);

@@ -37,11 +37,11 @@ Python 代码集中在 `python/`，完整 C++ 构建入口为 `native/CMakeLists
 ## Benchmark
 
 - [Aim Control Product Contract V1](project/AIM_CONTROL_PRODUCT_CONTRACT_V1_20260811.md) — 产品目标、用户权利、控制责任与 COD 系列适配边界。
-- [Closed-loop Gameplay Acceptance V1](benchmarks/CLOSED_LOOP_GAMEPLAY_ACCEPTANCE_V1_20260811.md) — 游戏闭环仿真、事故回归与上线门槛。
+- Closed-loop Gameplay Acceptance V1（旧验收材料已删除） — 游戏闭环仿真、事故回归与上线门槛。
 - [Benchmark index](benchmarks/README.md) — 当前测试合约和比较身份要求。
 - [Sustained AimLab](benchmarks/sustained-aimlab.md) — 60 秒 ADS/BodyLock 跟踪测试。
 - [Vision blind window](benchmarks/vision-blind-window.md) — capture、publication、controller 与 response 时钟分离。
-- [Causal response shadow](benchmarks/causal-response-shadow.md) — 因果响应 shadow 评估。
+- Causal response shadow（旧验收材料已删除） — 因果响应 shadow 评估。
 
 ## Vision、模型与训练
 

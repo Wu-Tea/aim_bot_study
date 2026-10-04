@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
-import hashlib
 import json
 import math
 import os
@@ -28,6 +27,9 @@ class UiPreferences:
     def save_game(self, game):
         data = self.read()
         data['game'] = game
+        self.write(data)
+
+    def write(self, data):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         handle, filename = tempfile.mkstemp(prefix='.ui-', suffix='.json', dir=self.path.parent)
         candidate = Path(filename)
@@ -39,6 +41,11 @@ class UiPreferences:
             os.replace(candidate, self.path)
         finally:
             candidate.unlink(missing_ok=True)
+
+    def save_profile(self, identifier, game):
+        data = self.read()
+        data.update(profile_id=identifier, game=game)
+        self.write(data)
 
 
 def merge(base, overrides):
@@ -95,7 +102,7 @@ def comment(line):
 
 
 def update_text(text, updates):
-    """Explicit editor writes, preserving unrelated settings and comments."""
+    """Edit keys without rewriting unrelated data. None restores inheritance."""
     tomllib.loads(text)
     lines = text.splitlines(keepends=True)
     for path, value in updates.items():
@@ -112,6 +119,8 @@ def update_text(text, updates):
                 if header[1] == section:
                     begin = index + 1
         if begin is None:
+            if value is None:
+                continue
             if lines and not lines[-1].endswith('\n'):
                 lines[-1] += '\n'
             lines.extend([f'\n[{section}]\n', f'{key} = {literal(value)}\n'])
@@ -120,28 +129,32 @@ def update_text(text, updates):
         for index in range(begin, end):
             if re.match(r'^\s*' + re.escape(key) + r'\s*=', lines[index]):
                 suffix = comment(lines[index])
+                if value is None:
+                    lines[index] = suffix + '\n' if suffix else ''
+                    break
                 lines[index] = f'{key} = {literal(value)}' + (f' {suffix}' if suffix else '') + '\n'
                 break
         else:
-            lines.insert(begin, f'{key} = {literal(value)}\n')
+            if value is not None:
+                lines.insert(begin, f'{key} = {literal(value)}\n')
     result = ''.join(lines)
     tomllib.loads(result)
     return result
 
 
 class ConfigStore:
-    def __init__(self, root):
+    def __init__(self, root, path=None):
         self.root = Path(root)
-        self.path = self.root / 'config.toml'
+        self.path = Path(path) if path is not None else self.root / 'config.toml'
 
     def read(self):
         raw = self.path.read_bytes()
         text = raw.decode('utf-8-sig')
-        return text, tomllib.loads(text), hashlib.sha256(raw).hexdigest()
+        return text, tomllib.loads(text), raw
 
-    def save(self, text, expected_hash, validate=None):
+    def save(self, text, expected_content, validate=None):
         tomllib.loads(text)
-        if self.read()[2] != expected_hash:
+        if self.read()[2] != expected_content:
             raise ValueError('配置已被其他程序修改，请重新载入后再保存。')
         handle, filename = tempfile.mkstemp(prefix='.config-', suffix='.toml', dir=self.root)
         candidate = Path(filename)
@@ -152,7 +165,7 @@ class ConfigStore:
                 os.fsync(stream.fileno())
             if validate:
                 validate(candidate)
-            if self.read()[2] != expected_hash:
+            if self.read()[2] != expected_content:
                 raise ValueError('校验期间配置发生变化，请重新载入。')
             backup = self.root / 'runs/desktop/config-backups'
             backup.mkdir(parents=True, exist_ok=True)

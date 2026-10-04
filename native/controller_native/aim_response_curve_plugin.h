@@ -16,6 +16,7 @@ namespace controller_native {
 enum class AimResponseCurveAlgorithm : unsigned char {
     Linear,
     CodDynamicLegacyLut,
+    CustomLut,
 };
 
 struct AimResponseCurveConfig {
@@ -23,6 +24,9 @@ struct AimResponseCurveConfig {
     // The scalar response learner is local. Anchor the nonlinear shape here so
     // enabling a plugin does not silently replace the learned sensitivity.
     float calibration_reference_stick = 0.50f;
+    std::array<float, 32> custom_stick{};
+    std::array<float, 32> custom_response{};
+    std::size_t custom_count = 0;
 };
 
 struct AimResponseCurvePlugin {
@@ -100,6 +104,8 @@ inline constexpr AimResponseCurvePlugin kCodDynamicLegacyPlugin{
 inline const char* aim_response_curve_algorithm_name(
     AimResponseCurveAlgorithm algorithm) noexcept {
     switch (algorithm) {
+        case AimResponseCurveAlgorithm::CustomLut:
+            return "custom_lut";
         case AimResponseCurveAlgorithm::CodDynamicLegacyLut:
             return "cod_dynamic_legacy_lut";
         case AimResponseCurveAlgorithm::Linear:
@@ -119,6 +125,10 @@ inline bool try_parse_aim_response_curve_algorithm(
         algorithm = AimResponseCurveAlgorithm::CodDynamicLegacyLut;
         return true;
     }
+    if (name == "custom_lut") {
+        algorithm = AimResponseCurveAlgorithm::CustomLut;
+        return true;
+    }
     return false;
 }
 
@@ -134,6 +144,30 @@ inline const AimResponseCurvePlugin& resolve_aim_response_curve_plugin(
     }
 }
 
+// Config loading validates endpoints and strict monotonicity before tick use.
+inline float custom_curve_magnitude(float value, const AimResponseCurveConfig& config, bool inverse) noexcept {
+    const auto& domain = inverse ? config.custom_response : config.custom_stick;
+    const auto& range = inverse ? config.custom_stick : config.custom_response;
+    value = std::clamp(value, 0.0f, 1.0f);
+    for (std::size_t i = 1; i < config.custom_count; ++i) {
+        if (value <= domain[i]) {
+            const float t = (value - domain[i - 1]) / (domain[i] - domain[i - 1]);
+            return range[i - 1] + t * (range[i] - range[i - 1]);
+        }
+    }
+    return 1.0f;
+}
+
+inline float curve_forward_magnitude(float value, const AimResponseCurveConfig& config) noexcept {
+    return config.algorithm == AimResponseCurveAlgorithm::CustomLut ? custom_curve_magnitude(value, config, false) :
+        resolve_aim_response_curve_plugin(config.algorithm).forward_magnitude(value);
+}
+
+inline float curve_inverse_magnitude(float value, const AimResponseCurveConfig& config) noexcept {
+    return config.algorithm == AimResponseCurveAlgorithm::CustomLut ? custom_curve_magnitude(value, config, true) :
+        resolve_aim_response_curve_plugin(config.algorithm).inverse_magnitude(value);
+}
+
 inline pipeline_contract::Vec2f inverse_aim_response_curve(
     pipeline_contract::Vec2f linear_target,
     const AimResponseCurveConfig& config) noexcept {
@@ -143,18 +177,16 @@ inline pipeline_contract::Vec2f inverse_aim_response_curve(
         return linear_target;
     }
 
-    const AimResponseCurvePlugin& plugin =
-        resolve_aim_response_curve_plugin(config.algorithm);
     const float reference = std::clamp(
         std::isfinite(config.calibration_reference_stick)
             ? config.calibration_reference_stick
             : 0.50f,
         0.05f,
         1.0f);
-    const float reference_response = plugin.forward_magnitude(reference);
+    const float reference_response = curve_forward_magnitude(reference, config);
     const float desired_response = std::clamp(
         reference_response * input_magnitude / reference, 0.0f, 1.0f);
-    const float output_magnitude = plugin.inverse_magnitude(desired_response);
+    const float output_magnitude = curve_inverse_magnitude(desired_response, config);
     const float scale = output_magnitude / input_magnitude;
     return {linear_target.x * scale, linear_target.y * scale};
 }
@@ -174,21 +206,19 @@ inline pipeline_contract::Vec2f forward_aim_response_curve(
         return delivered_stick;
     }
 
-    const AimResponseCurvePlugin& plugin =
-        resolve_aim_response_curve_plugin(config.algorithm);
     const float reference = std::clamp(
         std::isfinite(config.calibration_reference_stick)
             ? config.calibration_reference_stick
             : 0.50f,
         0.05f,
         1.0f);
-    const float reference_response = plugin.forward_magnitude(reference);
+    const float reference_response = curve_forward_magnitude(reference, config);
     if (!std::isfinite(reference_response) ||
         reference_response <= 1.0e-7f) {
         return delivered_stick;
     }
-    const float response = plugin.forward_magnitude(
-        std::clamp(stick_magnitude, 0.0f, 1.0f));
+    const float response = curve_forward_magnitude(
+        std::clamp(stick_magnitude, 0.0f, 1.0f), config);
     const float linear_magnitude = reference * response / reference_response;
     const float scale = linear_magnitude / stick_magnitude;
     return {delivered_stick.x * scale, delivered_stick.y * scale};

@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+import tempfile
 import tomllib
 import uuid
 import time
@@ -142,13 +143,25 @@ class RuntimeManager:
             if result.returncode or 'unknown config key:' in error:
                 raise ValueError(f'{game} 配置校验失败：\n{error or result.stdout.decode("utf-8", errors="replace")}')
 
-    def inspect_defaults(self, game):
+    def inspect_defaults(self, game, config_text=None):
         """Use the native loader for absent fields, including profile defaults."""
         if not self.executable.is_file():
             return {}
-        result = subprocess.run([str(self.executable), '--config', str(self.root / 'config.toml'),
-                                 '--game', game, '--dump-effective-config'], cwd=self.root,
-                                capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=30)
+        config_path = self.root / 'config.toml'
+        candidate = None
+        try:
+            if config_text is not None:
+                handle, filename = tempfile.mkstemp(prefix='.inspect-config-', suffix='.toml', dir=self.root)
+                candidate = Path(filename)
+                with os.fdopen(handle, 'w', encoding='utf-8', newline='\n') as stream:
+                    stream.write(config_text)
+                config_path = candidate
+            result = subprocess.run([str(self.executable), '--config', str(config_path),
+                                     '--game', game, '--dump-effective-config'], cwd=self.root,
+                                    capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=30)
+        finally:
+            if candidate is not None:
+                candidate.unlink(missing_ok=True)
         if result.returncode:
             raise ValueError('无法读取原生配置：' + result.stderr.decode('utf-8', errors='replace').strip())
         fields = {field[0]: field for field in GAME_FIELDS + COMMON_FIELDS}
@@ -181,7 +194,7 @@ class RuntimeManager:
                 continue
         return None
 
-    def start(self, game, document):
+    def start(self, game, document, config_path=None, profile_id=None):
         with self.lock, launch_lock(self.root):
             active = self.active()
             if active:
@@ -207,7 +220,8 @@ class RuntimeManager:
             env['FUSION_SESSION'] = env.get('FUSION_SESSION', '').strip() or 'dev'
             env['FUSION_ENABLED'] = '1'
             env['FUSION_SHOW_ALL_DETECTIONS'] = '0'
-            arguments = [str(self.executable), '--config', str(self.root / 'config.toml'), '--game', game]
+            config_path = Path(config_path or self.root / 'config.toml').resolve()
+            arguments = [str(self.executable), '--config', str(config_path), '--game', game]
             with stdout.open('wb') as out, stderr.open('wb') as err:
                 self.child = subprocess.Popen(arguments, cwd=self.root, env=env, stdout=out, stderr=err,
                                               creationflags=CREATE_NO_WINDOW)
@@ -216,7 +230,7 @@ class RuntimeManager:
                 self.child.wait(timeout=1)
                 raise ValueError(tail(stderr) or '程序启动后立即退出，请查看日志。')
             record = {'process_id': self.child.pid, 'process_created': identity['created'], 'game': game,
-                      'executable_path': str(self.executable), 'config_path': str(self.root / 'config.toml'),
+                      'executable_path': str(self.executable), 'config_path': str(config_path), 'profile_id': profile_id,
                       'stdout_path': str(stdout), 'stderr_path': str(stderr),
                       'fusion_session': env['FUSION_SESSION'], 'fusion_channel_enabled': True,
                       'started_at_utc': datetime.now(timezone.utc).isoformat()}
@@ -249,7 +263,7 @@ class RuntimeManager:
             record = self.active()
             if not record:
                 raise ValueError('应用未运行；设置会在下次启动时生效。')
-            document = tomllib.loads((self.root / 'config.toml').read_text(encoding='utf-8-sig'))
+            document = tomllib.loads(Path(record.get('config_path', self.root / 'config.toml')).read_text(encoding='utf-8-sig'))
             validate_fields(document, [record['game']])
             return reload_config(record)
 

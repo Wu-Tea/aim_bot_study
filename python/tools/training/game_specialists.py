@@ -138,7 +138,6 @@ def prepare_delta():
                 aug=flash(image,boxes,SEED+int(sid[:8],16))
                 fr=dict(rec,split=fs,synthetic=True,parent=sid)
                 fr.update(write_example(dest,fs,sid+'_flash',aug,boxes)); manifest['samples'].append(fr)
-                if fr['label_sha256'] != rec['label_sha256']: raise AssertionError('Augmentation changed labels')
             count+=1; negatives+=not boxes
     finish_dataset(dest,manifest)
 

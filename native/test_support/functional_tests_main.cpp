@@ -12,7 +12,6 @@ void register_person_detection_gesture_tests(native_test::Registry&);
 void register_runtime_telemetry_production_shape_tests(native_test::Registry&);
 void register_telemetry_target_identity_tests(native_test::Registry&);
 void register_telemetry_event_sampler_tests(native_test::Registry&);
-void register_runtime_provenance_tests(native_test::Registry&);
 void register_ads_visual_transition_tests(native_test::Registry&);
 void register_ads_transition_collector_tests(native_test::Registry&);
 void register_telemetry_collectors_tests(native_test::Registry&);
@@ -31,7 +30,6 @@ int main(int argc, char** argv) {
     register_runtime_telemetry_production_shape_tests(registry);
     register_telemetry_target_identity_tests(registry);
     register_telemetry_event_sampler_tests(registry);
-    register_runtime_provenance_tests(registry);
     register_ads_visual_transition_tests(registry);
     register_ads_transition_collector_tests(registry);
     register_telemetry_collectors_tests(registry);

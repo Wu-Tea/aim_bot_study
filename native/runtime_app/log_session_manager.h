@@ -10,10 +10,6 @@ struct LogSessionOptions {
     bool enabled = false;
     std::filesystem::path root = "runs/native_perf";
     std::string git_commit;
-    std::string config_hash;
-    std::string engine_hash;
-    std::string executable_sha256;
-    std::string control_contract_sha256;
     std::uint32_t control_architecture_version = 0;
     std::uint32_t control_event_schema_version = 0;
     int capture_width = 0;

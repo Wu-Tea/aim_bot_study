@@ -33,8 +33,10 @@ successful learning update.
 Each run writes beneath one `runs/native_perf/sessions/<session-id>/` directory.
 `runs/native_perf/fresh_session.json` points to the current or most recent
 session. Rotation creates additional JSONL parts inside that same directory and
-each part begins with session metadata containing revision, configuration,
-engine, crop, and runtime provenance.
+each part begins with session metadata containing revision, capture dimensions
+and cadence. Schema 19 no longer includes configuration, engine or executable
+SHA identities. Session manifests use schema 3, metadata schema 2, and
+performance summaries schema 3. Existing logs retain their historical schema.
 
 Cleanup must operate on whole closed session directories, identified by the
 `.closed` marker. Never delete individual JSONL parts from a retained session,

@@ -46,8 +46,6 @@ struct PerfSummaryOptions {
     std::filesystem::path directory = "runs/perf_summary";
     bool stdout_enabled = true;
     std::string build_commit = "unknown";
-    std::string config_sha256;
-    std::string engine_sha256;
 };
 
 struct PerfControllerWindowSample {

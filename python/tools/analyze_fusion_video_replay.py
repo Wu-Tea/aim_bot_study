@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
@@ -25,13 +24,6 @@ DEFAULT_DECODE_CONFIDENCE = 0.40
 DEFAULT_PICKUP_RADIUS_PX = 150.0
 REPLAY_TIME_ORIGIN_NS = 1_000_000_000
 
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest().upper()
 
 
 def git_state() -> dict[str, Any]:
@@ -535,11 +527,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "outcome": "INSUFFICIENT_EVIDENCE_FOR_LIVE_CAUSE",
         "provenance": {
             "video": str(video_path),
-            "video_sha256": sha256_file(video_path),
             "model": str(model_path),
-            "model_sha256": sha256_file(model_path),
             "native_module": str(native_module_path),
-            "native_module_sha256": sha256_file(native_module_path),
             "git": git_state(),
         },
         "source": {

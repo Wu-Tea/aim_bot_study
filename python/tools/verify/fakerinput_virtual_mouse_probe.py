@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import csv
 import ctypes as c
-import hashlib
 import json
 from pathlib import Path
 import queue
@@ -96,8 +95,6 @@ def run(args) -> int:
     connected = False
     processes = []
     report = {
-        'dll_sha256': hashlib.sha256(args.dll.read_bytes()).hexdigest(),
-        'listener_sha256': hashlib.sha256(args.listener.read_bytes()).hexdigest(),
         'connected': False, 'sent': [], 'receivers': [], 'error': None,
         'virtual_output_verified': False, 'physical_exclusion_verified': False,
         'game_receipt_verified': False, 'rate_1000hz_verified': False,

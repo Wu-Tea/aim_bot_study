@@ -1,74 +1,22 @@
 #pragma once
 
-#include "controller_native/native_gamepad_controller.h"
+#include "runtime_reload_policy.h"
+#include "controller_native/aim_response_estimator.h"
+#include <algorithm>
+#include <array>
 #include <Windows.h>
 #include <atomic>
-#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <set>
+#include <stdexcept>
 #include <thread>
+#include <utility>
 
 namespace runtime_app {
-
-inline std::string hot_reload_restrictions(const controller_native::RuntimeConfig& before,
-                                         const controller_native::RuntimeConfig& after) {
-    static const std::set<std::string> allowed{
-        "gamepad.ads.strength_scale", "gamepad.ads.vertical_strength_scale",
-        "gamepad.bodylock.strength", "gamepad.bodylock.vertical_strength",
-        "gamepad.ai_aim.hipfire_multiplier", "gamepad.ai_aim.aim_response_learning_enabled",
-        "gamepad.ai_aim.aim_response_initial_scale",
-        "gamepad.ai_aim.body_free_initial_scale", "gamepad.ai_aim.body_slow_initial_scale",
-        "gamepad.ai_aim.ads_free_initial_scale", "gamepad.ai_aim.ads_slow_initial_scale",
-        "gamepad.recoil.enabled", "gamepad.recoil.feedback_amount", "gamepad.recoil.hipfire_multiplier",
-        "gamepad.auto_fire.fire_output", "gamepad.auto_fire.manual_fire_input",
-        "gamepad.auto_fire.manual_fire_activates_ai_aim",
-        "runtime.vision.friendly_filter_enabled", "runtime.vision.target_height_ratio",
-        "runtime.vision.target_wide_low_height_ratio"};
-    if (!after.diagnostics.empty()) throw std::runtime_error(after.diagnostics.front());
-    if (!before.vision.gpu_service_enabled && (before.vision.friendly_filter_enabled != after.vision.friendly_filter_enabled ||
-        before.vision.target_height_ratio != after.vision.target_height_ratio || before.vision.target_wide_low_height_ratio != after.vision.target_wide_low_height_ratio))
-        return "vision policy requires GPU service or restart";
-    std::set<std::string> keys;
-    for (const auto& value : before.effective_values) keys.insert(value.first);
-    for (const auto& value : after.effective_values) keys.insert(value.first);
-    std::string restart;
-    for (const auto& key : keys) {
-        auto a = before.effective_values.find(key), b = after.effective_values.find(key);
-        const bool changed = a == before.effective_values.end() || b == after.effective_values.end() || a->second != b->second;
-        if (changed && !allowed.count(key)) restart += (restart.empty() ? "" : ", ") + key;
-        if (!allowed.count(key) || b == after.effective_values.end()) continue;
-        const auto& value = b->second;
-        if (key.find("fire_output") != std::string::npos || key.find("manual_fire_input") != std::string::npos) continue;
-        if (key.find("enabled") != std::string::npos || key.find("activates") != std::string::npos) {
-            if (value != "true" && value != "false") throw std::runtime_error("invalid boolean: " + key);
-        } else {
-            std::size_t used = 0;
-            const float number = std::stof(value, &used);
-            if (used != value.size() || !std::isfinite(number)) throw std::runtime_error("invalid number: " + key);
-        }
-    }
-    return restart;
-}
-
-// These controls change AI actuation/training admission, not the calibrated
-// game response. Other reloads retain the existing reset contract.
-inline bool preserve_response_learning_on_reload(const controller_native::RuntimeConfig& before,
-                                                const controller_native::RuntimeConfig& after) {
-    std::set<std::string> keys;
-    for (const auto& value : before.effective_values) keys.insert(value.first);
-    for (const auto& value : after.effective_values) keys.insert(value.first);
-    bool changed = false;
-    for (const auto& key : keys) {
-        auto a = before.effective_values.find(key), b = after.effective_values.find(key);
-        if (a != before.effective_values.end() && b != after.effective_values.end() && a->second == b->second) continue;
-        changed = true;
-        if (key != "gamepad.ai_aim.hipfire_multiplier" && key != "gamepad.ai_aim.aim_response_learning_enabled") return false;
-    }
-    return changed;
-}
 
 struct RuntimeLearningRegion { float effective = 500, learned = 500, confidence = 0; std::uint32_t samples = 0; };
 struct RuntimeControlSnapshot {
@@ -94,13 +42,13 @@ public:
                          std::function<controller_native::RuntimeConfig()> loader)
         : current_(std::make_shared<controller_native::RuntimeConfig>(std::move(initial))), loader_(std::move(loader)) {
         const auto suffix = std::to_wstring(GetCurrentProcessId());
-        mapping_ = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(RuntimeControlMemory),
-            (L"Local\\cod_native_control_" + suffix).c_str());
-        request_ = CreateEventW(nullptr, FALSE, FALSE, (L"Local\\cod_native_reload_" + suffix).c_str());
-        finished_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        exit_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (mapping_) memory_ = static_cast<RuntimeControlMemory*>(MapViewOfFile(mapping_, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(RuntimeControlMemory)));
-        if (!memory_ || !request_ || !finished_ || !exit_) { close(); throw std::runtime_error("cannot open runtime control channel"); }
+        mapping_.reset(CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(RuntimeControlMemory),
+            (L"Local\\cod_native_control_" + suffix).c_str()));
+        request_.reset(CreateEventW(nullptr, FALSE, FALSE, (L"Local\\cod_native_reload_" + suffix).c_str()));
+        finished_.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+        exit_.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+        if (mapping_) memory_.reset(static_cast<RuntimeControlMemory*>(MapViewOfFile(mapping_.get(), FILE_MAP_ALL_ACCESS, 0, 0, sizeof(RuntimeControlMemory))));
+        if (!memory_ || !request_ || !finished_ || !exit_) throw std::runtime_error("cannot open runtime control channel");
         *memory_ = RuntimeControlMemory{};
         state_.pid = GetCurrentProcessId();
         FILETIME created, end, kernel, user;
@@ -108,9 +56,10 @@ public:
         state_.created = (std::uint64_t(created.dwHighDateTime) << 32) | created.dwLowDateTime;
         write_bindings(*current_);
         publish();
-        try { worker_ = std::thread([this] { work(); }); } catch (...) { close(); throw; }
+        worker_ = std::thread([this] { work(); });
     }
-    ~RuntimeControlBridge() { if (exit_) SetEvent(exit_); if (worker_.joinable()) worker_.join(); close(); }
+    // Join before RAII releases the mapping and events used by the worker.
+    ~RuntimeControlBridge() { SetEvent(exit_.get()); if (worker_.joinable()) worker_.join(); }
     RuntimeControlBridge(const RuntimeControlBridge&) = delete;
     RuntimeControlBridge& operator=(const RuntimeControlBridge&) = delete;
 
@@ -125,7 +74,7 @@ public:
             values[i].learned_scale, values[i].confidence, values[i].accepted_samples};
         learning_preserved_ = preserved;
         completed_.store(true, std::memory_order_release);
-        SetEvent(finished_);
+        SetEvent(finished_.get());
     }
     void offer_learning(const std::array<controller_native::AimResponseEstimate, 4>& values) noexcept {
         std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
@@ -147,7 +96,7 @@ private:
         InterlockedIncrement(&memory_->sequence);
     }
     void work() noexcept {
-        HANDLE events[] = {exit_, request_, finished_};
+        HANDLE events[] = {exit_.get(), request_.get(), finished_.get()};
         while (true) {
             const auto result = WaitForMultipleObjects(3, events, FALSE, 500);
             if (result == WAIT_OBJECT_0 || result == WAIT_FAILED) return;
@@ -194,12 +143,16 @@ private:
             publish();
         }
     }
-    void close() noexcept {
-        if (memory_) { UnmapViewOfFile(memory_); memory_ = nullptr; }
-        for (HANDLE* value : {&mapping_, &request_, &finished_, &exit_}) if (*value) { CloseHandle(*value); *value = nullptr; }
-    }
-    HANDLE mapping_ = nullptr, request_ = nullptr, finished_ = nullptr, exit_ = nullptr;
-    RuntimeControlMemory* memory_ = nullptr;
+    struct HandleCloser {
+        void operator()(void* handle) const noexcept { CloseHandle(handle); }
+    };
+    struct ViewUnmapper {
+        void operator()(RuntimeControlMemory* view) const noexcept { UnmapViewOfFile(view); }
+    };
+    // unique_ptr also releases partially constructed channels if allocation or
+    // thread creation throws. Declare the view after handles so it unmaps first.
+    std::unique_ptr<void, HandleCloser> mapping_, request_, finished_, exit_;
+    std::unique_ptr<RuntimeControlMemory, ViewUnmapper> memory_;
     RuntimeControlSnapshot state_{};
     RuntimeLearningRegion learning_[4]{};
     RuntimeLearningRegion cleared_learning_[4]{};

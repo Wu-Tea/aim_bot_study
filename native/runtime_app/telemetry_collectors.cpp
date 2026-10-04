@@ -79,9 +79,6 @@ TelemetryCollectors::TelemetryCollectors(
             static_cast<unsigned long long>(now),
             static_cast<unsigned long long>(random_bits));
         copy_text(metadata.session_metadata.build_commit, context.build_commit);
-        copy_text(metadata.session_metadata.config_hash, context.config_hash);
-        copy_text(metadata.session_metadata.engine_hash, context.engine_hash);
-        copy_text(metadata.session_metadata.executable_sha256, context.executable_sha256);
         metadata.session_metadata.capture_width = context.capture_width;
         metadata.session_metadata.capture_height = context.capture_height;
         metadata.session_metadata.active_capture_fps = context.active_capture_fps;

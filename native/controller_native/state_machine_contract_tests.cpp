@@ -8,6 +8,29 @@
 namespace {
 void require(bool value, const char* reason) { if (!value) throw std::runtime_error(reason); }
 
+void custom_curve_keeps_manual_passthrough() {
+    using namespace controller_native;
+    auto config = incident_fixture::base_config(50, 180);
+    auto& curve = config.aim_response_curve;
+    curve.algorithm = AimResponseCurveAlgorithm::CustomLut;
+    curve.custom_count = 3;
+    curve.custom_stick[0] = curve.custom_response[0] = 0;
+    curve.custom_stick[1] = .5f; curve.custom_response[1] = .15f;
+    curve.custom_stick[2] = curve.custom_response[2] = 1;
+    double clock = 100;
+    NativeGamepadController controller(config, &clock);
+    PhysicalGamepadState physical{};
+    physical.connected = true;
+    for (int i = -1000; i <= 1000; ++i) {
+        clock += .001;
+        physical.right_x = i / 1000.f;
+        physical.right_y = -i / 1000.f;
+        auto output = controller.build_output(physical);
+        require(output.right_x == physical.right_x && output.right_y == physical.right_y,
+            "custom response curve must not remap raw manual passthrough or add a deadzone");
+    }
+}
+
 void activation_transitions() {
     using namespace controller_native;
     using pipeline_contract::AssistActivation;
@@ -156,6 +179,7 @@ void selection_state_owns_identity() {
 }  // namespace
 
 void register_state_machine_contract_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "custom_curve_keeps_manual_passthrough", custom_curve_keeps_manual_passthrough);
     registry.add_case("BaseContracts", "activation_transitions", activation_transitions);
     registry.add_case("BaseEndToEnd", "application_activation_end_to_end", application_activation_end_to_end);
     registry.add_case("BaseAds", "ads_wait_identity_and_priority", ads_wait_identity_and_priority);

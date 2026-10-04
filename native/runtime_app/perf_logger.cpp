@@ -322,10 +322,8 @@ std::string summary_json(
 
     std::ostringstream output;
     output << std::fixed << std::setprecision(3)
-           << "{\"schema_version\":2,\"type\":\"runtime_perf_summary\""
+           << "{\"schema_version\":3,\"type\":\"runtime_perf_summary\""
            << ",\"build_commit\":\"" << options.build_commit << '"'
-           << ",\"config_sha256\":\"" << options.config_sha256 << '"'
-           << ",\"engine_sha256\":\"" << options.engine_sha256 << '"'
            << ",\"histogram_bucket_ms\":" << kHistogramBucketWidthMs
            << ",\"window_start_steady_ns\":" << record.window_start_ns
            << ",\"window_end_steady_ns\":" << record.window_end_ns

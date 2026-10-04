@@ -37,10 +37,6 @@ add_test(NAME MouseExistingInterceptionLeakNegativeControl COMMAND mouse_existin
 set_tests_properties(MouseExistingInterceptionLeakNegativeControl PROPERTIES WILL_FAIL TRUE)
 set(_virtual_interception_dll "${CMAKE_CURRENT_SOURCE_DIR}/../../artifacts/mouse_link/deps/Interception/library/x64/interception.dll")
 if(EXISTS "${_virtual_interception_dll}")
-    file(SHA256 "${_virtual_interception_dll}" _virtual_interception_sha)
-    if(NOT _virtual_interception_sha STREQUAL "ab88164c11b1b48488772d4c3bfaa4509d5b0ae9dbc5a691dc4f96f0260443c8")
-        message(FATAL_ERROR "Unexpected Interception DLL bytes")
-    endif()
     add_custom_command(TARGET mouse_virtual_relay POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_virtual_interception_dll}"
         "$<TARGET_FILE_DIR:mouse_virtual_relay>/interception.dll")

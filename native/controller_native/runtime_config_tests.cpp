@@ -10,6 +10,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <random>
 
 namespace {
 
@@ -599,7 +600,47 @@ void test_hipfire_ai_and_response_learning_config() {
     require(rejected, "learning switch must be a boolean, not a quoted string");
 }
 
+void test_custom_curve_config_and_roundtrip() {
+    TempConfig file("cod_custom_curve.toml", "[gamepad.aim_response_curve]\nalgorithm=\"custom_lut\"\ncustom_points=\"0:0;0.25:0.1;0.5:0.3;1:1\"\n");
+    auto config = controller_native::load_runtime_config(file.path());
+    require(config.diagnostics.empty() && config.gamepad.aim_response_curve.custom_count == 4, "custom curve reaches native config");
+    for (const auto* points : {"0:0;1:0.9", "0:0;0.5:0.8;1:0.7", "0:0;0.5:0.2;0.5:0.8;1:1", "0:0;nan:0.5;1:1", "0:0;1:1;", "0:0;0.5oops:0.5;1:1"}) {
+        TempConfig bad("cod_invalid_custom_curve.toml", std::string("[gamepad.aim_response_curve]\nalgorithm=\"custom_lut\"\ncustom_points=\"") + points + "\"\n");
+        bool rejected = false;
+        try { (void)controller_native::load_runtime_config(bad.path()); } catch (const std::runtime_error&) { rejected = true; }
+        require(rejected, "invalid custom curves must fail at config ownership boundary");
+    }
+    std::mt19937 rng(20261004);
+    std::uniform_real_distribution<float> random(.01f, 1.f);
+    for (int curve_index = 0; curve_index < 100; ++curve_index) {
+        auto& curve = config.gamepad.aim_response_curve;
+        curve.custom_count = 11;
+        curve.custom_response[0] = 0;
+        for (int i = 0; i < 11; ++i) {
+            curve.custom_stick[i] = i / 10.f;
+            if (i) curve.custom_response[i] = curve.custom_response[i - 1] + random(rng);
+        }
+        const float total = curve.custom_response[10];
+        for (int i = 1; i < 11; ++i) curve.custom_response[i] /= total;
+        float previous = -1;
+        for (int i = 0; i <= 500; ++i) {
+            const float value = i / 500.f;
+            const auto response = controller_native::forward_aim_response_curve({value, 0}, curve);
+            const auto stick = controller_native::inverse_aim_response_curve(response, curve);
+            require(std::isfinite(response.x) && response.x >= previous && std::fabs(stick.x - value) < 3e-5f && stick.y == 0,
+                "custom mapping is monotonic, finite, direction-preserving and reversible");
+            previous = response.x;
+            const pipeline_contract::Vec2f diagonal{value * .6f, -value * .8f};
+            const auto diagonal_response = controller_native::forward_aim_response_curve(diagonal, curve);
+            const auto roundtrip = controller_native::inverse_aim_response_curve(diagonal_response, curve);
+            require(std::fabs(roundtrip.x - diagonal.x) < 3e-5f && std::fabs(roundtrip.y - diagonal.y) < 3e-5f,
+                "custom curve preserves diagonal direction and negative-axis sign");
+        }
+    }
+}
+
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "custom_curve_config_and_randomized_roundtrip", test_custom_curve_config_and_roundtrip);
     registry.add_case("BaseContracts", "hipfire_ai_and_response_learning_config", test_hipfire_ai_and_response_learning_config);
     registry.add_case("BaseContracts", "region_prior_config_boundaries", test_region_prior_config_boundaries);
     registry.add_case("BaseContracts", "hot_reload_diff_control_channel", test_hot_reload_diff_and_control_channel);

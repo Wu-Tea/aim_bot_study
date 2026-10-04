@@ -33,9 +33,6 @@ void test_fresh_manifest_and_markers_are_atomic_session_contract() {
         options.enabled = true;
         options.root = root;
         options.git_commit = "abc123";
-        options.config_hash = "cfg456";
-        options.executable_sha256 = "exe789";
-        options.control_contract_sha256 = "control123";
         options.control_architecture_version = 2;
         options.control_event_schema_version = 1;
         runtime_app::LogSessionManager manager(std::move(options));
@@ -47,20 +44,14 @@ void test_fresh_manifest_and_markers_are_atomic_session_contract() {
         const auto session = read_all(manager.session_directory() / "session.json");
         require_true(session.find("causal_response_journal") == std::string::npos,
                      "session manifest must not advertise the retired causal journal");
-        require_true(session.find("engine_hash") != std::string::npos &&
-                         session.find("capture_width") != std::string::npos &&
+        require_true(session.find("capture_width") != std::string::npos &&
                          session.find("tensor_width") != std::string::npos &&
                          session.find("require_isotropic_resize") != std::string::npos,
-                     "session manifest must retain engine, crop and Tensor provenance");
-        require_true(session.find("executable_sha256") != std::string::npos &&
-                         session.find("exe789") != std::string::npos &&
-                         session.find("control_contract_sha256") != std::string::npos &&
-                         session.find("control123") != std::string::npos &&
-                         session.find("control_architecture_version\": 2") != std::string::npos &&
+                     "session manifest must retain crop and Tensor metadata");
+        require_true(session.find("control_architecture_version\": 2") != std::string::npos &&
                          session.find("control_event_schema_version\": 1") != std::string::npos &&
-                         std::filesystem::exists(
-                             manager.session_directory() / "session_metadata.json"),
-                     "session metadata must record executable provenance without a path");
+                         std::filesystem::exists(manager.session_directory() / "session_metadata.json"),
+                     "session metadata must retain architecture versions");
         const auto fresh = read_all(root / "fresh_session.json");
         require_true(fresh.find(manager.session_id()) != std::string::npos,
                      "fresh manifest must name the active session");
@@ -81,7 +72,6 @@ void test_sessions_are_unique_and_share_child_paths() {
     first_options.enabled = true;
     first_options.root = root;
     first_options.git_commit = "a";
-    first_options.config_hash = "b";
     runtime_app::LogSessionManager first(std::move(first_options));
     const auto first_id = first.session_id();
     first.close();
@@ -89,7 +79,6 @@ void test_sessions_are_unique_and_share_child_paths() {
     second_options.enabled = true;
     second_options.root = root;
     second_options.git_commit = "a";
-    second_options.config_hash = "b";
     runtime_app::LogSessionManager second(std::move(second_options));
     require_true(second.session_id() != first_id, "each run must own a unique session");
     require_true(second.child_path("telemetry_0001.jsonl").parent_path() ==

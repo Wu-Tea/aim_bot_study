@@ -285,9 +285,6 @@ bool RuntimeTelemetry::open_next_file() {
                 << ",\"type\":\"session_metadata\""
                 << ",\"session_id\":\"" << metadata.session_id.data() << '\"'
                 << ",\"build_commit\":\"" << metadata.build_commit.data() << '\"'
-                << ",\"config_hash\":\"" << metadata.config_hash.data() << '\"'
-                << ",\"engine_hash\":\"" << metadata.engine_hash.data() << '\"'
-                << ",\"executable_sha256\":\"" << metadata.executable_sha256.data() << '\"'
                 << ",\"capture_width\":" << metadata.capture_width
                 << ",\"capture_height\":" << metadata.capture_height
                 << ",\"active_capture_fps\":" << metadata.active_capture_fps
@@ -335,9 +332,6 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
     case TelemetryRecordType::SessionMetadata:
         output_ << ",\"session_id\":\"" << record.session_metadata.session_id.data() << '\"'
             << ",\"build_commit\":\"" << record.session_metadata.build_commit.data() << '\"'
-            << ",\"config_hash\":\"" << record.session_metadata.config_hash.data() << '\"'
-            << ",\"engine_hash\":\"" << record.session_metadata.engine_hash.data() << '\"'
-            << ",\"executable_sha256\":\"" << record.session_metadata.executable_sha256.data() << '\"'
             << ",\"capture_width\":" << record.session_metadata.capture_width
             << ",\"capture_height\":" << record.session_metadata.capture_height
             << ",\"active_capture_fps\":"
@@ -580,9 +574,6 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << vision_sample_quality_name(record.vision_sample_quality) << '"'
             << ",\"provenance\":{"
             << "\"build_revision\":\"" << provenance.build_commit.data() << '"'
-            << ",\"config_sha256\":\"" << provenance.config_hash.data() << '"'
-            << ",\"engine_sha256\":\"" << provenance.engine_hash.data() << '"'
-            << ",\"executable_sha256\":\"" << provenance.executable_sha256.data() << '"'
             << ",\"capture_width\":" << provenance.capture_width
             << ",\"capture_height\":" << provenance.capture_height << '}';
         break;

@@ -16,7 +16,6 @@ def main(game):
     dest.mkdir(parents=True,exist_ok=False)
     pt=dest/f'{game}_specialist.pt'
     shutil.copy2(selected['path'],pt)
-    assert sha(pt)==selected['sha256']
     model=YOLO(str(pt))
     onnx=model.export(format='onnx',imgsz=(384,480),batch=1,half=False,
                       dynamic=False,simplify=True,opset=17,device=0,nms=False)

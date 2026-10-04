@@ -10,18 +10,18 @@ For current guidance, start at [Current State](../project/CURRENT_STATE.md).
 
 - [Aim control optimization history, July 16–20](control-history/AIM_CONTROL_OPTIMIZATION_HISTORY_20260716_20260720.md)
 - [Aim tuning sweep, July 18](control-history/AIM_TUNING_SWEEP_20260718.md)
-- [BodyLock handoff acceptance](control-history/BODYLOCK_HANDOFF_ACCEPTANCE.md)
-- [Brake episode benchmark acceptance](control-history/BRAKE_EPISODE_BENCHMARK_ACCEPTANCE_20260719.md)
-- [Causal learning AimLab acceptance](control-history/CAUSAL_LEARNING_AIMLAB_ACCEPTANCE_20260722.md)
+- BodyLock handoff acceptance（旧验收材料已删除）
+- Brake episode benchmark acceptance（旧验收材料已删除）
+- Causal learning AimLab acceptance（旧验收材料已删除）
 - [Causal response ego-motion ownership audit](control-history/CAUSAL_RESPONSE_EGO_MOTION_OWNERSHIP_AUDIT.md)
-- [Causal response shadow acceptance](control-history/CAUSAL_RESPONSE_SHADOW_ACCEPTANCE_20260722.md)
+- Causal response shadow acceptance（旧验收材料已删除）
 - [Controller config audit](control-history/CONTROLLER_CONFIG_AUDIT_20260716.md)
-- [Counterfactual conflict benchmark acceptance](control-history/COUNTERFACTUAL_CONFLICT_BENCHMARK_ACCEPTANCE_20260719.md)
-- [Fresh-Vision manual counter-correction acceptance](control-history/FRESH_VISION_MANUAL_COUNTER_CORRECTION_ACCEPTANCE_20260722.md)
+- Counterfactual conflict benchmark acceptance（旧验收材料已删除）
+- Fresh-Vision manual counter-correction acceptance（旧验收材料已删除）
 - [Legacy aim-feel restoration](control-history/LEGACY_AIM_FEEL_RESTORE_20260716.md)
-- [Refactor B acceptance](control-history/REFACTOR_B_ACCEPTANCE_20260716.md)
+- Refactor B acceptance（旧验收材料已删除）
 - [Refactor B baseline](control-history/REFACTOR_B_BASELINE_20260716.md)
-- [Response-model aim-control acceptance](control-history/RESPONSE_MODEL_AIM_CONTROL_ACCEPTANCE_20260718.md)
+- Response-model aim-control acceptance（旧验收材料已删除）
 
 ## Project history
 
@@ -32,7 +32,7 @@ For current guidance, start at [Current State](../project/CURRENT_STATE.md).
 
 ## Performance history
 
-- [Native runtime performance acceptance](performance-history/NATIVE_RUNTIME_PERFORMANCE_ACCEPTANCE.md)
+- Native runtime performance acceptance（旧验收材料已删除）
 - [Native Vision GPU-service benchmarks](performance-history/NATIVE_VISION_GPU_SERVICE_BENCHMARKS.md)
 - [Vision pipeline performance plan](performance-history/PERF_PLAN.md)
 
@@ -46,11 +46,11 @@ For current guidance, start at [Current State](../project/CURRENT_STATE.md).
 
 ## Benchmark results
 
-- [Gamepad ADS benchmarks](benchmark-results/GAMEPAD_ADS_BENCHMARKS.md)
-- [Gamepad benchmarks](benchmark-results/GAMEPAD_BENCHMARKS.md)
-- [Gamepad manual-mix benchmarks](benchmark-results/GAMEPAD_MANUAL_MIX_BENCHMARKS.md)
-- [Mouse ADS benchmarks](benchmark-results/MOUSE_ADS_BENCHMARKS.md)
-- [Native controller benchmarks](benchmark-results/NATIVE_CONTROLLER_BENCHMARKS.md)
+- Gamepad ADS benchmarks（旧验收材料已删除）
+- Gamepad benchmarks（旧验收材料已删除）
+- Gamepad manual-mix benchmarks（旧验收材料已删除）
+- Mouse ADS benchmarks（旧验收材料已删除）
+- Native controller benchmarks（旧验收材料已删除）
 
 Historical design specifications and execution plans remain in
 `../superpowers/specs/` and `../superpowers/plans/`. They were not moved because
