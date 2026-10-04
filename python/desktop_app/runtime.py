@@ -15,7 +15,7 @@ import uuid
 import time
 
 from .settings import effective, lookup
-from .fields import validate_fields
+from .fields import COMMON_FIELDS, GAME_FIELDS, field_value, validate_fields
 
 CREATE_NO_WINDOW = 0x08000000
 kernel = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -141,6 +141,27 @@ class RuntimeManager:
             error = result.stderr.decode('utf-8', errors='replace').strip()
             if result.returncode or 'unknown config key:' in error:
                 raise ValueError(f'{game} 配置校验失败：\n{error or result.stdout.decode("utf-8", errors="replace")}')
+
+    def inspect_defaults(self, game):
+        """Use the native loader for absent fields, including profile defaults."""
+        if not self.executable.is_file():
+            return {}
+        result = subprocess.run([str(self.executable), '--config', str(self.root / 'config.toml'),
+                                 '--game', game, '--dump-effective-config'], cwd=self.root,
+                                capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=30)
+        if result.returncode:
+            raise ValueError('无法读取原生配置：' + result.stderr.decode('utf-8', errors='replace').strip())
+        fields = {field[0]: field for field in GAME_FIELDS + COMMON_FIELDS}
+        values = {}
+        for line in result.stdout.decode('utf-8').splitlines():
+            setting, separator, _source = line.rpartition(' source=')
+            path, equals, raw = setting.partition('=')
+            if not separator or not equals or path not in fields:
+                continue
+            field = fields[path]
+            value = raw == '1' if field[2] is bool else field_value(field, raw)
+            values[path] = value
+        return values
 
     def active(self):
         paths = [self.state_path] + [self.state_path.parent / game / self.state_path.name for game in ('apex', 'bo3')]

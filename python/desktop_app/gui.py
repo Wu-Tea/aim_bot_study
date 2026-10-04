@@ -14,10 +14,10 @@ from tkinter import filedialog, messagebox, ttk
 import tomllib
 
 from .runtime import RuntimeManager, tail
-from .settings import ConfigStore, effective, lookup, update_text
+from .settings import ConfigStore, UiPreferences, effective, lookup, update_text
 
 GAME_LABELS = {'default': '通用 / COD', 'apex': 'Apex Legends', 'bo3': 'COD：Black Ops III'}
-from .fields import COMMON_FIELDS, GAME_FIELDS, field_value
+from .fields import CHOICE_LABELS, COMMON_FIELDS, FIELD_GROUPS, GAME_FIELDS, field_value
 
 
 class AssistantWindow:
@@ -30,20 +30,17 @@ class AssistantWindow:
         self.busy = False
         self.loading = False
         self.drafts = {}
+        self.pinned = set()
         self.restart_required = False
         self.pending_request_id = None
-        self.ui_state = self.project / 'runs/desktop/ui.json'
+        self.preferences = UiPreferences(self.project)
+        self.ui_state = self.preferences.path
         self.text, self.document, self.digest = self.store.read()
         self.games = ['default'] + list(self.document.get('games', {}))
         self.game_labels = {key: GAME_LABELS.get(key, key) for key in self.games}
         selected = lookup(self.document, 'runtime.game', 'default')
-        ui_settings = {}
-        try:
-            ui_settings = json.loads(self.ui_state.read_text(encoding='utf-8'))
-            selected = ui_settings['game']
-        except (OSError, ValueError, KeyError, TypeError):
-            ui_settings = {}
-            pass
+        ui_settings = self.preferences.read()
+        selected = ui_settings.get('game', selected)
         active = self.manager.active()
         if active:
             selected = active['game']
@@ -53,10 +50,14 @@ class AssistantWindow:
         self.status_text = tk.StringVar(value='已停止')
         self.device_text = tk.StringVar(value='启动后自动识别手柄')
         self.model_text = tk.StringVar()
+        self.config_summary = tk.StringVar()
+        self.scope_text = tk.StringVar()
+        self.change_summary = tk.StringVar(value='没有待保存的修改')
+        self.show_details = tk.BooleanVar(value=False)
         self.notice = tk.StringVar(value='设置保存到 config.toml；支持的参数可直接热重载。')
         self.inputs = []
         self.root.title('手柄助手')
-        self.root.geometry('900x760')
+        self.root.geometry('1000x820')
         self.root.minsize(760, 610)
         self.root.configure(bg='#f4f6f9')
         style = ttk.Style()
@@ -67,15 +68,16 @@ class AssistantWindow:
         style.configure('Title.TLabel', font=('Microsoft YaHei UI', 21, 'bold'))
         style.configure('Muted.TLabel', foreground='#66758a', font=('Microsoft YaHei UI', 9))
         style.configure('Status.TLabel', font=('Microsoft YaHei UI', 12, 'bold'))
+        style.configure('Section.TLabel', font=('Microsoft YaHei UI', 12, 'bold'), foreground='#245bd6')
         style.configure('TButton', padding=(13, 8))
         style.configure('TCheckbutton', background='#f4f6f9')
         style.configure('Primary.TButton', background='#245bd6', foreground='white', padding=(22, 11))
         style.map('Primary.TButton', background=[('active', '#1a4ab4'), ('disabled', '#93a8cf')])
         style.configure('TNotebook.Tab', padding=(16, 8))
-        outer = ttk.Frame(root, padding=24)
+        outer = ttk.Frame(root, padding=16)
         outer.pack(fill='both', expand=True)
         ttk.Label(outer, text='手柄助手', style='Title.TLabel').pack(anchor='w')
-        ttk.Label(outer, text='主程序与 Fusion 分别启停；关闭此窗口不停止后台程序。', style='Muted.TLabel').pack(anchor='w', pady=(3, 16))
+        ttk.Label(outer, text='选择游戏，核对识别模型与响应曲线，再启动辅助。', style='Muted.TLabel').pack(anchor='w', pady=(0, 10))
         row = ttk.Frame(outer)
         row.pack(fill='x')
         ttk.Label(row, text='游戏').pack(side='left', padx=(0, 12))
@@ -87,20 +89,25 @@ class AssistantWindow:
         self.stop_button = ttk.Button(row, text='停止主程序', command=lambda: self.run_job('正在停止主程序…', self.manager.stop))
         self.stop_button.pack(side='right', padx=8)
         self.stop_button.state(['disabled'])
-        status = ttk.Frame(outer, padding=(0, 15, 0, 8))
+        ttk.Label(outer, textvariable=self.config_summary, wraplength=690).pack(anchor='w', pady=(8, 0))
+        status = ttk.Frame(outer, padding=(0, 8, 0, 8))
         status.pack(fill='x')
-        ttk.Label(status, textvariable=self.status_text, style='Status.TLabel').pack(anchor='w')
-        ttk.Label(status, textvariable=self.device_text, style='Muted.TLabel').pack(anchor='w', pady=3)
-        ttk.Label(status, textvariable=self.model_text, style='Muted.TLabel', wraplength=800).pack(anchor='w')
-        fusion_row = ttk.Frame(outer)
-        fusion_row.pack(fill='x', pady=(0, 12))
+        status_details = ttk.Frame(status)
+        status_details.pack(side='left', fill='x', expand=True)
+        status_line = ttk.Frame(status_details)
+        status_line.pack(fill='x')
+        ttk.Label(status_line, textvariable=self.status_text, style='Status.TLabel').pack(side='left')
+        ttk.Label(status_line, textvariable=self.device_text, style='Muted.TLabel').pack(side='left', padx=(14, 0))
+        ttk.Label(status_details, textvariable=self.model_text, style='Muted.TLabel', wraplength=500).pack(anchor='w', pady=(3, 0))
+        fusion_row = ttk.Frame(status)
+        fusion_row.pack(side='right')
         self.fusion_text = tk.StringVar(value='Fusion：未开启')
-        ttk.Label(fusion_row, textvariable=self.fusion_text, style='Muted.TLabel').pack(side='left')
+        ttk.Label(fusion_row, textvariable=self.fusion_text, style='Muted.TLabel').pack(anchor='e')
         self.fusion_button = ttk.Button(fusion_row, text='开启 Fusion', command=self.toggle_fusion)
         self.fusion_button.pack(side='right')
         self.notebook = ttk.Notebook(outer)
         self.pages = {}
-        for key, label in [('game', '当前游戏设置'), ('common', '共用设置')]:
+        for key, label in [('game', '游戏设置'), ('common', '设备与性能')]:
             page = ttk.Frame(self.notebook)
             self.notebook.add(page, text=label)
             canvas = tk.Canvas(page, background='#f4f6f9', highlightthickness=0)
@@ -112,9 +119,12 @@ class AssistantWindow:
             window = canvas.create_window((0, 0), window=form, anchor='nw')
             form.bind('<Configure>', lambda _, c=canvas: c.configure(scrollregion=c.bbox('all')))
             canvas.bind('<Configure>', lambda event, c=canvas, win=window: c.itemconfigure(win, width=event.width))
-            canvas.bind('<Enter>', lambda _, c=canvas: c.bind_all('<MouseWheel>', lambda event: c.yview_scroll(-int(event.delta / 120), 'units')))
-            canvas.bind('<Leave>', lambda _, c=canvas: c.unbind_all('<MouseWheel>'))
+            self.bind_scroll(page, canvas)
             self.pages[key] = form
+        settings_context = ttk.Frame(outer)
+        settings_context.pack(fill='x', pady=(0, 6))
+        ttk.Label(settings_context, textvariable=self.scope_text, style='Muted.TLabel', wraplength=550).pack(side='left', fill='x', expand=True)
+        ttk.Checkbutton(settings_context, text='显示详细参数', variable=self.show_details, command=self.toggle_details).pack(side='right')
         learning_page = ttk.Frame(self.notebook, padding=16)
         self.notebook.add(learning_page, text='学习参数')
         self.learning_summary = tk.StringVar(value='应用未运行，暂无学习数据。')
@@ -131,8 +141,7 @@ class AssistantWindow:
         learning_window = learning_canvas.create_window((0, 0), window=learning_content, anchor='nw')
         learning_content.bind('<Configure>', lambda _: learning_canvas.configure(scrollregion=learning_canvas.bbox('all')))
         learning_canvas.bind('<Configure>', lambda event: learning_canvas.itemconfigure(learning_window, width=event.width))
-        learning_canvas.bind('<Enter>', lambda _: learning_canvas.bind_all('<MouseWheel>', lambda event: learning_canvas.yview_scroll(-int(event.delta / 120), 'units')))
-        learning_canvas.bind('<Leave>', lambda _: learning_canvas.unbind_all('<MouseWheel>'))
+        self.bind_scroll(learning_page, learning_canvas)
         self.learning_table = ttk.Treeview(learning_content, columns=('effective', 'learned', 'confidence', 'samples'), height=4)
         self.learning_table.heading('#0', text='响应区域')
         self.learning_table.column('#0', width=185, minwidth=145)
@@ -148,13 +157,14 @@ class AssistantWindow:
                   '仅修改学习开关或腰射 AI 倍率会保留学习数据；其他热重载仍会清理。模型等设置需重启。',
                   style='Muted.TLabel', wraplength=660).pack(anchor='w', pady=14)
         footer = ttk.Frame(outer)
+        ttk.Label(outer, textvariable=self.change_summary, wraplength=680).pack(side='bottom', anchor='w', pady=(8, 0))
         self.save_button = ttk.Button(footer, text='保存并应用', command=self.save)
         self.save_button.pack(side='left')
-        self.raw_button = ttk.Button(footer, text='高级配置', command=self.open_editor)
+        self.raw_button = ttk.Button(footer, text='编辑配置文件', command=self.open_editor)
         self.raw_button.pack(side='left', padx=8)
         ttk.Button(footer, text='查看日志', command=self.show_logs).pack(side='right')
         ttk.Button(footer, text='重新载入', command=self.reload).pack(side='right', padx=8)
-        self.apply_button = ttk.Button(footer, text='热重载', command=self.apply_saved_config)
+        self.apply_button = ttk.Button(footer, text='应用已保存配置', command=self.apply_saved_config)
         self.apply_button.pack(side='left', padx=(0, 8))
         ttk.Label(outer, textvariable=self.notice, style='Muted.TLabel', wraplength=680).pack(side='bottom', anchor='w', pady=(9, 0))
         footer.pack(side='bottom', fill='x', pady=(14, 0))
@@ -166,67 +176,144 @@ class AssistantWindow:
     def selected_game(self):
         return next(key for key, label in self.game_labels.items() if label == self.game.get())
 
+    def bind_scroll(self, page, canvas):
+        # Bind to this window only; child widgets keep their own wheel behavior.
+        def scroll(event):
+            widget = event.widget
+            while widget is not None:
+                if widget == page:
+                    if event.widget.winfo_class() != 'TCombobox':
+                        canvas.yview_scroll(-int(event.delta / 120), 'units')
+                    return
+                widget = getattr(widget, 'master', None)
+        self.root.bind('<MouseWheel>', scroll, add='+')
+
+    def toggle_details(self):
+        for section in self.detail_sections:
+            if self.show_details.get():
+                section.pack(fill='x', pady=(0, 20))
+            else:
+                section.pack_forget()
+
     def build_forms(self):
         self.loading = True
         self.inputs = []
         self.variables = {}
+        self.field_specs = {}
+        self.sources = {}
+        self.detail_sections = []
         game = self.selected_game()
+        native_defaults = self.manager.inspect_defaults(game)
+        common_defaults = self.manager.inspect_defaults('default') if game != 'default' else native_defaults
         for scope, fields in [('game', GAME_FIELDS), ('common', COMMON_FIELDS)]:
             form = self.pages[scope]
             for child in form.winfo_children():
                 child.destroy()
             data = effective(self.document, game) if scope == 'game' else self.document
-            form.columnconfigure(1, weight=1)
-            for row, field in enumerate(fields):
+            defaults = native_defaults if scope == 'game' else common_defaults
+            groups = []
+            available = {field[0]: field for field in fields}
+            for title, description, detailed, paths in FIELD_GROUPS:
+                members = [available[path] for path in paths if path in available]
+                if not members:
+                    continue
+                section = ttk.Frame(form)
+                section.pack(fill='x', pady=(0, 20))
+                ttk.Label(section, text=title, style='Section.TLabel').pack(anchor='w')
+                ttk.Label(section, text=description, style='Muted.TLabel', wraplength=580).pack(anchor='w', pady=(4, 8))
+                body = ttk.Frame(section)
+                body.pack(fill='x')
+                body.columnconfigure(1, weight=1)
+                groups.extend((body, row, field) for row, field in enumerate(members))
+                if detailed:
+                    self.detail_sections.append(section)
+            for body, row, field in groups:
                 path, label, kind, fallback, limits = field
                 target = f'games.{game}.{path}' if scope == 'game' and game != 'default' else path
-                value = self.drafts[target][1] if target in self.drafts else lookup(data, path, fallback)
+                original = lookup(data, path, defaults.get(path, fallback))
+                value = self.drafts[target][1] if target in self.drafts else original
                 variable = tk.BooleanVar(value=value) if kind is bool else tk.StringVar(value=str(value))
                 self.variables[target] = variable
-                ttk.Label(form, text=label).grid(row=row, column=0, sticky='w', padx=(0, 22), pady=7)
+                self.field_specs[target] = field
+                ttk.Label(body, text=label).grid(row=row, column=0, sticky='w', padx=(0, 16), pady=7)
                 if kind is bool:
-                    widget = ttk.Checkbutton(form, text='启用', variable=variable)
+                    widget = ttk.Checkbutton(body, text='启用', variable=variable)
                 elif kind is str and limits:
-                    widget = ttk.Combobox(form, textvariable=variable, values=limits, state='readonly')
+                    # Canonical values remain in variables and persisted TOML.
+                    display = tk.StringVar(value=CHOICE_LABELS.get(value, value))
+                    widget = ttk.Combobox(body, textvariable=display, values=[CHOICE_LABELS.get(v, v) for v in limits], state='readonly', width=20)
+                    widget.bind('<<ComboboxSelected>>', lambda _, d=display, v=variable, options=limits:
+                                v.set(next(x for x in options if CHOICE_LABELS.get(x, x) == d.get())))
+                    variable.trace_add('write', lambda *_args, d=display, v=variable: d.set(CHOICE_LABELS.get(v.get(), v.get())))
                 else:
-                    widget = ttk.Entry(form, textvariable=variable)
+                    widget = ttk.Entry(body, textvariable=variable)
                 widget.grid(row=row, column=1, sticky='ew', pady=7)
                 self.inputs.append(widget)
                 if path.endswith('model_path'):
-                    button = ttk.Button(form, text='选择文件', command=lambda v=variable: self.choose_model(v))
+                    button = ttk.Button(body, text='选择文件', command=lambda v=variable: self.choose_model(v))
                     button.grid(row=row, column=2, padx=(8, 0))
                     self.inputs.append(button)
-                elif scope == 'game' and game != 'default':
+                if scope == 'game' and game != 'default':
                     inherited = lookup(self.document, target) is None
-                    ttk.Label(form, text='继承共用' if inherited else '游戏专属', style='Muted.TLabel').grid(row=row, column=2, padx=(12, 0))
-                variable.trace_add('write', lambda *_args, p=target, f=field, v=variable, original=lookup(data, path, fallback):
+                    source = tk.StringVar(value='待保存 · 游戏专属' if target in self.drafts else '继承通用' if inherited else '游戏专属')
+                    self.sources[target] = source
+                    ttk.Label(body, textvariable=source, style='Muted.TLabel').grid(row=row, column=3, padx=(12, 0))
+                    if inherited:
+                        button = ttk.Button(body, text='设为专属', command=lambda p=target: self.pin_field(p))
+                        button.grid(row=row, column=4, padx=(8, 0))
+                        self.inputs.append(button)
+                variable.trace_add('write', lambda *_args, p=target, f=field, v=variable, original=original:
                     self.edit_field(p, f, v.get(), original))
         self.loading = False
+        self.toggle_details()
         self.update_model()
+
+    def pin_field(self, path):
+        self.pinned.add(path)
+        field = self.field_specs[path]
+        self.edit_field(path, field, self.variables[path].get(), None)
 
     def edit_field(self, path, field, value, original):
         if self.loading:
             return
         try:
-            changed = field_value(field, value) != original
+            changed = path in self.pinned or field_value(field, value) != original
         except ValueError:
             changed = True
         if changed:
             self.drafts[path] = (field, value)
         else:
             self.drafts.pop(path, None)
+        if path in self.sources:
+            self.sources[path].set('待保存 · 游戏专属' if changed else '继承通用' if lookup(self.document, path) is None else '游戏专属')
         self.notice.set('有未保存的修改；保存时尝试热重载，不支持的参数会提示重启。' if self.drafts else '设置保存到 config.toml；支持的参数可直接热重载。')
         self.update_model()
 
     def change_game(self):
         if not self.busy:
             self.build_forms()
+            try:
+                self.preferences.save_game(self.selected_game())
+            except OSError as error:
+                self.notice.set('游戏选择未能记住：' + str(error))
 
     def update_model(self):
         game = self.selected_game()
         path = f'games.{game}.runtime.vision.model_path' if game != 'default' else 'runtime.vision.model_path'
         model = self.drafts[path][1] if path in self.drafts else lookup(effective(self.document, game), 'runtime.vision.model_path', '')
         self.model_text.set('模型：' + (Path(model).name if model else '尚未设置'))
+        curve_path = f'games.{game}.gamepad.aim_response_curve.algorithm' if game != 'default' else 'gamepad.aim_response_curve.algorithm'
+        curve = self.variables[curve_path].get()
+        self.config_summary.set(f'正在编辑：{self.game.get()}  ·  工具曲线：{CHOICE_LABELS.get(curve, curve)}' +
+                                ('  ·  含未保存修改' if path in self.drafts or curve_path in self.drafts else '  ·  已保存配置'))
+        self.scope_text.set('通用 / COD 的游戏参数也会被其他游戏继承；需要不同值时，在对应游戏中单独保存。' if game == 'default' else
+                            '当前页只修改此游戏；“设备与性能”中的参数由所有游戏共用。')
+        scopes = {}
+        for target in self.drafts:
+            key = target.split('.')[1] if target.startswith('games.') else 'default'
+            label = self.game_labels.get(key, key) if target.startswith('games.') else '通用配置'
+            scopes[label] = scopes.get(label, 0) + 1
+        self.change_summary.set('待保存：' + '；'.join(f'{label} {count} 项' for label, count in scopes.items()) + '。保存会写入以上所有修改。' if scopes else '没有待保存的修改')
 
     def choose_model(self, variable):
         filename = filedialog.askopenfilename(parent=self.root, title='选择识别模型', filetypes=[('TensorRT 模型', '*.engine'), ('所有文件', '*.*')])
@@ -265,6 +352,7 @@ class AssistantWindow:
     def saved(self, _result=None):
         self.text, self.document, self.digest = self.store.read()
         self.drafts.clear()
+        self.pinned.clear()
         self.build_forms()
         self.notice.set('配置已保存；运行中的参数以热重载结果为准。' if self.manager.active() else '已保存，下次启动生效。')
 
@@ -503,8 +591,11 @@ class AssistantWindow:
             return
         if self.drafts and not messagebox.askyesno('关闭窗口', '还有未保存的修改，是否放弃这些修改并关闭？', parent=self.root):
             return
-        self.ui_state.parent.mkdir(parents=True, exist_ok=True)
-        self.ui_state.write_text(json.dumps({'game': self.selected_game()}), encoding='utf-8')
+        try:
+            self.preferences.save_game(self.selected_game())
+        except OSError as error:
+            messagebox.showerror('游戏选择未保存', str(error), parent=self.root)
+            return
         self.root.after_cancel(self.poll_id)
         self.root.destroy()
 

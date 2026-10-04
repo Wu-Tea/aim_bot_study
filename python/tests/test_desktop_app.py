@@ -1,4 +1,5 @@
 import json
+import gc
 from pathlib import Path
 import subprocess
 import tempfile
@@ -7,7 +8,7 @@ import tomllib
 import unittest
 from unittest.mock import Mock, patch
 
-from desktop_app.settings import ConfigStore, effective, update_text
+from desktop_app.settings import ConfigStore, UiPreferences, effective, update_text
 from desktop_app.runtime import RuntimeManager, process_identity
 from desktop_app.gui import AssistantWindow
 from desktop_app.fields import validate_fields
@@ -33,6 +34,20 @@ deadzone = 0.20
 
 
 class DesktopConfigTests(unittest.TestCase):
+    def test_preferences_handle_invalid_json_and_preserve_other_preferences(self):
+        with tempfile.TemporaryDirectory() as directory:
+            preferences = UiPreferences(directory)
+            preferences.path.parent.mkdir(parents=True)
+            for raw in ('{', 'null', '[]', '42'):
+                preferences.path.write_text(raw, encoding='utf-8')
+                self.assertEqual(preferences.read(), {})
+                preferences.save_game('apex')
+                self.assertEqual(preferences.read()['game'], 'apex')
+            preferences.path.write_text('{"game":"default","extra":true}', encoding='utf-8')
+            preferences.save_game('bo3')
+            self.assertEqual(preferences.read(), {'game': 'bo3', 'extra': True})
+            self.assertEqual(list(preferences.path.parent.glob('.ui-*.json')), [])
+
     def test_region_prior_ranges_and_game_isolation(self):
         keys = ('body_free_initial_scale', 'body_slow_initial_scale',
                 'ads_free_initial_scale', 'ads_slow_initial_scale')
@@ -171,11 +186,99 @@ class DesktopConfigTests(unittest.TestCase):
 
 
 class DesktopWidgetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Tk supports one application interpreter; each case owns a window.
+        cls.host = tk.Tk()
+        cls.host.withdraw()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.host.destroy()
+        gc.collect()
+
+    def test_reopen_restores_apex_curve_without_changing_configuration(self):
+        self.app.game.set('Apex Legends')
+        self.app.change_game()
+        self.root.after_cancel(self.app.poll_id)
+        self.root.destroy()
+        gc.collect()
+        self.root = tk.Toplevel(self.host)
+        self.root.withdraw()
+        self.app = AssistantWindow(self.root, self.project)
+        self.assertEqual(self.app.selected_game(), 'apex')
+        self.assertEqual(self.app.variables['games.apex.gamepad.aim_response_curve.algorithm'].get(), 'linear')
+        self.assertEqual(self.app.store.path.read_text(encoding='utf-8'), CONFIG)
+
+    def test_saved_game_curve_survives_reopen_and_native_read(self):
+        text, _, digest = self.app.store.read()
+        self.app.store.save(update_text(text, {
+            'gamepad.aim_response_curve.algorithm': 'cod_dynamic_legacy_lut',
+            'games.apex.gamepad.aim_response_curve.algorithm': 'linear',
+        }), digest)
+        self.app.preferences.save_game('apex')
+        self.root.after_cancel(self.app.poll_id)
+        self.root.destroy()
+        gc.collect()
+        self.root = tk.Toplevel(self.host)
+        self.root.withdraw()
+        self.app = AssistantWindow(self.root, self.project)
+        self.assertEqual(self.app.variables['games.apex.gamepad.aim_response_curve.algorithm'].get(), 'linear')
+        production = Path(__file__).resolve().parents[2] / 'native/build/Release/cod_native_runtime.exe'
+        result = subprocess.run([str(production), '--config', str(self.project/'config.toml'), '--game', 'apex', '--dump-effective-config'],
+                                capture_output=True, timeout=10, creationflags=0x08000000)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('gamepad.aim_response_curve.algorithm=linear source=game:apex', result.stdout.decode('utf-8'))
+
+    def test_details_toggle_preserves_unsaved_values_and_scope_summary(self):
+        self.app.game.set('COD：Black Ops III')
+        self.app.change_game()
+        path = 'games.bo3.gamepad.ai_aim.ads_free_initial_scale'
+        self.app.variables[path].set('900')
+        self.app.show_details.set(True)
+        self.app.toggle_details()
+        self.assertTrue(all(section.winfo_manager() == 'pack' for section in self.app.detail_sections))
+        self.app.show_details.set(False)
+        self.app.toggle_details()
+        self.assertTrue(all(section.winfo_manager() == '' for section in self.app.detail_sections))
+        self.app.game.set('Apex Legends')
+        self.app.change_game()
+        self.assertEqual(self.app.collect_changes(), {path: 900.0})
+        self.assertIn('Black Ops III 1 项', self.app.change_summary.get())
+
+    def test_active_runtime_takes_precedence_over_remembered_editor_game(self):
+        self.app.preferences.save_game('apex')
+        self.root.after_cancel(self.app.poll_id)
+        for child in self.root.winfo_children():
+            child.destroy()
+        with patch.object(RuntimeManager, 'active', return_value={'game': 'bo3'}):
+            self.app = AssistantWindow(self.root, self.project)
+        self.assertEqual(self.app.selected_game(), 'bo3')
+
+    def test_game_selection_is_remembered_before_window_close(self):
+        self.app.game.set('Apex Legends')
+        self.app.change_game()
+        state = json.loads(self.app.ui_state.read_text(encoding='utf-8'))
+        self.assertEqual(state['game'], 'apex')
+        self.assertEqual(self.app.store.path.read_text(encoding='utf-8'), CONFIG)
+
+    def test_inherited_curve_can_be_pinned_without_changing_its_value(self):
+        self.app.game.set('Apex Legends')
+        self.app.change_game()
+        path = 'games.apex.gamepad.aim_response_curve.algorithm'
+        self.app.pin_field(path)
+        self.assertEqual(self.app.collect_changes(), {path: 'linear'})
+        with patch.object(self.app.manager, 'validate'):
+            self.app.commit(self.app.collect_changes())
+        text, _, digest = self.app.store.read()
+        self.app.store.save(update_text(text, {'gamepad.aim_response_curve.algorithm': 'cod_dynamic_legacy_lut'}), digest)
+        self.assertEqual(effective(self.app.store.read()[1], 'apex')['gamepad']['aim_response_curve']['algorithm'], 'linear')
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.project = Path(self.directory.name)
         (self.project / 'config.toml').write_text(CONFIG, encoding='utf-8')
-        self.root = tk.Tk()
+        self.root = tk.Toplevel(self.host)
         self.root.withdraw()
         self.app = AssistantWindow(self.root, self.project)
 
@@ -183,6 +286,9 @@ class DesktopWidgetTests(unittest.TestCase):
         self.root.after_cancel(self.app.poll_id)
         self.root.destroy()
         self.directory.cleanup()
+        # Collect Tcl-bound variables before initializing the next interpreter.
+        self.app = None
+        gc.collect()
 
     def test_start_runtime_does_not_auto_start_fusion(self):
         # A persisted preference from the old GUI must not couple launches.

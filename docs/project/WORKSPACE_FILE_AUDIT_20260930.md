@@ -54,3 +54,15 @@ GUI 真实进程退出、重新接管、runtime 停止/重启和 Fusion 独立�
 
 退役脚本与测试可以在用户明确授权删除后再清理。不要把旧构建目录作为新游戏入口，也不要恢复配置转写或自动 HidHide 注册路线来绕过上述状态接管缺口。
 本机参数文件需要历史核对时仍可使用；未来发布初值应改 `config.native.example.toml`，而不是提交本机文件。
+
+## 2026-10-04：按用户授权清理未接入生产的实验
+
+本节更新上述历史盘点的文件现状。用户授权删除未接入生产的工作区实验，BF6 相关工作暂不处理。
+
+- 已删除未跟踪的 `scripts/launch/bo3_config.ps1`、`scripts/launch/gamepad_input_access.ps1` 和 `python/tests/test_gamepad_input_access.py`；当前启动入口没有调用这些助手。
+- 已删除未接入原生生产链的拟人加速研究源文件 `native/controller_native/human_acceleration_research.cpp`、两个 Python 研究脚本 `python/tools/verify/research_human_acceleration.py` / `research_endpoint_trajectory.py` 及其研究文档 `docs/benchmarks/COD_CONTINUOUS_ACCELERATION_RESEARCH_20261002.md`。
+- 已移除 `native/cmake/OfflineBenchmarks.cmake` 中该未跟踪研究的构建目标，恢复原有目标集合。历史运行证据、构建备份、模型和本机配置未删除。
+- `target_selector.h` 的剩余变化只有行尾格式，已恢复版本库内容。
+- BF6 专属训练、比较脚本、测试和 cue 调研记录保留在工作区，不纳入本轮提交。
+
+这些被删除的源码原本未受版本控制，所以本次提交以本节记录清理结果，不会出现对应的 Git 删除条目。保留的桌面改动提供设置分组、详细参数折叠、中文选项、切换游戏时立即保存选择，以及将继承值单独保存为游戏专属配置。视觉评估工具的多边形标签解析修复独立提交。

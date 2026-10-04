@@ -13,6 +13,34 @@ import tomllib
 import uuid
 
 
+class UiPreferences:
+    """UI selection is independent of native runtime configuration."""
+    def __init__(self, root):
+        self.path = Path(root) / 'runs/desktop/ui.json'
+
+    def read(self):
+        try:
+            data = json.loads(self.path.read_text(encoding='utf-8-sig'))
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def save_game(self, game):
+        data = self.read()
+        data['game'] = game
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle, filename = tempfile.mkstemp(prefix='.ui-', suffix='.json', dir=self.path.parent)
+        candidate = Path(filename)
+        try:
+            with os.fdopen(handle, 'w', encoding='utf-8') as stream:
+                json.dump(data, stream, ensure_ascii=False, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(candidate, self.path)
+        finally:
+            candidate.unlink(missing_ok=True)
+
+
 def merge(base, overrides):
     result = deepcopy(base)
     for key, value in overrides.items():

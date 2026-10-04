@@ -40,6 +40,35 @@ COMMON_FIELDS = [
     ('runtime.performance.enabled', '记录性能摘要', bool, False, None),
 ]
 
+# Presentation metadata stays separate from native keys and validation.
+FIELD_GROUPS = [
+    ('识别目标', '选择与当前游戏匹配的模型，再决定目标点和友方过滤。', False,
+     ('runtime.vision.model_path', 'runtime.vision.friendly_filter_enabled', 'runtime.vision.target_height_ratio')),
+    ('瞄准与跟随', '工具曲线与游戏响应配合使用；力度决定 AI 辅助的输出。', False,
+     ('gamepad.aim_response_curve.algorithm', 'gamepad.ads.strength_scale', 'gamepad.ads.vertical_strength_scale',
+      'gamepad.bodylock.strength', 'gamepad.ai_aim.hipfire_multiplier', 'gamepad.ai_aim.aim_response_learning_enabled')),
+    ('开火与压枪', '手动输入与自动输出分别设置，实体按键仍按原样透传。', False,
+     ('gamepad.auto_fire.manual_fire_input', 'gamepad.auto_fire.fire_output', 'gamepad.recoil.enabled',
+      'gamepad.recoil.feedback_amount', 'gamepad.recoil.hipfire_multiplier')),
+    ('响应学习初值', '0 使用控制器基础初值；自定义范围为 80～4000。这些数值是响应估计，不是游戏实测灵敏度。', True,
+     ('gamepad.ai_aim.body_free_initial_scale', 'gamepad.ai_aim.body_slow_initial_scale',
+      'gamepad.ai_aim.ads_free_initial_scale', 'gamepad.ai_aim.ads_slow_initial_scale')),
+    ('游戏死区与响应补偿', '仅在了解游戏输入设置时调整；修改后需要重启主程序。', True,
+     ('gamepad.output_transfer.enabled', 'gamepad.output_transfer.deadzone', 'gamepad.output_transfer.axial',
+      'gamepad.output_transfer.game_exponent')),
+    ('手柄与诊断', '这些设置用于所有游戏；设备名称在启动识别后显示。', False,
+     ('runtime.input.auto_detect', 'runtime.input.controller_index', 'runtime.telemetry.enabled', 'runtime.performance.enabled')),
+    ('捕获与性能', '模型输入尺寸应与所选模型匹配。修改这些设置后需要重启主程序。', True,
+     ('runtime.profile', 'runtime.vision.capture_fps', 'runtime.vision.idle_capture_fps',
+      'runtime.vision.capture_width', 'runtime.vision.capture_height', 'runtime.vision.tensor_width', 'runtime.vision.tensor_height')),
+]
+
+CHOICE_LABELS = {
+    'linear': '线性（Linear）', 'cod_dynamic_legacy_lut': 'COD 动态曲线',
+    'both': 'RT 或 RB', 'balanced': '均衡', 'performance': '性能优先',
+    'low_latency': '低延迟', 'pascal_balanced': 'Pascal 显卡均衡',
+}
+
 
 def field_value(field, raw):
     _, label, kind, _, limits = field

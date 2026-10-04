@@ -152,6 +152,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     };
     line("runtime.profile", config.profile);
     line("runtime.game", config.game);
+    line("gamepad.aim_response_curve.algorithm", controller_native::aim_response_curve_algorithm_name(config.gamepad.aim_response_curve.algorithm));
     line("gamepad.auto_fire.manual_fire_input", config.gamepad.auto_fire.manual_fire_input);
     line("runtime.provenance.build_commit", config.build_commit);
     line("runtime.provenance.config_sha256", config.source_config_sha256);
