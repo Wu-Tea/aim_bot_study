@@ -4,11 +4,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$pythonPath = 'D:\env\python\python.exe'
+$assistant = Join-Path $projectRoot 'native\build\Release\cod_native_assistant.exe'
+if (-not (Test-Path -LiteralPath $assistant)) { throw 'Build tools/build_native_runtime.ps1 first.' }
+$env:FUSION_ENABLED = '1'
 $action = if ($PrintOnly) { 'preview-start' } else { 'start' }
-$env:PYTHONPATH = (Join-Path $projectRoot 'python') + [IO.Path]::PathSeparator + $env:PYTHONPATH
-Push-Location $projectRoot
-try {
-    & $pythonPath -m desktop_app.gui --action $action --game $Game
-    exit $LASTEXITCODE
-} finally { Pop-Location }
+& $assistant --project $projectRoot --action $action --game $Game
+exit $LASTEXITCODE

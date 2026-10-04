@@ -101,14 +101,7 @@ cod_native_runtime.exe
   -> NativeGamepadController
 ```
 
-The optional Python-hosted native debug/fallback path loads
-`vision_native_cpp` through `python/vision/native_runner.py` and maps the same compact
-result into `ControllerTarget`. Its fallback authority logic uses an explicit
-allowlist and does not revive projected source labels.
-
-The pure Python Vision backend still contains older occlusion and
-`AimEnhancementPipeline` behavior for fallback-specific use. That is a separate
-runtime contract and must not be cited as behavior of native production.
+The native desktop assistant launches the process directly. Python-hosted native bridges and fallback vision paths are retired; no interpreter is used by this chain.
 
 ## Configuration
 
@@ -148,7 +141,7 @@ Useful binaries are emitted under
 `native\build\Release`, including:
 
 - `cod_native_runtime.exe`;
-- `vision_native_cpp.cp311-win_amd64.pyd`;
+- `cod_native_assistant.exe`;
 - `vision_native_debug.exe`;
 - native selector, service, resize and integration test executables.
 
@@ -161,7 +154,7 @@ Current acceptance requires:
 - result source/frame identity survives the adapter unchanged;
 - fire remains direct-observed only;
 - Release build and all native CTest entries pass;
-- focused Python native-runner/performance mapping tests pass;
+- native desktop configuration/process boundary and window checks pass;
 - active live throughput is measured with logging conditions held constant.
 
 See [Current State](CURRENT_STATE.md),

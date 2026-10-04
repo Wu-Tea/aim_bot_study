@@ -34,7 +34,7 @@ if(NOT ViGEmClient_DLL)
     if(DEFINED ENV{VIGEM_CLIENT_DLL})
         set(ViGEmClient_DLL "$ENV{VIGEM_CLIENT_DLL}" CACHE FILEPATH "Path to ViGEmClient.dll" FORCE)
     else()
-        set(_default_vigem_client_dll "D:/env/python/Lib/site-packages/vgamepad/win/vigem/client/x64/ViGEmClient.dll")
+        set(_default_vigem_client_dll "${PROJECT_SOURCE_DIR}/../runtime_deps/windows-x64/ViGEmClient.dll")
         if(EXISTS "${_default_vigem_client_dll}")
             set(ViGEmClient_DLL "${_default_vigem_client_dll}" CACHE FILEPATH "Path to ViGEmClient.dll" FORCE)
         endif()
@@ -45,7 +45,7 @@ if(NOT SDL2_DLL)
     if(DEFINED ENV{SDL2_DLL})
         set(SDL2_DLL "$ENV{SDL2_DLL}" CACHE FILEPATH "Path to SDL2.dll" FORCE)
     else()
-        set(_default_sdl2_dll "D:/env/python/Lib/site-packages/pygame/SDL2.dll")
+        set(_default_sdl2_dll "${PROJECT_SOURCE_DIR}/../runtime_deps/windows-x64/SDL2.dll")
         if(EXISTS "${_default_sdl2_dll}")
             set(SDL2_DLL "${_default_sdl2_dll}" CACHE FILEPATH "Path to SDL2.dll" FORCE)
         endif()
@@ -62,8 +62,6 @@ if(NOT EXISTS "${TensorRT_INCLUDE_DIR}/NvInfer.h")
 endif()
 
 find_package(CUDAToolkit REQUIRED)
-find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
-find_package(pybind11 CONFIG REQUIRED)
 
 set(TensorRT_LIBS
     "${TensorRT_LIB_DIR}/nvinfer_10.lib"
@@ -113,6 +111,7 @@ target_compile_options(fusion_shared PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 include(controller_native/controller_targets.cmake)
 
 include(runtime_app/runtime_targets.cmake)
+include(desktop_native/desktop_targets.cmake)
 
 add_executable(vision_native_smoke vision_native/src/trt_smoke_main.cpp)
 add_executable(cod_native_ds4_smoke EXCLUDE_FROM_ALL
@@ -154,9 +153,6 @@ include(cmake/OfflineBenchmarks.cmake)
 
 include(overlay_canvas/fusion_targets.cmake)
 
-pybind11_add_module(vision_native_cpp vision_native/src/vision_native_module.cpp)
-set_target_properties(vision_native_cpp PROPERTIES OUTPUT_NAME "vision_native_cpp")
-target_link_libraries(vision_native_cpp PRIVATE vision_native_core)
 
 # Opt-in, game-independent GPU contention benchmarks. No controller or output device.
 add_executable(vision_graphics_load EXCLUDE_FROM_ALL
@@ -172,7 +168,7 @@ target_link_libraries(vision_contention_benchmark PRIVATE vision_native_core win
 include(mouse_native/mouse_targets.cmake)
 
 set(_runtime_dlls nvinfer_10.dll nvinfer_plugin_10.dll)
-foreach(_target vision_native_smoke vision_native_debug vision_native_bgra_benchmark cod_native_runtime cod_native_mouse_runtime vision_native_cpp vision_contention_benchmark)
+foreach(_target vision_native_smoke vision_native_debug vision_native_bgra_benchmark cod_native_runtime cod_native_mouse_runtime vision_contention_benchmark)
     foreach(_dll IN LISTS _runtime_dlls)
         add_custom_command(TARGET ${_target} POST_BUILD
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different

@@ -3,6 +3,7 @@
 # Native product tests are grouped by ownership into two physical runners.
 # Each source contributes named cases through the shared test registry below.
 add_executable(cod_native_base_tests
+    desktop_native/desktop_session_tests.cpp
     controller_native/state_machine_replay_tests.cpp
     controller_native/state_machine_contract_tests.cpp
     test_support/base_tests_main.cpp
@@ -64,6 +65,7 @@ endif()
 target_include_directories(
     cod_native_base_tests PRIVATE ${PROJECT_SOURCE_DIR}/vision_native/src)
 target_link_libraries(cod_native_base_tests PRIVATE
+    desktop_native_session
     controller_native_core vision_native_core CUDA::cudart
     gdi32 winmm windowsapp)
 foreach(_suite IN ITEMS

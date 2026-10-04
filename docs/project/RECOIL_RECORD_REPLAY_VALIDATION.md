@@ -1,3 +1,5 @@
+> 2026-10-04：本文涉及的 Python 工具/命令已退役，仅保留历史格式和设计记录；当前入口、构建和资源归属见 [CURRENT_STATE.md](CURRENT_STATE.md)。原生 runtime 的日志和 recoil 功能仍保留。
+
 # Recoil Record Replay Validation
 
 ## Goal

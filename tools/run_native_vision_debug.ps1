@@ -1,4 +1,5 @@
 param(
+    [string]$EnginePath = "models\best_480x384.engine",
     [int]$Width = 640,
     [int]$Height = 512,
     [int]$Frames = 8,
@@ -8,7 +9,6 @@ param(
     [string]$CudaPath = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1",
     [string]$BuildDir = "native\build",
     [string]$Configuration = "Release",
-    [string]$PythonExe = "D:\env\python\python.exe",
     [switch]$BuildFirst
 )
 
@@ -24,8 +24,7 @@ if ($BuildFirst -or -not (Test-Path $DebugExe)) {
         -TensorRTRoot $TensorRTRoot `
         -CudaPath $CudaPath `
         -BuildDir ($BuildDir.Substring($ProjectRoot.Length + 1)) `
-        -Configuration $Configuration `
-        -PythonExe $PythonExe
+        -Configuration $Configuration
 }
 
 if (-not (Test-Path $DebugExe)) {
@@ -38,6 +37,7 @@ $env:TensorRT_ROOT = $TensorRTRoot
 $env:PATH = "$(Join-Path $TensorRTRoot 'bin');$(Join-Path $CudaPath 'bin');$env:PATH"
 
 $Args = @(
+    "--engine", (Join-Path $ProjectRoot $EnginePath),
     "--width", $Width,
     "--height", $Height,
     "--frames", $Frames,

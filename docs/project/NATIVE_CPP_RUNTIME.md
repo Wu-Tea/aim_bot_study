@@ -1,8 +1,7 @@
 # Native C++ Runtime
 
 This is the maintained reference for the default gamepad live path. The
-runtime is one C++ process: `cod_native_runtime.exe`. Python gameplay remains a
-fallback/debug path and is not loaded by the default launcher.
+runtime is one C++ process: `cod_native_runtime.exe`. The native desktop assistant owns configuration editing and background process control. Python runtime and fallback paths are retired.
 
 ## Launch
 
@@ -25,8 +24,7 @@ native\build\Release\cod_native_runtime.exe --config config.toml --perf-log
 native\build\Release\cod_native_runtime.exe --config config.toml --perf-log --once
 ```
 
-Set `GAMEPAD_RUNTIME=python` only when an explicit fallback comparison is
-needed. Mouse and KBM-to-gamepad modes continue to use their own Python paths.
+The desktop entry is `启动助手.vbs`. Native mouse tools remain separate; Python mouse and KBM-to-gamepad paths are retired. See [Desktop Assistant](DESKTOP_ASSISTANT.md).
 
 ## What the Process Owns
 
@@ -163,13 +161,13 @@ ctest --test-dir native\build -C Release --output-on-failure
 Pipeline check:
 
 ```powershell
-scripts\verify\native_pipeline_contract.bat
+powershell -ExecutionPolicy Bypass -File tools\check_native_cpp_gamepad_runtime.ps1
 ```
 
 ## Acceptance Checklist
 
 - full Release build and all current CTest targets pass;
-- native result mapping and performance-contract Python tests pass;
+- native desktop configuration/process boundary and window checks pass;
 - physical input remains intact and process exit sends neutral ViGEm output;
 - no-target and unknown-source input fail closed;
 - multi-target flick handover and centered capture contracts remain green;

@@ -25,14 +25,14 @@
 ```
 
 默认输出位于 `native/build/Release/`，包括手柄与鼠标 runtime、Fusion
-Canvas、Vision smoke 工具和 Python 扩展 `vision_native_cpp`。
+Canvas、Vision smoke 工具和原生助手 `cod_native_assistant`。
 脚本默认启用 ViGEm。可通过 `-CudaArchitectures` 指定 CUDA 架构，通过
 `-BuildDir` 指定独立构建目录，通过 `-OfflineBenchmarks` 显式启用离线测试。
 未指定架构时使用 CMake 中的默认值。
 
 手动配置使用 `cmake -S native -B native/build ...`。旧
 `vision_native/build*` 保留为本机历史构建；它们的 CMake cache 绑定旧源码
-入口，不能直接搬到新位置继续使用。当前启动器和 Python 桥接使用新构建。
+入口，不能直接搬到新位置继续使用。当前启动器和原生助手使用新构建。
 
 ## 验证
 

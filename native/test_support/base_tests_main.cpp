@@ -1,4 +1,5 @@
 #include "test_support/native_test_registry.h"
+void register_desktop_session_tests(native_test::Registry&);
 void register_state_machine_replay_tests(native_test::Registry&);
 void register_state_machine_contract_tests(native_test::Registry&);
 
@@ -46,6 +47,7 @@ void register_bodylock_high_frequency_incident_regression(native_test::Registry&
 
 int main(int argc, char** argv) {
     native_test::Registry registry;
+    register_desktop_session_tests(registry);
     register_ads_bodylock_september_incidents(registry);
     register_state_machine_replay_tests(registry);
     register_state_machine_contract_tests(registry);

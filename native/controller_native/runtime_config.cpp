@@ -41,6 +41,9 @@ std::string strip_comment(const std::string& line) {
 
 std::string parse_string_value(std::string value) {
     value = trim(std::move(value));
+    if (!value.empty() && (value.front() == '"' || value.back() == '"') &&
+        (value.size() < 2 || value.front() != '"' || value.back() != '"'))
+        throw std::runtime_error("unterminated quoted configuration value");
     if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
         return value.substr(1, value.size() - 2);
     }
@@ -1002,13 +1005,19 @@ RuntimeConfig load_runtime_config(
     std::unordered_set<std::string> games;
     std::string section;
     std::string line;
+    std::size_t line_number = 0;
     while (std::getline(input, line)) {
+        ++line_number;
+        if (line_number == 1 && line.compare(0, 3, "\xef\xbb\xbf") == 0) line.erase(0, 3);
         line = trim(strip_comment(line));
         if (line.empty()) {
             continue;
         }
-        if (line.front() == '[' && line.back() == ']') {
+        if (line.front() == '[') {
+            if (line.back() != ']' || line.size() < 3)
+                throw std::runtime_error("invalid config section at line " + std::to_string(line_number));
             section = trim(line.substr(1, line.size() - 2));
+            if (section.empty()) throw std::runtime_error("empty config section");
             if (section.rfind("games.", 0) == 0) {
                 const auto end = section.find('.', 6);
                 games.insert(section.substr(6, end == std::string::npos ? end : end - 6));
@@ -1018,10 +1027,12 @@ RuntimeConfig load_runtime_config(
 
         const std::size_t equals = line.find('=');
         if (equals == std::string::npos) {
-            continue;
+            throw std::runtime_error("missing '=' at config line " + std::to_string(line_number));
         }
         const std::string key = trim(line.substr(0, equals));
         const std::string value = trim(line.substr(equals + 1));
+        if (key.empty() || value.empty())
+            throw std::runtime_error("empty config key/value at line " + std::to_string(line_number));
         entries.push_back(Entry{section, key, value});
     }
 

@@ -11,7 +11,7 @@ $nativeExecutablePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "n
 $nativeStartScript = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "gamepad_native_background_start.ps1"))
 $powerShellPath = [System.IO.Path]::GetFullPath(
     [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)
-$nativeStatePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "runs\runtime\background\native_runtime_state.json"))
+$nativeStatePath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "runs\desktop\native-runtime.bin"))
 $stateDirectory = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "runs\fusion_canvas\background"))
 $statePath = Join-Path $stateDirectory "fusion_canvas_state.json"
 $stdoutPath = Join-Path $stateDirectory "fusion_canvas.stdout.log"
@@ -85,7 +85,9 @@ function Get-OwnedNativeState {
         return $null
     }
     try {
-        $state = Get-Content -LiteralPath $nativeStatePath -Raw | ConvertFrom-Json
+        $assistant = Join-Path $projectRoot 'native\build\Release\cod_native_assistant.exe'
+        $state = & $assistant --project $projectRoot --action runtime-info | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or $null -eq $state) { return $null }
         $recordedProcessId = [int]$state.process_id
         $record = Get-ProcessRecord $recordedProcessId
         if ($null -eq $record -or

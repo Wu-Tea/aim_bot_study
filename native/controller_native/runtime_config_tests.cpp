@@ -47,6 +47,19 @@ bool has_diagnostic(
     return false;
 }
 
+void test_config_rejects_malformed_lines() {
+    for (const std::string text : {
+        "[runtime.output\nenabled=false\n", "[runtime.output]\nenabled false\n",
+        "[runtime.output]\n=false\n", "[runtime.output]\nenabled=\n",
+        "[runtime.vision]\nmodel_path=\"unfinished\n"}) {
+        TempConfig config("native-config-malformed-lines.toml", text);
+        bool rejected = false;
+        try { (void)controller_native::load_runtime_config(config.path()); }
+        catch (const std::runtime_error&) { rejected = true; }
+        require(rejected, "malformed configuration line must fail before desktop save or runtime startup");
+    }
+}
+
 void test_vision_selection_config() {
     TempConfig file("cod_native_vision_selection.toml",
         "[runtime.vision]\nfriendly_filter_enabled = false\ntarget_height_ratio = 0.35\ntarget_wide_low_height_ratio = 0.6\n");
@@ -676,6 +689,7 @@ void test_scalar_config_rejects_invalid_tokens() {
 }
 
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "config_rejects_malformed_lines", test_config_rejects_malformed_lines);
     registry.add_case("BaseContracts", "scalar_config_rejects_invalid_tokens", test_scalar_config_rejects_invalid_tokens);
     registry.add_case("BaseContracts", "custom_curve_config_and_randomized_roundtrip", test_custom_curve_config_and_roundtrip);
     registry.add_case("BaseContracts", "hipfire_ai_and_response_learning_config", test_hipfire_ai_and_response_learning_config);

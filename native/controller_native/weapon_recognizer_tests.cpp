@@ -373,7 +373,7 @@ void test_recoil_weapon_switch_scheduler_triggers_only_on_y_rising_edge() {
         "recoil OCR scheduler should wait for the first switch delay");
     require_true(
         scheduler.consume_due_capture(start + std::chrono::milliseconds(600)),
-        "recoil OCR scheduler should trigger at the first Python switch delay");
+        "recoil OCR scheduler should trigger at the first configured switch delay");
     require_true(scheduler.pending_count() == 1, "first recoil OCR capture should leave the backup capture pending");
     scheduler.clear_pending();
     require_true(

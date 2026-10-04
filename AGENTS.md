@@ -34,3 +34,12 @@ manual authority, and production control algorithm during tooling maintenance.
 The accepted runtime keeps the complete controller chain in lockstep. Retired
 `ai_proposal_mode`, `ai_proposal_hz`, and `ai_proposal_update_stage` knobs remain
 unknown/inert; deleting validation tooling does not authorize reintroducing them.
+
+## C++-only project paths
+
+User-authorized on 2026-10-04: remove all Python runtime, GUI, binding, build,
+training and analysis-tool participation. Useful desktop configuration and
+process-control capabilities are now native C++. Do not restore Python paths
+from old handoffs or historical documentation. Preserve user models, datasets,
+profiles and configuration; retirement of tools does not authorize deleting
+these inputs. Ordinary native tests and useful numerical simulations remain.
