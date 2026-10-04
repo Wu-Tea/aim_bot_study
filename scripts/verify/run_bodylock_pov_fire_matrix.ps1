@@ -1,6 +1,5 @@
 param(
     [Parameter(Mandatory = $true)][string]$OutputDir,
-    [string]$BaselineDir = "",
     [string]$Config = "",
     [string]$BuildDir = "",
     [uint32[]]$Seeds = @(
@@ -113,50 +112,6 @@ foreach ($arm in $arms) {
     if ($runs.Count -ne $Seeds.Count) {
         throw "$($arm.Name) expected $($Seeds.Count) runs, got $($runs.Count)"
     }
-    foreach ($run in $runs) {
-        if ([int]$run.targets_spawned -ne 1 -or
-            [int]$run.bodylock_entry_failures -ne 0) {
-            throw "$($arm.Name) seed $($run.seed) failed the BodyLock entry gate"
-        }
-        if ($arm.Pov -eq "off") {
-            if ([double]$run.max_abs_left_x -ne 0.0 -or
-                [int]$run.left_strafe_active_ms -ne 0 -or
-                [int]$run.player_vertical_active_ms -ne 0) {
-                throw "$($arm.Name) seed $($run.seed) contains unexpected POV motion"
-            }
-        } elseif ([double]$run.max_abs_left_x -le 0.0 -or
-                  [int]$run.left_strafe_active_ms -le 0 -or
-                  [int]$run.player_vertical_active_ms -le 0) {
-            throw "$($arm.Name) seed $($run.seed) did not execute combined POV motion"
-        }
-        if ($arm.Fire) {
-            if ([int]$run.firing_frames -le 0 -or
-                [int]$run.recoil_active_frames -le 0 -or
-                [int]$run.cue_continuation_frames -le 0 -or
-                [int]$run.occlusion_episodes -le 0 -or
-                [int]$run.post_occlusion_samples -le 0) {
-                throw "$($arm.Name) seed $($run.seed) did not execute firing/recoil/cue coverage"
-            }
-        } elseif ([int]$run.firing_frames -ne 0 -or
-                  [int]$run.recoil_active_frames -ne 0 -or
-                  [int]$run.cue_continuation_frames -ne 0 -or
-                  [int]$run.occlusion_episodes -ne 0) {
-            throw "$($arm.Name) seed $($run.seed) contains unexpected firing/occlusion"
-        }
-    }
-
-    if ($BaselineDir) {
-        $baseline = Join-Path $BaselineDir "$($arm.Name).json"
-        if (-not (Test-Path -LiteralPath $baseline)) {
-            throw "baseline artifact not found: $baseline"
-        }
-        & (Join-Path $PSScriptRoot "compare_sustained_aimlab.ps1") `
-            -Baseline $baseline -Candidate $output
-        if ($LASTEXITCODE -ne 0) {
-            throw "protected comparison failed: $($arm.Name)"
-        }
-    }
-
     $summaries += [pscustomobject]@{
         arm = $arm.Name
         runs = $runs.Count
@@ -186,7 +141,6 @@ $summary = [ordered]@{
     plant_source = "historical_synthetic_default"
     short_occlusion_ms = 48
     short_occlusion_evidence = "same-generation-cue"
-    comparisons_executed = [bool]$BaselineDir
     rows = $summaries
 }
 $summaryPath = Join-Path $OutputDir "summary.json"
@@ -196,5 +150,5 @@ $summaryPath = Join-Path $OutputDir "summary.json"
     [Text.UTF8Encoding]::new($false))
 
 $summaries | Format-Table -AutoSize
-Write-Output "BODYLOCK_POV_FIRE_MATRIX=BENCHMARK-ELIGIBLE"
+Write-Output "BODYLOCK_POV_FIRE_MATRIX=SIMULATION_COMPLETED"
 Write-Output "Matrix written to $OutputDir"

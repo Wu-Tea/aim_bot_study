@@ -10,7 +10,6 @@ source frame/observation identity published in the ADS trace.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 from collections import Counter, defaultdict
@@ -240,7 +239,6 @@ def main() -> int:
         raise SystemExit("event names must be unique")
     window_ns = int(args.window_seconds * 1.0e9)
 
-    sha256 = hashlib.sha256()
     integrity = {
         "bytes": 0,
         "total_lines": 0,
@@ -258,7 +256,6 @@ def main() -> int:
 
     with args.telemetry.open("rb") as stream:
         for raw_line in stream:
-            sha256.update(raw_line)
             integrity["bytes"] += len(raw_line)
             integrity["total_lines"] += 1
             if not raw_line.strip():
@@ -333,7 +330,6 @@ def main() -> int:
         "source": {
             "artifact_id": "telemetry-session-20260820T174549Z-0",
             "size_bytes": integrity["bytes"],
-            "sha256": sha256.hexdigest(),
         },
         "integrity": integrity,
         "record_types": dict(sorted(record_types.items())),

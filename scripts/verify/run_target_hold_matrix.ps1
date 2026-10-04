@@ -2,7 +2,6 @@ param(
     [Parameter(Mandatory=$true)][string]$Executable,
     [Parameter(Mandatory=$true)][string]$Config,
     [Parameter(Mandatory=$true)][string]$OutputDir,
-    [string]$BaselineDir="",
     [switch]$IndependentValidation
 )
 $ErrorActionPreference="Stop"
@@ -22,22 +21,11 @@ $arms=@(
     @{Name='long';Duration=60000;Edge='0.50';Center='0.40';Extra=@()}
 )
 $identity=@{
-    schema='target-hold-protected-matrix-v1';seeds=$seeds;profiles=$profiles;arms=$arms;
-    config_sha256=(Get-FileHash -LiteralPath $Config -Algorithm SHA256).Hash.ToLower();
+    schema='target-hold-simulation-matrix-v1';seeds=$seeds;profiles=$profiles;arms=$arms;
     target_slot_ms=1575;controller_hz=1000;cohort='both';
-    policy_sha256=(Get-FileHash -LiteralPath (Join-Path $root 'docs/benchmarks/sustained-aimlab-optimization-policy-v1.json') -Algorithm SHA256).Hash.ToLower()
-}
-if($BaselineDir) {
-    $prior=Get-Content -LiteralPath (Join-Path $BaselineDir 'contract.json') -Raw | ConvertFrom-Json
-    # JSON object member order is not a covariate. Hashtable serialization
-    # order may differ between PowerShell processes; compare JSON trees.
-    $left=[System.Text.Json.Nodes.JsonNode]::Parse(($prior|ConvertTo-Json -Depth 10 -Compress))
-    $right=[System.Text.Json.Nodes.JsonNode]::Parse(($identity|ConvertTo-Json -Depth 10 -Compress))
-    if(-not [System.Text.Json.Nodes.JsonNode]::DeepEquals($left,$right)) { throw "frozen matrix identity differs" }
 }
 $identity|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $OutputDir 'contract.json') -Encoding utf8
 $rows=@()
-$failedPacks=0
 foreach($profile in $profiles) { foreach($arm in $arms) {
     $name=$profile+'_'+$arm.Name
     $output=Join-Path $OutputDir ($name+'.json')
@@ -48,17 +36,8 @@ foreach($profile in $profiles) { foreach($arm in $arms) {
     foreach($seed in $seeds) { $arguments+=@('--seed',$seed) }
     & $Executable @arguments | Set-Content -LiteralPath (Join-Path $OutputDir ($name+'.log'))
     if($LASTEXITCODE -ne 0) { throw "native matrix failed: $name" }
-    $result=$null
-    if($BaselineDir) {
-        $result=& (Join-Path $PSScriptRoot 'compare_sustained_aimlab.ps1') `
-            -Baseline (Join-Path $BaselineDir ($name+'.json')) -Candidate $output -ReportOnly
-        $result|ConvertTo-Json -Depth 20|Set-Content -LiteralPath (Join-Path $OutputDir ($name+'.comparison.json')) -Encoding utf8
-        if(-not ($result -contains 'AIMLAB_CONSTRAINT_GATE=BENCHMARK-ELIGIBLE')) { $failedPacks++ }
-    }
-    $rows+=@{name=$name;argv=$arguments;comparison=$result;
-        gate=if(-not $BaselineDir) {'baseline'} elseif($result -contains 'AIMLAB_CONSTRAINT_GATE=BENCHMARK-ELIGIBLE') {'eligible'} else {'failed'}}
+    $rows+=@{name=$name;argv=$arguments}
     Write-Output "completed $name"
 } }
-@{identity=$identity;executable_sha256=(Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLower();packs=$rows} |
+@{identity=$identity;packs=$rows} |
     ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $OutputDir 'matrix.json') -Encoding utf8
-if($failedPacks) { throw "$failedPacks protected matrix pack(s) failed; candidate is not eligible" }

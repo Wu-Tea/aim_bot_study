@@ -1,6 +1,5 @@
 #include "runtime_loop.h"
 #include "runtime_timing.h"
-#include "runtime_provenance.h"
 #include "runtime_stop_signal.h"
 #include "runtime_control_bridge.h"
 
@@ -100,14 +99,9 @@ void apply_cli_overrides(
     }
 }
 
-void populate_runtime_provenance(
-    const CliOptions& options,
-    controller_native::RuntimeConfig& config) {
+void populate_build_metadata(controller_native::RuntimeConfig& config) {
 #if defined(COD_BUILD_COMMIT)
     config.build_commit = COD_BUILD_COMMIT;
-#endif
-#if defined(COD_CONTROL_CONTRACT_HASH)
-    config.control_contract_sha256 = COD_CONTROL_CONTRACT_HASH;
 #endif
 #if defined(COD_CONTROL_ARCHITECTURE_VERSION)
     config.control_architecture_version = COD_CONTROL_ARCHITECTURE_VERSION;
@@ -115,35 +109,6 @@ void populate_runtime_provenance(
 #if defined(COD_CONTROL_EVENT_SCHEMA_VERSION)
     config.control_event_schema_version = COD_CONTROL_EVENT_SCHEMA_VERSION;
 #endif
-    std::array<wchar_t, 32768> module_path{};
-    const DWORD module_length = GetModuleFileNameW(
-        nullptr, module_path.data(), static_cast<DWORD>(module_path.size()));
-    if (module_length != 0 && module_length < module_path.size()) {
-        config.executable_sha256 = runtime_app::sha256_file_with_context(
-            std::filesystem::path(module_path.data()));
-    }
-    if (config.executable_sha256.empty()) {
-        config.executable_sha256 = "unavailable";
-    }
-    if (!config.telemetry.enabled) {
-        config.source_config_sha256 = "disabled";
-        config.engine_sha256 = "disabled";
-        return;
-    }
-    std::ostringstream context;
-    context << "profile=" << options.profile.value_or(std::string{})
-            << ";auto_fire=" << config.gamepad.auto_fire.fire_output
-            << ";capture_fps=" << config.vision.capture_fps;
-    config.source_config_sha256 = runtime_app::sha256_file_with_context(
-        options.config_path, context.str());
-    config.engine_sha256 = runtime_app::sha256_file_with_context(
-        config.vision.model_path);
-    if (config.source_config_sha256.empty()) {
-        config.source_config_sha256 = "unavailable";
-    }
-    if (config.engine_sha256.empty()) {
-        config.engine_sha256 = "unavailable";
-    }
 }
 
 void dump_effective_config(const controller_native::RuntimeConfig& config) {
@@ -155,10 +120,6 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("gamepad.aim_response_curve.algorithm", controller_native::aim_response_curve_algorithm_name(config.gamepad.aim_response_curve.algorithm));
     line("gamepad.auto_fire.manual_fire_input", config.gamepad.auto_fire.manual_fire_input);
     line("runtime.provenance.build_commit", config.build_commit);
-    line("runtime.provenance.config_sha256", config.source_config_sha256);
-    line("runtime.provenance.engine_sha256", config.engine_sha256);
-    line("runtime.provenance.executable_sha256", config.executable_sha256);
-    line("runtime.provenance.control_contract_sha256", config.control_contract_sha256);
     line("runtime.provenance.control_architecture_version", config.control_architecture_version);
     line("runtime.provenance.control_event_schema_version", config.control_event_schema_version);
     line("runtime.vision.capture_width", config.vision.capture_width);
@@ -313,7 +274,7 @@ int main(int argc, char** argv) {
         apply_cli_overrides(options, config);
         // Read the physical backend without creating virtual output or vision.
         if (options.probe_input) return runtime_app::probe_physical_input(config.gamepad);
-        populate_runtime_provenance(options, config);
+        populate_build_metadata(config);
         if (options.dump_effective_config) {
             dump_effective_config(config);
             return 0;

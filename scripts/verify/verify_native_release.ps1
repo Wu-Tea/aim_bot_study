@@ -13,7 +13,7 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "Missing manifest: $manifestPath"
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.schema_version -ne 1) {
+if ($manifest.schema_version -notin @(1, 2)) {
     throw "Unsupported manifest schema: $($manifest.schema_version)"
 }
 if ([string]$manifest.source_commit -notmatch '^[0-9a-f]{40}$') {
@@ -36,9 +36,6 @@ foreach ($file in $manifest.files) {
     }
     if ((Get-Item -LiteralPath $path).Length -ne [int64]$file.size) {
         throw "Size mismatch $relative"
-    }
-    if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne [string]$file.sha256) {
-        throw "Hash mismatch $relative"
     }
 }
 

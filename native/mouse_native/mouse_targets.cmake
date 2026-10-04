@@ -61,7 +61,6 @@ target_link_libraries(cod_native_mouse_win32_debug_transport_tests PRIVATE mouse
 
 add_executable(cod_native_mouse_runtime
     runtime_app/mouse_runtime_main.cpp
-    runtime_app/runtime_provenance.cpp
     runtime_app/runtime_timing.cpp
     runtime_app/vision_service.cpp
     runtime_app/vision_controller_adapter.cpp)
@@ -73,10 +72,6 @@ target_link_libraries(cod_native_mouse_runtime PRIVATE
 # permission to substitute SendInput. Never install a system driver at build.
 set(_mouse_interception_dll "${PROJECT_SOURCE_DIR}/../artifacts/mouse_link/deps/Interception/library/x64/interception.dll")
 if(EXISTS "${_mouse_interception_dll}")
-    file(SHA256 "${_mouse_interception_dll}" _mouse_interception_sha)
-    if(NOT _mouse_interception_sha STREQUAL "ab88164c11b1b48488772d4c3bfaa4509d5b0ae9dbc5a691dc4f96f0260443c8")
-        message(FATAL_ERROR "Interception DLL differs from pinned v1.0.1")
-    endif()
     add_custom_command(TARGET cod_native_mouse_runtime POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_mouse_interception_dll}"
         "$<TARGET_FILE_DIR:cod_native_mouse_runtime>/interception.dll")

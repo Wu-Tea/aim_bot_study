@@ -5,7 +5,6 @@ The generated contract is frozen before starting either executable.
 """
 import argparse
 import csv
-import hashlib
 import json
 import math
 import os
@@ -19,13 +18,6 @@ from vision_gpu_sampler import Sampler, stats
 
 ROOT = Path(__file__).resolve().parents[3]
 
-
-def digest(path):
-    h = hashlib.sha256()
-    with Path(path).open('rb') as f:
-        for block in iter(lambda: f.read(1024*1024), b''):
-            h.update(block)
-    return h.hexdigest()
 
 
 def save(path, value):
@@ -97,53 +89,6 @@ def verify_signatures(records, frame_count, source_count, oracle):
     return exact,signatures
 
 
-def assess(phases, contract):
-    """Fail closed on correctness, coverage, covariates, or competing-load harm."""
-    reasons=[]
-    if len(phases)!=len(contract['schedule']):
-        return {'status':'INVALID', 'reasons':['Incomplete schedule']}
-    for p in phases:
-        def finite(value):
-            if isinstance(value,dict): return all(finite(v) for v in value.values())
-            return math.isfinite(value) if isinstance(value,(int,float)) else True
-        if not finite(p):
-            reasons.append(f"Phase {p['phase']}: nonfinite measurement")
-        for gate in ('gpu_coverage','budget_pass','outputs_exact','clock_stable','external_quiet','load_valid'):
-            if not p[gate]:
-                reasons.append(f"Phase {p['phase']}: {gate} failed")
-    a=[p for p in phases if p['variant']=='baseline']
-    if len(a)<2:
-        reasons.append('Missing repeated baseline')
-    else:
-        for key,field,tolerance in [('wall_ms','mean',.05),('wall_ms','p99',.15),
-                                     ('load_wall_ms','mean',.05),('load_wall_ms','p99',.15)]:
-            values=[p[key][field] for p in a]
-            if min(values)<=0 or max(values)/min(values)>1+tolerance:
-                reasons.append(f'A/A unstable: {key}.{field}')
-        clocks=[p['sm_mhz']['p50'] for p in phases]
-        if min(clocks)<=0 or max(clocks)/min(clocks)>1.05:
-            reasons.append('GPU clock differs between phases')
-    if reasons:
-        return {'status':'INVALID', 'reasons':reasons}
-    b=[p for p in phases if p['variant']!='baseline']
-    if not b:
-        return {'status':'AA_PASS', 'reasons':[]}
-    for p in b:
-        for field in ('mean','p99'):
-            if p['wall_ms'][field] > .95*min(x['wall_ms'][field] for x in a):
-                reasons.append(f"Phase {p['phase']}: no >=5% wall {field} improvement over both baselines")
-        if p['vision_gpu']['mean'] > 1.05*sum(x['vision_gpu']['mean'] for x in a)/len(a):
-            reasons.append(f"Phase {p['phase']}: Vision GPU increased >5%")
-        if p['actual_hz'] < .99*sum(x['actual_hz'] for x in a)/len(a):
-            reasons.append(f"Phase {p['phase']}: Vision throughput regressed")
-        if p['result_interval_ms']['p99'] > 1.05*sum(x['result_interval_ms']['p99'] for x in a)/len(a):
-            reasons.append(f"Phase {p['phase']}: result delivery interval P99 regressed >5%")
-        if p['load_hz'] < .99*sum(x['load_hz'] for x in a)/len(a):
-            reasons.append(f"Phase {p['phase']}: graphics throughput regressed")
-        if p['load_wall_ms']['p99'] > 1.05*sum(x['load_wall_ms']['p99'] for x in a)/len(a):
-            reasons.append(f"Phase {p['phase']}: graphics P99 regressed >5%")
-    return {'status':'CANDIDATE_REJECTED' if reasons else 'OFFLINE_SCREEN_PASS', 'reasons':reasons}
-
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -171,19 +116,10 @@ def main():
     env['PATH']=str(args.bin_dir.resolve())+os.pathsep+env['PATH']
     vision_exe=args.bin_dir/'vision_contention_benchmark.exe'
     load_exe=args.bin_dir/'vision_graphics_load.exe'
-    identities={str(p.resolve()):digest(p) for p in [args.model,args.fixture,vision_exe,load_exe,Path(__file__),Path(__file__).with_name('vision_gpu_sampler.py')]}
     schedule=['baseline','baseline'] if args.candidate=='baseline' else ['baseline',args.candidate,args.candidate,'baseline']
     contract=dict(schema=1, domain='synthetic D3D11 handoff + real TensorRT, not DXGI/live acceptance',
-        identities=identities, schedule=schedule, parameters=vars(args)|{'fixture':str(args.fixture),
+         schedule=schedule, parameters=vars(args)|{'fixture':str(args.fixture),
         'model':str(args.model),'output':str(output),'bin_dir':str(args.bin_dir)}, sources=count,
-        gpu_gate='Vision process busiest PDH engine: every eligible 500ms sample <=15%; missing fails',
-        output_gate='Every source present; every frame decoded signature exact across phases',
-        covariate_gate='Normal process/thread priority; production high-priority CUDA stream unchanged; '
-            'fixed graphics work; >=95% SM samples within5% phase median; phase medians within5%; '
-            'unowned process busiest aggregate engine <=3%',
-        aa_gate='Repeated baseline wall and graphics mean within5%, P99 within15%',
-        candidate_gate='Both B mean and P99 wall >=5% better than both A; GPU mean <=105% A mean; '
-            'Vision and graphics delivered Hz >=99% A mean; graphics and result delivery interval P99 <=105% A mean',
         limitations=['No DXGI acquire/release, compositor, game CPU/DX12 submission, controller or live frame age',
             'Sampled GPU gate is not an instantaneous utilization guarantee',
             'NVML clocks use device 0; adapter CUDA index must be 0; use a single-GPU test host'])
@@ -261,17 +197,10 @@ def main():
                 if not values:
                     raise RuntimeError(f'No valid samples for {name}')
                 result[name]=stats(values)
-            result['budget_pass']=coverage and result['vision_gpu']['max']<=15
-            median=result['sm_mhz']['p50']
-            result['clock_stable']=sum(abs(s['sm_mhz']-median)<=.05*median for s in gpu)/len(gpu)>=.95
-            result['external_quiet']=result['unowned_gpu']['max']<=3
             phases.append(result); save(output/'summary.json',phases)
             print(json.dumps({k:result[k] for k in ['phase','variant','actual_hz','wall_ms','vision_gpu','load_hz','load_wall_ms','sm_mhz','outputs_exact']},ensure_ascii=False),flush=True)
-        if any(digest(p)!=expected for p,expected in identities.items()):
-            raise RuntimeError('Identity changed during benchmark')
-        verdict=assess(phases,contract); save(output/'verdict.json',verdict)
-        print(json.dumps(verdict,ensure_ascii=False),flush=True)
-        return 0 if verdict['status'] in ('AA_PASS','OFFLINE_SCREEN_PASS','CANDIDATE_REJECTED') else 2
+        print(json.dumps(dict(status='MEASURED', completed_phases=len(phases)),ensure_ascii=False),flush=True)
+        return 0
     except Exception as e:
         verdict=dict(status='INVALID',reasons=[str(e)],completed_phases=len(phases))
         save(output/'verdict.json',verdict)

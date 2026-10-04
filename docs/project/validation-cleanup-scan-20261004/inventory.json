@@ -1,0 +1,6153 @@
+{
+  "scan_date": "2026-10-04",
+  "scope": "Inspection only; no deletion or implementation. Tags are review labels, not a deletion manifest.",
+  "excluded_roots": [
+    ".git",
+    ".venv",
+    ".worktrees",
+    ".cache",
+    ".claude",
+    ".idea",
+    ".playwright-cli",
+    ".pytest_cache",
+    "__pycache__",
+    "artifacts",
+    "runs",
+    "output",
+    "debug_captures",
+    "native-test-artifacts",
+    "training_data",
+    "models",
+    "Ultralytics",
+    "vision-gamepad-optimization-report"
+  ],
+  "additional_exclusions": [
+    "native/build*",
+    "native/vision_native/build*",
+    "native/mouse_link/build*",
+    "**/__pycache__/**"
+  ],
+  "summary": {
+    "text_files_scanned": 1125,
+    "inventory_files": 498,
+    "sha256_reference_files": 171,
+    "sha256_reference_lines": 711,
+    "tags": {
+      "document_contract_or_history": 157,
+      "sha256_reference": 171,
+      "build_or_entry_dependency": 11,
+      "test_or_incident_review_required": 231,
+      "simulation_keep_or_split": 50,
+      "runner_or_measurement_review_required": 38,
+      "acceptance_or_related_entry_reviewed": 13
+    }
+  },
+  "preexisting_git_status": " M docs/project/DESKTOP_ASSISTANT.md\n M native/controller_native/aim_response_curve_plugin.h\n M native/controller_native/runtime_config.cpp\n M native/controller_native/runtime_config_tests.cpp\n M python/desktop_app/fields.py\n M python/desktop_app/gui.py\n M python/desktop_app/runtime.py\n M python/desktop_app/settings.py\n M python/tests/test_desktop_app.py\n?? docs/project/APEX_BF6_CUE_RESEARCH_20260930.md\n?? python/desktop_app/components.py\n?? python/desktop_app/curve_editor.py\n?? python/desktop_app/curves.py\n?? python/desktop_app/profiles.py\n?? python/tests/test_bf6_specialist.py\n?? python/tools/training/bf6_specialist.py\n?? python/tools/training/compare_bf6_specialists.py\n",
+  "files": [
+    {
+      "path": ".agent-context/archive/2026-07-26-next-benchmark-scenarios.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 101,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/archive/context-through-2026-07-20-pre-compaction.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 537,
+      "sha256_lines": [
+        5,
+        6,
+        249
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/archive/handoff-2026-07-31-pre-20260801-compaction.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 174,
+      "sha256_lines": [
+        91
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/archive/session-log-2026-07-23-to-2026-07-31-pre-20260801-compaction.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 395,
+      "sha256_lines": [
+        394
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/archive/session-log-2026-08-01-to-2026-08-03-pre-20260803-compaction.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 116,
+      "sha256_lines": [
+        18,
+        32,
+        111
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/archive/session-log-2026-08-03-to-2026-08-18-pre-20260901-compaction.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 563,
+      "sha256_lines": [
+        63,
+        75,
+        292,
+        301,
+        421,
+        425,
+        545,
+        548
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/briefs/subagent-2026-08-03-001-w3-live-quality-gate.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 156,
+      "sha256_lines": [
+        22
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/briefs/subagent-2026-08-03-002-w3-envelope-w4-clock-shadow.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 199,
+      "sha256_lines": [
+        26,
+        189,
+        190
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/decisions/DEC-2026-07-31-001-separate-target-motion-and-firing-disturbance.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 163,
+      "sha256_lines": [
+        125,
+        141
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/decisions/DEC-2026-08-01-001-accept-control-chain-jump-stability-runtime.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 112,
+      "sha256_lines": [
+        37
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/decisions/DEC-2026-08-01-002-contextual-manual-ai-dual-proposal-arbitration.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 123,
+      "sha256_lines": [
+        98
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/decisions/DEC-2026-08-02-001-fresh-observation-bounds-radial-authority.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 121,
+      "sha256_lines": [
+        107
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/decisions/DEC-2026-08-02-002-predictive-manual-ai-control-envelope.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 139,
+      "sha256_lines": [
+        120
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/decisions/DEC-2026-08-03-001-protect-live-baseline-defer-w5.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 90,
+      "sha256_lines": [
+        35,
+        75
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/decisions/DEC-2026-08-05-001-adopt-fixed-shape-cuda-graph-vision.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 101,
+      "sha256_lines": [
+        85,
+        89
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/decisions/DEC-2026-08-12-002-ads-full-authority-after-admission.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 124,
+      "sha256_lines": [
+        122
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agent-context/handoff.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 36,
+      "sha256_lines": [
+        10
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agents/skills/incident-to-regression/SKILL.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 125,
+      "sha256_lines": [
+        25,
+        83,
+        84,
+        118
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agents/skills/incident-to-regression/agents/openai.yaml",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 4,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agents/skills/incident-to-regression/references/regression-contract.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 167,
+      "sha256_lines": [
+        21,
+        66,
+        69,
+        109,
+        115,
+        146,
+        153
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agents/skills/incident-to-regression/scripts/regression_contract.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1213,
+      "sha256_lines": [
+        21,
+        56,
+        60,
+        156,
+        159,
+        214,
+        219,
+        247,
+        302,
+        480,
+        482,
+        483,
+        505,
+        516,
+        520,
+        847,
+        916,
+        923,
+        1017,
+        1018,
+        1077,
+        1120,
+        1130,
+        1139,
+        1165,
+        1206
+      ],
+      "tags": [
+        "sha256_reference",
+        "acceptance_or_related_entry_reviewed",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agents/skills/native-telemetry-audit/SKILL.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 123,
+      "sha256_lines": [
+        40
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agents/skills/native-telemetry-audit/references/native-telemetry-contract.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 137,
+      "sha256_lines": [
+        21,
+        40,
+        76,
+        88,
+        90
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": ".agents/skills/native-telemetry-audit/scripts/audit_evidence.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1106,
+      "sha256_lines": [
+        38,
+        41,
+        47,
+        61,
+        65,
+        173,
+        202,
+        215,
+        240,
+        246,
+        249,
+        254,
+        260,
+        265,
+        521,
+        522,
+        527,
+        614,
+        616,
+        618,
+        623,
+        632,
+        683,
+        810,
+        1060,
+        1099
+      ],
+      "tags": [
+        "sha256_reference",
+        "acceptance_or_related_entry_reviewed",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "AGENTS.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 59,
+      "sha256_lines": [],
+      "tags": [
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "README.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 152,
+      "sha256_lines": [],
+      "tags": [
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "docs/archive/benchmark-results/GAMEPAD_ADS_BENCHMARKS.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 71,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/benchmark-results/GAMEPAD_BENCHMARKS.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 65,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/benchmark-results/GAMEPAD_MANUAL_MIX_BENCHMARKS.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 80,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/benchmark-results/MOUSE_ADS_BENCHMARKS.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 75,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/benchmark-results/NATIVE_CONTROLLER_BENCHMARKS.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 450,
+      "sha256_lines": [
+        187,
+        301
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/control-history/BODYLOCK_HANDOFF_ACCEPTANCE.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 90,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/control-history/BRAKE_EPISODE_BENCHMARK_ACCEPTANCE_20260719.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 110,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/control-history/CAUSAL_LEARNING_AIMLAB_ACCEPTANCE_20260722.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 94,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/control-history/CAUSAL_RESPONSE_SHADOW_ACCEPTANCE_20260722.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 69,
+      "sha256_lines": [
+        13
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/control-history/COUNTERFACTUAL_CONFLICT_BENCHMARK_ACCEPTANCE_20260719.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 71,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/control-history/FRESH_VISION_MANUAL_COUNTER_CORRECTION_ACCEPTANCE_20260722.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 58,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/control-history/REFACTOR_B_ACCEPTANCE_20260716.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 86,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/control-history/RESPONSE_MODEL_AIM_CONTROL_ACCEPTANCE_20260718.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 64,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/performance-history/NATIVE_RUNTIME_PERFORMANCE_ACCEPTANCE.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 122,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/performance-history/NATIVE_VISION_GPU_SERVICE_BENCHMARKS.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 192,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/research/AUDIO_VISUAL_FUSION_IMPLEMENTATION_PLAN.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1183,
+      "sha256_lines": [
+        250,
+        905
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/archive/research/AUDIO_VISUAL_FUSION_TODO.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 469,
+      "sha256_lines": [
+        315
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/AIMLAB_OPTIMIZATION_CONTRACT_V1_20260827.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 142,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/APEX_ADS_STARTUP_INVESTIGATION_20261001.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 70,
+      "sha256_lines": [
+        36,
+        60
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/APEX_FIRING_FEEDBACK_20261001.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 82,
+      "sha256_lines": [
+        9,
+        80
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/APEX_PIXEL_MOTION_MEASUREMENT_FIX_20261001.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 75,
+      "sha256_lines": [
+        3,
+        5,
+        11,
+        67,
+        71
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/BODYLOCK_LIVE_EVIDENCE_20260730.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 121,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/CLOSED_LOOP_GAMEPLAY_ACCEPTANCE_V1_20260811.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 342,
+      "sha256_lines": [
+        240,
+        297,
+        307
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/CONTROLLER_CHAIN_REFACTOR_20260926.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 49,
+      "sha256_lines": [
+        45
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/CONTROLLER_INTENT_CURVE_AND_OPTIMIZATION_PLAN_20260926.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 132,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/CONTROLLER_MULTIPLAYER_CHECKPOINT_20260926.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 59,
+      "sha256_lines": [
+        9,
+        11,
+        45,
+        50,
+        52
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/CONTROLLER_OFFLINE_REPAIR_20260926.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 74,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/CONTROLLER_OSCILLATION_RESULTS_20260926.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 85,
+      "sha256_lines": [
+        83
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/CONTROLLER_OSCILLATION_SCAN_20260926.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 85,
+      "sha256_lines": [
+        11,
+        13,
+        14
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/CONTROLLER_ZERO_TARGET_HOLD_REPAIR_20261003.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 101,
+      "sha256_lines": [
+        80,
+        81
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/GAMEPAD_AI_SIGNAL_ONSET_INVESTIGATION_20261001.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 78,
+      "sha256_lines": [
+        57,
+        76
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/MICRO_INPUT_DROPOUT_DECOY_20260801.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 93,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/README.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 46,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/axis-stress-ab-seed1337.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 527,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/bodylock-center-crossing-20260910/README.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 108,
+      "sha256_lines": [
+        86
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/bodylock-center-crossing-20260910/artifacts.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 41,
+      "sha256_lines": [
+        7,
+        11,
+        15,
+        19,
+        23,
+        27,
+        31,
+        35,
+        38,
+        39,
+        40
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/bodylock-center-crossing-20260910/contract-check.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 71,
+      "sha256_lines": [
+        2,
+        57,
+        62,
+        67
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/bodylock-center-crossing-20260910/green.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 9,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/bodylock-center-crossing-20260910/red.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 9,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/bodylock-center-crossing-20260910/regression-manifest.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 278,
+      "sha256_lines": [
+        54,
+        57,
+        60,
+        91,
+        92,
+        173,
+        187,
+        205,
+        219,
+        250,
+        260,
+        264,
+        265,
+        273,
+        277
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/bodylock-center-crossing-20260910/verification.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 31,
+      "sha256_lines": [
+        11,
+        21,
+        25,
+        26
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/causal-response-shadow.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 29,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/native-runtime-telemetry.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 44,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/oscillation-20260926/audit_multiplayer_capture.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 156,
+      "sha256_lines": [
+        45,
+        72,
+        73
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/oscillation-20260926/high-rate-regression-manifest.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 260,
+      "sha256_lines": [
+        45,
+        48,
+        158,
+        173,
+        191,
+        206,
+        248,
+        249,
+        257
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/oscillation-20260926/next-validation.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 18,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/oscillation-20260926/regression-manifest.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 124,
+      "sha256_lines": [
+        75,
+        78,
+        93,
+        111
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/oscillation-20260926/stationary-regression-manifest.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 168,
+      "sha256_lines": [
+        94,
+        97,
+        135,
+        151
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/sustained-aimlab-optimization-policy-v1.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 66,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/sustained-aimlab.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 380,
+      "sha256_lines": [
+        29,
+        96
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/vision-blind-window.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 53,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/benchmarks/zero-target-hold-20261003/regression-manifest.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 234,
+      "sha256_lines": [
+        59,
+        62,
+        127,
+        139,
+        149,
+        161,
+        195,
+        196,
+        230
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/methods/prompts/RESEARCH_CAUSAL_ONLINE_RESPONSE_AND_HORIZON_CONTROL.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 670,
+      "sha256_lines": [
+        647
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/ADS_BODYLOCK_FIXES_20260905.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 65,
+      "sha256_lines": [
+        57
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/ADS_LONG_SESSION_DIAGNOSIS_20260801.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 127,
+      "sha256_lines": [
+        27,
+        36,
+        38
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/ADS_ONSET_200MS_INCIDENT_ANALYSIS_20260905.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 136,
+      "sha256_lines": [
+        113,
+        116,
+        117
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/ADS_RESIDUAL_120FPS_ANALYSIS_20260905.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 144,
+      "sha256_lines": [
+        15,
+        138,
+        142
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/AGENT_FIRST_EVENT_DRIVEN_CONTROL_ARCHITECTURE_20260815.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 888,
+      "sha256_lines": [
+        46
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/AIM_ASSIST_NON_SEIZURE_CONTROL_DESIGN_20260813.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 636,
+      "sha256_lines": [
+        56,
+        608
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/CAUSAL_PRE_RECOIL_MIX_ACCEPTANCE_20260726.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 107,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 148,
+      "sha256_lines": [
+        123,
+        127,
+        129,
+        131
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/CONTROL_LIFECYCLE_REFACTOR_20260928.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 110,
+      "sha256_lines": [
+        90
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/CUE_SELECTOR_MANUAL_ACCEPTANCE_20260810.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 85,
+      "sha256_lines": [
+        63
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/DYNAMIC_VIEWPORT_BENCHMARK_ACCEPTANCE_20260728.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 120,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/FIRST_ACQUISITION_MARKER_LOSS_20260928.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 42,
+      "sha256_lines": [
+        9
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/FIVE_CASE_SCHEMA13_CONTROL_AUDIT_20260803.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 160,
+      "sha256_lines": [
+        22
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/FIXED_WIDE_VISION_V0_ACCEPTANCE_20260727.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 315,
+      "sha256_lines": [
+        38,
+        48
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/FUSION_MW4_REPLAY_AUDIT_20260830.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 142,
+      "sha256_lines": [
+        31,
+        36,
+        116,
+        118
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/LIVE_ACCEPTED_RUNTIME_20260803.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 83,
+      "sha256_lines": [
+        22,
+        25,
+        31
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/MOUSE_DIAGNOSTICS_RECOIL_20260908.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 65,
+      "sha256_lines": [
+        32
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/MOUSE_INPUT_PROVENANCE_MONITOR_20260908.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 75,
+      "sha256_lines": [
+        22,
+        46
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/MOUSE_INTERCEPTION_FAKERINPUT_VERIFIED_ROUTE_20260908.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 108,
+      "sha256_lines": [
+        58,
+        60,
+        70
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/MOUSE_LISTENER_STARTUP_AB_20260908.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 33,
+      "sha256_lines": [
+        23
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/MOUSE_SOFTWARE_FEASIBILITY_20260908.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 83,
+      "sha256_lines": [
+        37,
+        39,
+        70,
+        72
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/MOUSE_TARGET_POINT_CONTROL_20260908.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 53,
+      "sha256_lines": [
+        26,
+        28
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/MOUSE_VIRTUAL_RELAY_DESKTOP_VERIFIED_20260908.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 95,
+      "sha256_lines": [
+        85,
+        86
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/MOUSE_VIRTUAL_RELAY_READY_FOR_REBOOT_20260908.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 80,
+      "sha256_lines": [
+        17
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/NATIVE_DEV_REVIEW_20260905.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 217,
+      "sha256_lines": [
+        189
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/NATIVE_DEV_REVIEW_FIXES_20260905.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 55,
+      "sha256_lines": [
+        45
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/REPOSITORY_LAYOUT_20260930.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 94,
+      "sha256_lines": [
+        34
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/SUSTAINED_AIMLAB_LEFT_STRAFE_ACCEPTANCE_20260723.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 153,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/TEST_CODE_REDUCTION_AUDIT_20260923.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 123,
+      "sha256_lines": [
+        48
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/VISIBLE_SELECTION_CONTRACT_20260928.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 50,
+      "sha256_lines": [
+        41,
+        42
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/VISION_ENGINE_PARAMETER_MATRIX_20260722.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 80,
+      "sha256_lines": [
+        71,
+        72
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/VISION_OFFLINE_CONTENTION_AB_20260907.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 107,
+      "sha256_lines": [
+        50,
+        54,
+        60
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/VISION_PERFORMANCE_ANALYSIS_20260905.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 208,
+      "sha256_lines": [
+        46,
+        47,
+        48,
+        50,
+        52,
+        204
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/VISION_SCHEDULING_DIAGNOSIS_20260907.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 86,
+      "sha256_lines": [
+        35
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/VISION_WAIT_CAPTURE_EXPERIMENTS_20260907.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 150,
+      "sha256_lines": [
+        99,
+        148
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/W5_CAUSAL_MEMORY_20260808.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 482,
+      "sha256_lines": [
+        122
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/W5_GATE2_5_LIVE_SHADOW_MEASUREMENT_PLAN_20260808.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 735,
+      "sha256_lines": [
+        472
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/WEAK_SLOWDOWN_OCCLUSION_DAMPING_ACCEPTANCE_20260727.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 129,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/WORKSPACE_FILE_AUDIT_20260930.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 68,
+      "sha256_lines": [
+        50
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/native_runtime_acceptance_20260712.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 43,
+      "sha256_lines": [
+        5,
+        6
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/project/native_runtime_non_regression_20260712.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 40,
+      "sha256_lines": [
+        13
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/research/NON_RIGHT_STICK_MOTION_RED_20260926.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 84,
+      "sha256_lines": [
+        9
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/research/VISION_CONTROLLER_GAMEPAD_SYSTEM_AUDIT_20260926.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 151,
+      "sha256_lines": [
+        17
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/research/vision-controller-audit-20260926/README.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 25,
+      "sha256_lines": [
+        8
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/research/vision-controller-audit-20260926/effective-config.txt",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 92,
+      "sha256_lines": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/research/vision-controller-audit-20260926/manifest.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 217,
+      "sha256_lines": [
+        9,
+        14,
+        18,
+        22,
+        26,
+        30,
+        34,
+        38,
+        42,
+        46,
+        50,
+        54,
+        58,
+        62,
+        66,
+        70,
+        74,
+        78,
+        82,
+        86,
+        90,
+        94,
+        98,
+        102,
+        106,
+        110,
+        114,
+        118,
+        122,
+        126,
+        130,
+        134,
+        138,
+        142,
+        146,
+        150,
+        154,
+        158,
+        162,
+        166,
+        170,
+        174,
+        178,
+        182,
+        186,
+        194,
+        198,
+        202,
+        206,
+        210,
+        214
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-16-gamepad-benchmark-pipeline.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 163,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-17-gamepad-manual-mix-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 288,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-18-gamepad-ads-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 72,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-06-native-aimlab-userinput-vision-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 826,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-12-vertical-bodylock-defect-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 101,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-13-native-tracker-authority-bodylock-refactor.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 832,
+      "sha256_lines": [
+        17,
+        129,
+        147
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-15-left-stick-relative-motion-defect-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 216,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-15-production-chain-strafe-dropout-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 308,
+      "sha256_lines": [
+        275
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-17-autofire-pulse-cadence.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 592,
+      "sha256_lines": [
+        589
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-17-axis-stress-ab-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 302,
+      "sha256_lines": [
+        280
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-17-left-strafe-and-manual-retention.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 273,
+      "sha256_lines": [
+        237
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-17-partial-occlusion-combat-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 139,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-18-sustained-aimlab-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 638,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-19-ads-epoch-and-color-cue-contract.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 94,
+      "sha256_lines": [
+        86
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-19-brake-episode-benchmark-and-window-only-exit.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 254,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-19-counterfactual-conflict-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 900,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-21-bounded-dynamic-vision-roi.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 881,
+      "sha256_lines": [
+        122,
+        195,
+        200,
+        814
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-22-causal-response-shadow-integration.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1029,
+      "sha256_lines": [
+        305
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-22-vision-blind-window-benchmark.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 299,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-01-ads-bodylock-jump-stability-repair.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 337,
+      "sha256_lines": [
+        47,
+        49,
+        302
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-01-four-situation-control-chain-reproduction-and-repair.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 681,
+      "sha256_lines": [
+        24,
+        45,
+        85,
+        169,
+        218,
+        627,
+        670
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-16-gamepad-benchmark-pipeline-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 503,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-17-gamepad-manual-mix-benchmark-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 357,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-06-native-aimlab-userinput-vision-benchmark-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 254,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-12-vertical-bodylock-defect-benchmark-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 78,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-13-native-tracker-authority-bodylock-refactor-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 524,
+      "sha256_lines": [
+        150
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-15-left-stick-relative-motion-defect-benchmark-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 269,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-17-axis-stress-ab-benchmark-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 114,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-17-partial-occlusion-combat-benchmark-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 143,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-19-brake-episode-benchmark-and-window-only-exit-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 171,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-19-counterfactual-conflict-benchmark-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 345,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-22-bounded-dynamic-roi-master-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 587,
+      "sha256_lines": [
+        436,
+        558
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-22-vision-blind-window-benchmark-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 503,
+      "sha256_lines": [],
+      "tags": [
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-27-fixed-wide-low-resolution-vision-baseline-design.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 224,
+      "sha256_lines": [
+        166
+      ],
+      "tags": [
+        "sha256_reference",
+        "document_contract_or_history"
+      ]
+    },
+    {
+      "path": "native/CMakeLists.txt",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 183,
+      "sha256_lines": [],
+      "tags": [
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "native/cmake/OfflineBenchmarks.cmake",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 104,
+      "sha256_lines": [],
+      "tags": [
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "native/cmake/ProductTests.cmake",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 200,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required",
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "native/controller_native/acquisition_gesture_purpose_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 258,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_acquisition_controller_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 276,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_bodylock_september_incident_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 184,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_center_cross_late_exit_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 309,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_close_acquisition_pacing_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 314,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_completion_geometry_continuity_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 330,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_cross_epoch_pickup_revalidation_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 306,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_freshness_gap_demand_reuse_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 452,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_incomplete_acquisition_safety_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 406,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_initial_scope_existing_target_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 252,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_lifecycle_reducer_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 81,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_near_target_slowdown_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 784,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_reacquisition_reducer_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 163,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_scope_ready_authority_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 165,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_single_press_token_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 268,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_snap_core_contract_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 486,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/ads_snap_deadline_release_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 431,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/aim_dynamics_shaper_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 316,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/aim_response_estimator_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 332,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/aim_scope_reducer_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 123,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/aimlab_benchmark.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 757,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/aimlab_benchmark.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 116,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/aimlab_benchmark_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 360,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/auto_fire_gate_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 303,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/benchmark_metrics_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 336,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_follow_controller_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 277,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_high_frequency_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 533,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_motion_anchor_incident.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 180,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_position_motion_conflict_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 362,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_pov_fire_cue_continuity_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 384,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_recoil_feedback_incident_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 187,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_response_coordinate_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 326,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_target_direction_latency_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 171,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_target_motion_observer_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 131,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/bodylock_target_motion_total_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 433,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/close_cue_hold_authority_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 337,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/cod_native_aimlab_benchmark.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 43,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/cod_native_sustained_aimlab_benchmark.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1244,
+      "sha256_lines": [
+        160,
+        194,
+        195,
+        196,
+        197,
+        198,
+        200,
+        201,
+        275,
+        276,
+        277,
+        278,
+        279,
+        280,
+        281,
+        282,
+        283,
+        284,
+        287,
+        288,
+        289,
+        290,
+        366,
+        367,
+        368,
+        369,
+        370,
+        372,
+        373,
+        456,
+        457,
+        458,
+        459,
+        460,
+        462,
+        463,
+        482,
+        483,
+        484,
+        485,
+        486,
+        487,
+        488,
+        789,
+        931,
+        932,
+        933,
+        934,
+        935,
+        936,
+        937,
+        938,
+        939,
+        940,
+        943,
+        944,
+        945,
+        946
+      ],
+      "tags": [
+        "sha256_reference",
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/control_pipeline_primitives_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 440,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/controller_product_contract_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 199,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/controller_protocol_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 253,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/controller_targets.cmake",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 43,
+      "sha256_lines": [],
+      "tags": [
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "native/controller_native/ds4_output_report_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 137,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/far_selected_person_ads_admission_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 202,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/gamepad_signal_onset_incident.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 156,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/held_ads_response_learning_incident.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 76,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/incident_fixture_support.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 210,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/input_edge_reducer_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 49,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/intent_filter_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 371,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/io_recovery_policy_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 67,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/manual_ai_arbitration_continuity_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 480,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/manual_residual_authority_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 672,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/native_benchmark_controller_adapter.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 254,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/native_benchmark_controller_adapter.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 59,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/native_benchmark_controller_adapter_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 90,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/native_benchmark_physical_input.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 23,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/native_benchmark_physical_input_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 57,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/neutral_drift_arbitration_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 411,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/operation_intent_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 249,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/oscillation_scan.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 334,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/pid_benchmark_controller.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 216,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/pid_benchmark_controller_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 99,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/recoil_contract_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 548,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/recoil_reducer_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 78,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/response_model_aim_solver_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 254,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/runtime_config.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 294,
+      "sha256_lines": [
+        269,
+        270,
+        274,
+        275
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/controller_native/runtime_config_tests.cpp",
+      "tracked": true,
+      "already_modified": true,
+      "lines": 658,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/sdl_gamepad_reader_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 164,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/startup_response_prior_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 420,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/state_machine_contract_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 164,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/state_machine_replay_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 123,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_scenario.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 851,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_scenario.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 35,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_scenario_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 952,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_score.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 832,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_score.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 307,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_score_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 724,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_simulator.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1097,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_simulator.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 98,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_simulator_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 497,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_trace.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 213,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_trace.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 68,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_trace_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 151,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/sustained_aimlab_types.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 290,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "native/controller_native/target_coordinator_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 824,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/target_geometry_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 134,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/target_pipeline_integration_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1080,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/target_state_reducers_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 133,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/touchpad_fire_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 307,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/vertical_correction_release_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 334,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/weapon_recognizer_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 402,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/controller_native/zero_target_hold_incident.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 331,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_link/CMakeLists.txt",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 81,
+      "sha256_lines": [
+        40
+      ],
+      "tags": [
+        "sha256_reference",
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "native/mouse_link/input_provenance_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 26,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_link/interception_query_contract_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 20,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_link/tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 44,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_link/virtual_mouse_packet_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 48,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_adapter_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 197,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_auto_fire_button_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 63,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_bodylock_curve_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 139,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_bodylock_deadzone_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 146,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_bodylock_escape_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 51,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_controller_facade_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 319,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_controller_runtime_core_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 338,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_diagnostics_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 53,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_emergency_exit_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 63,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_interception_transport_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 108,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_manual_judgment_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 78,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_recoil_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 73,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_relay_client_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 50,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_relay_contract_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 333,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_relay_test_mode.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 26,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_runtime_supervisor_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 160,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_sensitivity_calibrator_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 210,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_target_point_boundaries_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 107,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_target_point_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 134,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_targets.cmake",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 83,
+      "sha256_lines": [
+        76
+      ],
+      "tags": [
+        "sha256_reference",
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_tuning_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 285,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_virtual_hid_transport_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 261,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_virtual_session_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 511,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/mouse_native/mouse_win32_debug_transport_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 226,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/overlay_canvas/fusion_overlay_contract_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 433,
+      "sha256_lines": [
+        328
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/overlay_canvas/fusion_targets.cmake",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 39,
+      "sha256_lines": [],
+      "tags": [
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "native/pipeline_contract/committed_capture_observation_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 202,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/pipeline_contract/target_plan_contract_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 78,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/ads_transition_collector_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 107,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/ads_visual_transition_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 85,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/log_session_manager.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 175,
+      "sha256_lines": [
+        94,
+        95,
+        96,
+        120,
+        121,
+        122,
+        123
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/log_session_manager.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 52,
+      "sha256_lines": [
+        15,
+        16
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/log_session_manager_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 107,
+      "sha256_lines": [
+        37,
+        38,
+        55,
+        57
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/main.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 361,
+      "sha256_lines": [
+        110,
+        122,
+        125,
+        126,
+        129,
+        130,
+        137,
+        139,
+        141,
+        142,
+        144,
+        145,
+        158,
+        159,
+        160,
+        161
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/mouse_runtime_main.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 922,
+      "sha256_lines": [
+        547,
+        548,
+        549
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/perf_logger.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 659,
+      "sha256_lines": [
+        327,
+        328
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/perf_logger.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 110,
+      "sha256_lines": [
+        49,
+        50
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/person_detection_gesture_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 323,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/runtime_loop.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1428,
+      "sha256_lines": [
+        55,
+        56,
+        57,
+        58,
+        504,
+        505,
+        513,
+        514,
+        515
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/runtime_provenance.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 71,
+      "sha256_lines": [
+        13,
+        23
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/runtime_provenance.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 13,
+      "sha256_lines": [
+        9
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/runtime_provenance_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 29,
+      "sha256_lines": [
+        10,
+        15,
+        16,
+        20,
+        28
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/runtime_targets.cmake",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 72,
+      "sha256_lines": [
+        15
+      ],
+      "tags": [
+        "sha256_reference",
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "native/runtime_app/runtime_telemetry.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 757,
+      "sha256_lines": [
+        290,
+        340,
+        583,
+        584,
+        585
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/runtime_telemetry_production_shape_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 38,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/runtime_telemetry_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 288,
+      "sha256_lines": [
+        100
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/runtime_timing_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 201,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/telemetry_collectors.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 596,
+      "sha256_lines": [
+        84
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/telemetry_collectors.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 246,
+      "sha256_lines": [
+        207
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/telemetry_collectors_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 308,
+      "sha256_lines": [
+        25
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/telemetry_event_sampler_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 75,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/telemetry_schema.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 415,
+      "sha256_lines": [
+        236
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/runtime_app/telemetry_target_identity_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 88,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/viewport_controller_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 155,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/runtime_app/vision_service_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 646,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/test_support/base_tests_main.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 139,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/test_support/bodylock_motion_anchor_incident_main.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 9,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/test_support/functional_tests_main.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 39,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/test_support/native_test_registry.h",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 245,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/vision_native/src/ads_dynamic_pickup_roi_incident_regression.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 210,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/vision_native/src/build_family_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 26,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/vision_native/src/color_readback_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 49,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/vision_native/src/cuda_d3d11_interop_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 119,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/vision_native/src/marker_loss_acquisition_incident_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 101,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/vision_native/src/resize_contract_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 94,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/vision_native/src/target_selector_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1821,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/vision_native/src/visible_selection_contract_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 176,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/vision_native/src/visible_selection_pipeline_tests.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 72,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/voice/SoundDirectionAssist_Codex_Pack/config.example.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 36,
+      "sha256_lines": [
+        34
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/voice/SoundDirectionAssist_Codex_Pack/docs/03_audio_and_ml_spec.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 187,
+      "sha256_lines": [
+        141
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/voice/SoundDirectionAssist_Codex_Pack/docs/05_security_compliance.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 95,
+      "sha256_lines": [
+        57
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/voice/SoundDirectionAssist_Codex_Pack/docs/06_testing_acceptance.md",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 152,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "native/voice/SoundDirectionAssist_Codex_Pack/schemas/app_config.schema.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 190,
+      "sha256_lines": [
+        180
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "native/voice/SoundDirectionAssist_Codex_Pack/schemas/dataset_manifest.schema.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 143,
+      "sha256_lines": [
+        41,
+        59
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "pytest.ini",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 5,
+      "sha256_lines": [],
+      "tags": [
+        "build_or_entry_dependency"
+      ]
+    },
+    {
+      "path": "python/desktop_app/gui.py",
+      "tracked": true,
+      "already_modified": true,
+      "lines": 958,
+      "sha256_lines": [
+        927
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/desktop_app/runtime.py",
+      "tracked": true,
+      "already_modified": true,
+      "lines": 384,
+      "sha256_lines": [
+        40
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/desktop_app/settings.py",
+      "tracked": true,
+      "already_modified": true,
+      "lines": 202,
+      "sha256_lines": [
+        154
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tests/fixtures/fusion_visibility/mw4_replay_20260830_frames_1333_1342.json",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 43,
+      "sha256_lines": [
+        6
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/ads_benchmark_metrics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 829,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/ads_benchmark_scenarios.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 549,
+      "sha256_lines": [
+        4,
+        549
+      ],
+      "tags": [
+        "sha256_reference",
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/ads_manual_inputs.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 166,
+      "sha256_lines": [
+        4,
+        162
+      ],
+      "tags": [
+        "sha256_reference",
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/benchmark_metrics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 591,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/benchmark_scenarios.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 471,
+      "sha256_lines": [
+        5,
+        173
+      ],
+      "tags": [
+        "sha256_reference",
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/manual_mix_inputs.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 200,
+      "sha256_lines": [
+        4,
+        196
+      ],
+      "tags": [
+        "sha256_reference",
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/manual_mix_metrics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 652,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_adaptive_delta_gain.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 147,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_adaptive_delta_gain_simulation.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 159,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_ads_benchmark_metrics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 308,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_ads_benchmark_scenarios.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 191,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_ads_manual_inputs.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 93,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_ai_aim_plugin.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1929,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_aim_assist_dynamics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 176,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_aim_math.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 33,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_auto_fire_plugin.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 219,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_benchmark_metrics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 701,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_benchmark_runner.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 723,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_benchmark_scenarios.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 392,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_benchmark_scoreboard.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 325,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_controller_host.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1115,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_diagnostics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 145,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_horizontal_assist.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 76,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_manual_intent_guard.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 66,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_manual_mix_inputs.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 92,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_manual_mix_metrics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 483,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_overshoot_guard.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 78,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_plugin_chain.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 76,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_plugin_trace.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 77,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_recoil_compensation.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 687,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/gamepad/test_gamepad_target_tracker.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 284,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/ads_benchmark_metrics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 658,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_ai_aim.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1448,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_ai_aim_sequences.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 733,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_auto_fire.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 138,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_benchmark_metrics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 138,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_benchmark_runner.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 177,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_controller_host.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 887,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_diagnostics.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 46,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_injection_probe.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 34,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_plugin_chain.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 57,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_recoil.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 58,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_state.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 83,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_mouse_telemetry_analysis.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 508,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_virtual_relay_oracle.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 68,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/mouse/test_virtual_relay_parent_exit.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 60,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_app/test_console.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 50,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_app/test_runtime.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1684,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_app/test_weapon_examples.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 120,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_audit.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 117,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_calibration.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 45,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_capture.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 193,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_extraction.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 704,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_models.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 499,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_playback_dry_run.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 117,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_readiness.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 132,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_segmentation.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 223,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_storage.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 170,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/recoil_collection/test_tooling.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1439,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/runtime/test_recoil_sidecar_service.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 355,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/skills/test_project_skill_contracts.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 273,
+      "sha256_lines": [
+        33,
+        34,
+        48,
+        58,
+        83,
+        154,
+        157,
+        197,
+        203,
+        227,
+        257
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_analyze_fusion_video_replay.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 49,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_apex_launcher.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 71,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_assist_activation_contract.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 45,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_bf6_specialist.py",
+      "tracked": false,
+      "already_modified": true,
+      "lines": 56,
+      "sha256_lines": [
+        22,
+        23,
+        24,
+        25,
+        36,
+        37
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_bo3_launcher.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 56,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_compare_axis_stress_ab.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 77,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_compare_vision_benchmark_candidates.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 71,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_config_loader.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 531,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_desktop_app.py",
+      "tracked": true,
+      "already_modified": true,
+      "lines": 517,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_export_trt.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 45,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_extract_sustained_aimlab_runtime_profile.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 487,
+      "sha256_lines": [
+        13,
+        15,
+        31,
+        44,
+        76,
+        77,
+        78,
+        115,
+        125,
+        158,
+        169,
+        258,
+        283,
+        284,
+        285,
+        286,
+        287,
+        321,
+        388,
+        404,
+        420,
+        431,
+        441,
+        442
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_main_cli.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 296,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_native_telemetry_analysis.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 65,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_native_vision_image_ops_bridge.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 55,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_native_vision_runner.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 732,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_native_vision_targeting_bridge.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 773,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_performance_tracker.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 323,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_person_training_tools.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 241,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_repository_layout.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 95,
+      "sha256_lines": [
+        26,
+        32
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_roboflow_visible_body_dataset.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 164,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_startup_scripts.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 678,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_verify_fusion_visibility_fixture.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 57,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_benchmark_tool.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 282,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_capture.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 500,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_debug_capture.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 34,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_debug_overlay.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 179,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_enhancement.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 265,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_fastpath.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 55,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_gpu_service_benchmark.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 117,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_inference.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 219,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_occlusion_compensation.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 221,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_runner.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 722,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_runner_autofire_gate.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 37,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_runner_config.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 23,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_stability_analyzer.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 96,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_target_scale_sweep.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 57,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_targeting.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 740,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_vision_viewport_sweep.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 83,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/test_yellow_cue.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 76,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/weapon_identity/test_adapters.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 172,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/weapon_identity/test_models.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 197,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/weapon_identity/test_resolver.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 375,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/weapon_identity/test_signatures.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 276,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tests/weapon_identity/test_text.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 184,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/analyze_ads_video_incidents.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 366,
+      "sha256_lines": [
+        243,
+        261,
+        336
+      ],
+      "tags": [
+        "sha256_reference",
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/analyze_fusion_video_replay.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 637,
+      "sha256_lines": [
+        29,
+        30,
+        538,
+        540,
+        542
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/benchmark_vision_dataset.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1481,
+      "sha256_lines": [
+        836,
+        837,
+        1211,
+        1223,
+        1386,
+        1469
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/benchmark_vision_gpu_service.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 709,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/benchmark_vision_target_scale_sweep.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 342,
+      "sha256_lines": [
+        231,
+        237
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/benchmark_vision_viewport_sweep.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 410,
+      "sha256_lines": [
+        303,
+        309
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/benchmarks/check_vision_graphics_load.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 44,
+      "sha256_lines": [
+        15
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/benchmarks/run_vision_contention.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 288,
+      "sha256_lines": [
+        24
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/benchmarks/test_vision_contention.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 77,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/compare_vision_benchmark_candidates.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 265,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/extract_sustained_aimlab_runtime_profile.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1081,
+      "sha256_lines": [
+        34,
+        75,
+        182,
+        183,
+        184,
+        198,
+        199,
+        244,
+        246,
+        258,
+        431,
+        471,
+        504,
+        505,
+        958,
+        960,
+        962,
+        963,
+        970,
+        1041,
+        1075
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/native_runtime_acceptance.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 96,
+      "sha256_lines": [
+        40,
+        41,
+        87,
+        89
+      ],
+      "tags": [
+        "sha256_reference",
+        "acceptance_or_related_entry_reviewed"
+      ]
+    },
+    {
+      "path": "python/tools/run_gamepad_benchmark.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 905,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/run_mouse_benchmark.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 426,
+      "sha256_lines": [],
+      "tags": [
+        "simulation_keep_or_split",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/run_sustained_aimlab_runtime_profile.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 1152,
+      "sha256_lines": [
+        32,
+        76,
+        78,
+        82,
+        85,
+        86,
+        93,
+        94,
+        107,
+        112,
+        113,
+        116,
+        164,
+        165,
+        166,
+        167,
+        169,
+        180,
+        181,
+        182,
+        183,
+        184,
+        191,
+        195,
+        196,
+        462,
+        463,
+        464,
+        465,
+        466,
+        618,
+        619,
+        636,
+        637,
+        638,
+        639,
+        640,
+        642,
+        643,
+        993,
+        999,
+        1003,
+        1024,
+        1025,
+        1052,
+        1053,
+        1054,
+        1055,
+        1056,
+        1057,
+        1058,
+        1059,
+        1060,
+        1061,
+        1064,
+        1065,
+        1066,
+        1067,
+        1110,
+        1112,
+        1119,
+        1120,
+        1136
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/tests/test_manage_native_logs.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 83,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/tests/test_native_runtime_acceptance.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 38,
+      "sha256_lines": [],
+      "tags": [
+        "test_or_incident_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/training/bf6_specialist.py",
+      "tracked": false,
+      "already_modified": true,
+      "lines": 392,
+      "sha256_lines": [
+        56,
+        112,
+        142,
+        169,
+        256,
+        257,
+        270,
+        309,
+        313,
+        314,
+        370,
+        371
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/training/check_game_specialists_native.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 103,
+      "sha256_lines": [
+        64,
+        96,
+        97
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/training/compare_bf6_specialists.py",
+      "tracked": false,
+      "already_modified": true,
+      "lines": 165,
+      "sha256_lines": [
+        28,
+        51,
+        95
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/training/evaluate_game_specialists.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 63,
+      "sha256_lines": [
+        47
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/training/export_game_specialists.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 58,
+      "sha256_lines": [
+        19,
+        40,
+        54
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/training/game_specialists.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 235,
+      "sha256_lines": [
+        26,
+        87,
+        112,
+        133,
+        134,
+        141,
+        163,
+        223,
+        225
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/verify/compare_oscillation_matrix.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 64,
+      "sha256_lines": [
+        17,
+        27,
+        28
+      ],
+      "tags": [
+        "sha256_reference",
+        "acceptance_or_related_entry_reviewed",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/verify/compare_state_machine_replay.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 57,
+      "sha256_lines": [
+        50
+      ],
+      "tags": [
+        "sha256_reference",
+        "acceptance_or_related_entry_reviewed",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/verify/fakerinput_virtual_mouse_probe.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 163,
+      "sha256_lines": [
+        99,
+        100
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/verify/mouse_user_mode_feasibility.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 203,
+      "sha256_lines": [
+        184,
+        185
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "python/tools/verify/run_oscillation_matrix.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 73,
+      "sha256_lines": [
+        42,
+        43,
+        63
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/verify/verify_native_virtual_output.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 59,
+      "sha256_lines": [
+        18
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "python/tools/verify_fusion_visibility_fixture.py",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 210,
+      "sha256_lines": [
+        14,
+        194
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/benchmarks/run-player-motion-matrix.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 59,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/compare_axis_stress_ab.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 161,
+      "sha256_lines": [],
+      "tags": [
+        "acceptance_or_related_entry_reviewed"
+      ]
+    },
+    {
+      "path": "scripts/release/package_native_runtime.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 276,
+      "sha256_lines": [
+        253
+      ],
+      "tags": [
+        "sha256_reference"
+      ]
+    },
+    {
+      "path": "scripts/verify/benchmark_game_stick_transfer.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 44,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/build_mouse_input_monitor.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 14,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/build_mouse_link.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 43,
+      "sha256_lines": [
+        12,
+        26,
+        29
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/compare_oscillation_matrix.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 27,
+      "sha256_lines": [],
+      "tags": [
+        "acceptance_or_related_entry_reviewed",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/compare_sustained_aimlab.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 296,
+      "sha256_lines": [
+        62,
+        63,
+        64
+      ],
+      "tags": [
+        "sha256_reference",
+        "acceptance_or_related_entry_reviewed",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/compare_sustained_pulse_smoothing.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 227,
+      "sha256_lines": [],
+      "tags": [
+        "acceptance_or_related_entry_reviewed",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/mouse_native.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 29,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/native_pipeline_contract.bat",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 6,
+      "sha256_lines": [],
+      "tags": [
+        "acceptance_or_related_entry_reviewed",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/native_pipeline_contract.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 266,
+      "sha256_lines": [],
+      "tags": [
+        "acceptance_or_related_entry_reviewed",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/native_release_packaging_tests.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 112,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/native_runtime_performance_acceptance.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 54,
+      "sha256_lines": [],
+      "tags": [
+        "acceptance_or_related_entry_reviewed",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/native_tracker_bodylock_refactor_acceptance.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 91,
+      "sha256_lines": [],
+      "tags": [
+        "acceptance_or_related_entry_reviewed",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/non_right_motion_probe.cpp",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 138,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/run_ads_bodylock_handoff_benchmark.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 89,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/run_bodylock_pov_fire_matrix.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 200,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/run_brake_episode_sweep.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 67,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/run_sustained_aimlab_baseline.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 46,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/run_sustained_aimlab_left_strafe.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 93,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/run_target_hold_matrix.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 64,
+      "sha256_lines": [
+        26,
+        28,
+        62
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/run_weak_slowdown_occlusion_benchmark.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 128,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/summarize_ads_bodylock_handoff.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 62,
+      "sha256_lines": [],
+      "tags": [
+        "runner_or_measurement_review_required"
+      ]
+    },
+    {
+      "path": "scripts/verify/verify_native_release.ps1",
+      "tracked": true,
+      "already_modified": false,
+      "lines": 89,
+      "sha256_lines": [
+        40
+      ],
+      "tags": [
+        "sha256_reference",
+        "runner_or_measurement_review_required"
+      ]
+    }
+  ],
+  "generated_directories_metadata_only": [
+    {
+      "path": "artifacts",
+      "files": 48870,
+      "bytes": 12479730082,
+      "stat_errors": 0,
+      "content_scanned": false,
+      "delete_recommendation": false
+    },
+    {
+      "path": "runs",
+      "files": 11629,
+      "bytes": 5446532560,
+      "stat_errors": 0,
+      "content_scanned": false,
+      "delete_recommendation": false
+    },
+    {
+      "path": "output",
+      "files": 0,
+      "bytes": 0,
+      "stat_errors": 0,
+      "content_scanned": false,
+      "delete_recommendation": false
+    },
+    {
+      "path": "native-test-artifacts",
+      "files": 43,
+      "bytes": 246761,
+      "stat_errors": 0,
+      "content_scanned": false,
+      "delete_recommendation": false
+    },
+    {
+      "path": "debug_captures",
+      "files": 0,
+      "bytes": 0,
+      "stat_errors": 0,
+      "content_scanned": false,
+      "delete_recommendation": false
+    },
+    {
+      "path": "native/build",
+      "files": 1310,
+      "bytes": 505525858,
+      "stat_errors": 0,
+      "content_scanned": false,
+      "delete_recommendation": false
+    },
+    {
+      "path": "native/vision_native/build",
+      "files": 4653,
+      "bytes": 638928404,
+      "stat_errors": 0,
+      "content_scanned": false,
+      "delete_recommendation": false
+    }
+  ],
+  "limitations": [
+    "Textual matches do not prove runtime validation or deletion eligibility.",
+    "Ignored model/dataset/media/cache/worktree content and third-party Ultralytics excluded.",
+    "Generated directories enumerated for size only; content not searched.",
+    "No tests, binaries, GPU probes, builds, or live gameplay executed.",
+    "Other workspace changes appeared during inspection; inventory is a scan snapshot, not an immutable deletion contract. Refresh before deletion."
+  ],
+  "completion_git_status": " M docs/project/DESKTOP_ASSISTANT.md\n M native/controller_native/aim_response_curve_plugin.h\n M native/controller_native/runtime_config.cpp\n M native/controller_native/runtime_config_tests.cpp\n M native/controller_native/state_machine_contract_tests.cpp\n M python/desktop_app/fields.py\n M python/desktop_app/gui.py\n M python/desktop_app/runtime.py\n M python/desktop_app/settings.py\n M python/tests/test_desktop_app.py\n?? docs/project/APEX_BF6_CUE_RESEARCH_20260930.md\n?? docs/project/validation-cleanup-scan-20261004/\n?? python/desktop_app/components.py\n?? python/desktop_app/curve_editor.py\n?? python/desktop_app/curves.py\n?? python/desktop_app/profiles.py\n?? python/tests/test_bf6_specialist.py\n?? python/tests/test_desktop_profiles_curves.py\n?? python/tools/training/bf6_specialist.py\n?? python/tools/training/compare_bf6_specialists.py\n",
+  "other_workspace_changes_observed_during_scan": [
+    "native/controller_native/state_machine_contract_tests.cpp",
+    "python/tests/test_desktop_profiles_curves.py"
+  ]
+}

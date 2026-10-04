@@ -1,0 +1,60 @@
+Internal ctest changing into directory: D:/work/AI/yolo-study-001/native/build
+Test project D:/work/AI/yolo-study-001/native/build
+      Start  1: BaseContracts
+ 1/20 Test  #1: BaseContracts ...................................   Passed    0.40 sec
+      Start  2: BaseVisionSelection
+ 2/20 Test  #2: BaseVisionSelection .............................   Passed    0.05 sec
+      Start  3: BaseRuntimeFreshness
+ 3/20 Test  #3: BaseRuntimeFreshness ............................   Passed    0.34 sec
+      Start  4: BaseAds
+ 4/20 Test  #4: BaseAds .........................................   Passed    0.04 sec
+      Start  5: BaseBodyLock
+ 5/20 Test  #5: BaseBodyLock ....................................   Passed    4.68 sec
+      Start  6: BaseEndToEnd
+ 6/20 Test  #6: BaseEndToEnd ....................................   Passed    0.85 sec
+      Start  7: FeatureDynamicViewport
+ 7/20 Test  #7: FeatureDynamicViewport ..........................   Passed    0.26 sec
+      Start  8: FeatureRecoilAndWeapon
+ 8/20 Test  #8: FeatureRecoilAndWeapon ..........................   Passed    0.05 sec
+      Start  9: FeatureAutoFireAndMarker
+ 9/20 Test  #9: FeatureAutoFireAndMarker ........................   Passed    0.01 sec
+      Start 10: FeatureTelemetryAndDiagnostics
+10/20 Test #10: FeatureTelemetryAndDiagnostics ..................   Passed    0.13 sec
+      Start 12: NativeSustainedAimlabScenarioTests
+11/20 Test #12: NativeSustainedAimlabScenarioTests ..............   Passed    0.16 sec
+      Start 13: NativeSustainedAimlabScoreTests
+12/20 Test #13: NativeSustainedAimlabScoreTests .................   Passed    0.18 sec
+      Start 14: NativeSustainedAimlabSimulatorTests
+13/20 Test #14: NativeSustainedAimlabSimulatorTests .............   Passed    0.23 sec
+      Start 15: NativeSustainedAimlabTraceTests
+14/20 Test #15: NativeSustainedAimlabTraceTests .................   Passed    0.04 sec
+      Start 19: NativeSustainedAimlabLeftStrafeOff
+15/20 Test #19: NativeSustainedAimlabLeftStrafeOff ..............   Passed    0.30 sec
+      Start 20: NativeSustainedAimlabLeftStrafeBoth
+16/20 Test #20: NativeSustainedAimlabLeftStrafeBoth .............   Passed    0.01 sec
+      Start 21: NativeSustainedAimlabBodyLockFreshLtPerTarget
+17/20 Test #21: NativeSustainedAimlabBodyLockFreshLtPerTarget ...   Passed    0.02 sec
+      Start 22: NativeSustainedAimlabEightKhzCounterfactual
+18/20 Test #22: NativeSustainedAimlabEightKhzCounterfactual .....   Passed    0.02 sec
+      Start 23: NativeSustainedAimlabLeftStrafeRejectsInvalid
+19/20 Test #23: NativeSustainedAimlabLeftStrafeRejectsInvalid ...   Passed    0.01 sec
+      Start 25: NativeSustainedAimlabRejectsRetiredAiCadence
+20/20 Test #25: NativeSustainedAimlabRejectsRetiredAiCadence ....   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 20
+
+Label Time Summary:
+BaseAds                           =   0.04 sec*proc (1 test)
+BaseBodyLock                      =   4.68 sec*proc (1 test)
+BaseContracts                     =   0.40 sec*proc (1 test)
+BaseEndToEnd                      =   0.85 sec*proc (1 test)
+BaseRuntimeFreshness              =   0.34 sec*proc (1 test)
+BaseVisionSelection               =   0.05 sec*proc (1 test)
+FeatureAutoFireAndMarker          =   0.01 sec*proc (1 test)
+FeatureDynamicViewport            =   0.26 sec*proc (1 test)
+FeatureRecoilAndWeapon            =   0.05 sec*proc (1 test)
+FeatureTelemetryAndDiagnostics    =   0.13 sec*proc (1 test)
+base                              =   6.36 sec*proc (6 tests)
+functional                        =   0.45 sec*proc (4 tests)
+
+Total Test time (real) =   7.81 sec

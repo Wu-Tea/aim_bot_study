@@ -8,6 +8,8 @@ add_executable(cod_native_base_tests
     test_support/base_tests_main.cpp
     controller_native/ads_bodylock_september_incident_tests.cpp
     controller_native/runtime_config_tests.cpp
+    runtime_app/runtime_reload_policy.cpp
+    runtime_app/runtime_reload_policy_tests.cpp
     pipeline_contract/target_plan_contract_tests.cpp
     pipeline_contract/committed_capture_observation_tests.cpp
     controller_native/input_edge_reducer_tests.cpp
@@ -128,8 +130,6 @@ target_sources(cod_native_functional_tests PRIVATE
     runtime_app/telemetry_target_identity.cpp
     runtime_app/telemetry_event_sampler_tests.cpp
     runtime_app/telemetry_event_sampler.cpp
-    runtime_app/runtime_provenance_tests.cpp
-    runtime_app/runtime_provenance.cpp
     runtime_app/ads_visual_transition_tests.cpp
     runtime_app/ads_visual_transition.cpp
     runtime_app/ads_transition_collector_tests.cpp

@@ -1,3 +1,4 @@
+#include "vision_engine_service_poller.h"
 #include "runtime_loop.h"
 #include "runtime_control_bridge.h"
 
@@ -52,10 +53,6 @@ LogSessionOptions log_session_options_from(const controller_native::RuntimeConfi
     options.enabled = config.telemetry.enabled;
     options.root = config.telemetry.directory;
     options.git_commit = config.build_commit;
-    options.config_hash = config.source_config_sha256;
-    options.engine_hash = config.engine_sha256;
-    options.executable_sha256 = config.executable_sha256;
-    options.control_contract_sha256 = config.control_contract_sha256;
     options.control_architecture_version = config.control_architecture_version;
     options.control_event_schema_version = config.control_event_schema_version;
     options.capture_width = config.vision.capture_width;
@@ -177,39 +174,6 @@ ViewportControllerConfig viewport_controller_config_from(
     return value;
 }
 
-class VisionEngineServicePoller final : public IVisionServicePoller {
-public:
-    explicit VisionEngineServicePoller(std::unique_ptr<vision_native::VisionEngine> engine)
-        : engine_(std::move(engine)) {}
-
-    void set_request(pipeline_contract::VisionRequest request) override {
-        engine_->set_request(request);
-    }
-
-    void set_user_aim_intent(const pipeline_contract::UserAimIntent& intent) override {
-        engine_->set_user_aim_intent(intent);
-    }
-
-    void set_viewport(const ViewportRequest& request) override {
-        engine_->set_viewport(
-            static_cast<int>(request.level),
-            request.width,
-            request.height,
-            request.sequence,
-            request.source_frame_id);
-    }
-
-    vision_native::VisionResult poll_once() override {
-        return engine_->poll_once();
-    }
-
-    void set_detection_policy(const VisionDetectionPolicy& policy) override {
-        engine_->set_detection_policy(policy.friendly, policy.height, policy.wide_height);
-    }
-
-private:
-    std::unique_ptr<vision_native::VisionEngine> engine_;
-};
 
 unsigned int environment_uint_or(const char* name, unsigned int fallback) {
     const char* value = std::getenv(name);
@@ -500,9 +464,7 @@ RuntimeLoop::RuntimeLoop(
           config_.performance.interval_ms,
           std::filesystem::path(config_.performance.directory),
           config_.performance.stdout_enabled,
-          config_.build_commit,
-          config_.source_config_sha256,
-          config_.engine_sha256}),
+          config_.build_commit}),
       log_session_manager_(log_session_options_from(config_)),
       telemetry_(telemetry_options_from(config_, log_session_manager_.session_directory())),
       telemetry_collectors_(
@@ -510,9 +472,6 @@ RuntimeLoop::RuntimeLoop(
           &telemetry_,
           TelemetrySessionContext{
               config_.build_commit.c_str(),
-               config_.source_config_sha256.c_str(),
-               config_.engine_sha256.c_str(),
-               config_.executable_sha256.c_str(),
                config_.vision.capture_width,
               config_.vision.capture_height,
               config_.vision.capture_fps,
@@ -705,6 +664,23 @@ void RuntimeLoop::apply_pending_config() {
     policy_requested_ = false;
 }
 
+// Called only after the producer-specific epoch/policy and capture fences.
+// Both direct polling and mailbox delivery commit the same controller state.
+void RuntimeLoop::submit_vision_result(const vision_native::VisionResult& result,
+                                      std::uint64_t controller_consume_ns,
+                                      std::uint64_t published_at_ns) {
+    controller_.submit_vision_snapshot(adapt_vision_result(result));
+    latest_vision_publish_ns_ = published_at_ns;
+    latest_vision_publish_available_ = published_at_ns != 0;
+    latest_controller_submit_complete_ns_ =
+        steady_time_point_ns(std::chrono::steady_clock::now());
+    latest_vision_result_ = result;
+    has_latest_vision_result_ = true;
+    latest_result_timestamp_ns_ =
+        result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
+    latest_controller_consume_started_ns_ = controller_consume_ns;
+}
+
 void RuntimeLoop::run_once() {
     apply_pending_config();
     if (control_bridge_ && tick_count_ % 128 == 0 && GetTickCount64() - last_learning_publish_ms_ >= 500) {
@@ -804,17 +780,7 @@ void RuntimeLoop::run_once() {
             if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh &&
                 current_control_epoch &&
                 vision_delivery_gate_.accept(result, controller_consume_ns)) {
-                controller_.submit_vision_snapshot(adapt_vision_result(result));
-                latest_vision_publish_ns_ = service_snapshot.published_at_ns;
-                latest_vision_publish_available_ =
-                    service_snapshot.published_at_ns != 0;
-                latest_controller_submit_complete_ns_ =
-                    steady_time_point_ns(std::chrono::steady_clock::now());
-                latest_vision_result_ = result;
-                has_latest_vision_result_ = true;
-                latest_result_timestamp_ns_ =
-                    result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
-                latest_controller_consume_started_ns_ = controller_consume_ns;
+                submit_vision_result(result, controller_consume_ns, service_snapshot.published_at_ns);
                 telemetry_new_vision = true;
                 viewport_fresh_vision = true;
             }
@@ -829,19 +795,8 @@ void RuntimeLoop::run_once() {
             const std::uint64_t controller_consume_ns =
                 steady_time_point_ns(controller_consume_started);
             if (vision_delivery_gate_.accept(result, controller_consume_ns)) {
-                controller_.submit_vision_snapshot(adapt_vision_result(result));
-                // Direct polling has no VisionService mailbox publish stage.
-                // Keep that stage explicitly unavailable and expose the
-                // controller submit completion separately.
-                latest_vision_publish_ns_ = 0;
-                latest_vision_publish_available_ = false;
-                latest_controller_submit_complete_ns_ =
-                    steady_time_point_ns(std::chrono::steady_clock::now());
-                latest_vision_result_ = result;
-                has_latest_vision_result_ = true;
-                latest_result_timestamp_ns_ =
-                    result.captured_at_ns != 0 ? result.captured_at_ns : result.result_at_ns;
-                latest_controller_consume_started_ns_ = controller_consume_ns;
+                // Direct polling has no mailbox publication timestamp.
+                submit_vision_result(result, controller_consume_ns, 0);
                 telemetry_new_vision = true;
                 viewport_fresh_vision = true;
             }

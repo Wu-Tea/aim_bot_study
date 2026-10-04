@@ -2,7 +2,7 @@
 import argparse
 import os
 import time
-from run_vision_contention import ROOT, Child, Sampler, digest, rows, save, stats
+from run_vision_contention import ROOT, Child, Sampler, rows, save, stats
 
 
 def main():
@@ -12,7 +12,7 @@ def main():
     from pathlib import Path
     output=Path(args.output).resolve(); output.mkdir(parents=True,exist_ok=False)
     exe=ROOT/'native/build/Release/vision_graphics_load.exe'
-    save(output/'contract.json',dict(binary_sha256=digest(exe),schedule=[1,4,1],hz=120,seconds=6,
+    save(output/'contract.json',dict(schedule=[1,4,1],hz=120,seconds=6,
         gate='All queries valid and shader image nonconstant; 4-pass GPU mean >2x both 1-pass means',
         domain='Functional load-sensitivity check; external load not excluded; not performance acceptance'))
     env={k.upper():v for k,v in os.environ.items()}

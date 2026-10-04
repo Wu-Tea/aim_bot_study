@@ -1,50 +1,18 @@
 """Exercise relocated entry points without relying on the caller's directory."""
 
 import json
-import hashlib
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class RepositoryLayoutTests(unittest.TestCase):
-    def test_matrix_wrapper_calls_project_powershell_comparator(self):
-        from tools.verify import compare_oscillation_matrix
-
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory) / 'baseline'
-            candidate = Path(directory) / 'candidate'
-            for folder in (base, candidate):
-                folder.mkdir()
-                identity = {'config_sha256': 'fixture', 'matrix': [{'id': 'case'}],
-                            'plant_source': 'assumption'}
-                (folder / 'identity.json').write_text(json.dumps(identity))
-                report = folder / 'case.json'
-                report.write_text('{"fixture": true}')
-                execution = [{'id': 'case', 'exit_code': 0,
-                              'report_sha256': hashlib.sha256(report.read_bytes()).hexdigest()}]
-                (folder / 'execution.json').write_text(json.dumps(execution))
-
-            def run_host(command, **kwargs):
-                script = Path(command[command.index('-File') + 1])
-                self.assertEqual(script.resolve(),
-                                 PROJECT_ROOT / 'scripts/verify/compare_oscillation_matrix.ps1')
-                self.assertTrue(script.is_file())
-                return subprocess.CompletedProcess(command, 0,
-                    json.dumps([{'id': 'case', 'exit_code': 0, 'log': ''}]), '')
-
-            with patch.object(sys, 'argv', ['compare_oscillation_matrix.py',
-                                           '--baseline', str(base), '--candidate', str(candidate)]), \
-                 patch.object(compare_oscillation_matrix.subprocess, 'run', side_effect=run_host):
-                self.assertEqual(compare_oscillation_matrix.main(), 0)
-
     def run_external(self, arguments):
         env = os.environ.copy()
         env['PYTHONPATH'] = str(PROJECT_ROOT / 'python')

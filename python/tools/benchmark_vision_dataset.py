@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -833,13 +832,6 @@ def resolve_project_path(path: Path) -> Path:
     return PROJECT_ROOT / path
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
 
 def git_identity() -> dict[str, Any]:
     git = shutil.which("git")
@@ -1208,7 +1200,6 @@ def write_json(
     args: argparse.Namespace,
     *,
     engine_info: dict[str, Any],
-    model_sha256: str,
     gpu_resource: dict[str, Any] | None = None,
 ) -> None:
     overall = aggregate_summaries(summaries).metrics()
@@ -1220,7 +1211,6 @@ def write_json(
             "engine": {
                 "path": str(resolve_project_path(args.model)),
                 "size_bytes": resolve_project_path(args.model).stat().st_size,
-                "sha256": model_sha256,
                 "inspection": engine_info,
             },
             "benchmark": git_identity(),
@@ -1383,7 +1373,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as exc:
         print(f"Invalid engine input contract: {exc}", file=sys.stderr)
         return 2
-    model_sha256 = sha256_file(model_path)
     print(
         f"model={model_path} input={engine_info.get('tensors', [{}])[0].get('shape', '?')} "
         f"conf={args.conf} iou={args.iou} crop={args.crop_width or '-'}x{args.crop_height or '-'} "
@@ -1466,7 +1455,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             summaries,
             args,
             engine_info=engine_info,
-            model_sha256=model_sha256,
             gpu_resource=gpu_resource,
         )
         print(f"wrote {output_json}")

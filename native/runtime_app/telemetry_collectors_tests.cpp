@@ -20,9 +20,6 @@ void require(bool value, int line) {
 runtime_app::TelemetrySessionContext session_context() {
     runtime_app::TelemetrySessionContext context;
     context.build_commit = "collector-test-revision";
-    context.config_hash = "collector-config-sha";
-    context.engine_hash = "collector-engine-sha";
-    context.executable_sha256 = "collector-exe-sha";
     context.capture_width = 640;
     context.capture_height = 640;
     context.active_capture_fps = 180;

@@ -39,6 +39,9 @@ public:
 private:
     void run_once();
     void apply_pending_config();
+    void submit_vision_result(const vision_native::VisionResult& result,
+                              std::uint64_t controller_consume_ns,
+                              std::uint64_t published_at_ns);
     controller_native::PhysicalGamepadState read_physical_gamepad();
     bool should_poll_vision(std::chrono::steady_clock::time_point now) const;
     bool should_stop_requested() const;

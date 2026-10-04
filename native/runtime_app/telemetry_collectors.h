@@ -202,9 +202,6 @@ struct TelemetryCollectorsCounters {
 
 struct TelemetrySessionContext {
     const char* build_commit = "unknown";
-    const char* config_hash = "unknown";
-    const char* engine_hash = "unknown";
-    const char* executable_sha256 = "unknown";
     int capture_width = 0;
     int capture_height = 0;
     int active_capture_fps = 0;

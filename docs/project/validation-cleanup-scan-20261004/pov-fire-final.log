@@ -1,0 +1,18 @@
+seed=20261004 controller=production cohort=bodylock strafe=off score=1144.19 mean_error_px=18.5912 p95_error_px=26.5399
+cod_native_sustained_aimlab_benchmark PASS
+seed=20261004 controller=production cohort=bodylock strafe=full-reversal score=944.307 mean_error_px=42.8095 p95_error_px=74.499
+cod_native_sustained_aimlab_benchmark PASS
+seed=20261004 controller=production cohort=bodylock strafe=off score=1087.34 mean_error_px=35.6323 p95_error_px=72.3607
+cod_native_sustained_aimlab_benchmark PASS
+seed=20261004 controller=production cohort=bodylock strafe=full-reversal score=971.219 mean_error_px=60.8098 p95_error_px=134.418
+cod_native_sustained_aimlab_benchmark PASS
+
+arm             runs acquire_points tracking_points smooth_bonus mean_error_px p95_error_px cue_continuation_frames
+---             ---- -------------- --------------- ------------ ------------- ------------ -----------------------
+00-static-clear    1         834.56          301.12         8.50         18.59        26.54                       0
+10-pov-clear       1         834.56          105.11         4.64         42.81        74.50                       0
+01-static-fire     1         834.56          246.06         6.73         35.63        72.36                      89
+11-pov-fire        1         834.56          132.19         4.47         60.81       134.42                      89
+
+BODYLOCK_POV_FIRE_MATRIX=SIMULATION_COMPLETED
+Matrix written to D:\work\AI\yolo-study-001\runs\cleanup-verification-20261004\pov-fire-final

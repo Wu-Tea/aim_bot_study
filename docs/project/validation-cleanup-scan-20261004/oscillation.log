@@ -1,0 +1,16 @@
+pure_standard 0
+pure_delayed 0
+pure_slow 0
+mixed_standard 0
+mixed_slow 0
+mixed_delayed 0
+scripted_slow 0
+scripted_standard 0
+scripted_delayed 0
+pure_long 0
+wrong-then-correct_standard 0
+wrong-then-correct_slow 0
+wrong-then-correct_delayed 0
+mixed_long 0
+scripted_long 0
+wrong-then-correct_long 0

@@ -6,7 +6,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 18;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 19;
 
 enum class TelemetryRecordType : std::uint8_t {
     SessionMetadata,
@@ -231,9 +231,6 @@ struct ControllerSamplePayload {
 struct SessionMetadataPayload {
     std::array<char, 33> session_id{};
     std::array<char, 41> build_commit{};
-    std::array<char, 65> config_hash{};
-    std::array<char, 65> engine_hash{};
-    std::array<char, 65> executable_sha256{};
     int capture_width = 0;
     int capture_height = 0;
     int active_capture_fps = 0;

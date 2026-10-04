@@ -17,7 +17,7 @@
 - [x] Candidate/runtime：用户明确授权覆盖，旧 runtime 已备份，新 runtime 已完成实机验收。
 
 最终验收见
-[CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md](../../project/CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md)，
+CONTROL_CHAIN_JUMP_STABILITY_ACCEPTANCE_20260801.md（旧验收材料已删除），
 Task 4 数字证据见
 `artifacts/benchmarks/control-chain-jump-fix-20260801/task4-ownership-admission/VERIFICATION.md`。
 

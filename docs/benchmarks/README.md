@@ -1,46 +1,10 @@
-# Benchmark Index
+# 数字模拟与测量入口
 
-Benchmark results are comparable only when revision, runtime/config
-fingerprint, schema, seeds, duration and scenario semantics are compatible.
-An older result without those identities is historical evidence, not an
-authoritative baseline.
+2026-10-04 已删除旧 SHA256 校验、冻结验收 policy、基线比较器、专用验收测试、审计 skill 和结果材料。当前入口用于数值模拟及测量，没有候选合格或发布验收结论。
 
-## Maintained contracts
+- [Sustained AimLab 数字模拟](sustained-aimlab.md)：目标轨迹、ADS/BodyLock、人工输入、延迟与响应 plant。
+- [运行时遥测](native-runtime-telemetry.md)：控制器和 Vision 调试记录。
+- [Vision 时间窗口](vision-blind-window.md)：采集、发布、消费与响应时钟。
+- [本次清理结果](../project/validation-cleanup-scan-20261004/CLEANUP_RESULT.md)：删除范围、保留项及验证。
 
-- [Closed-loop Gameplay Acceptance V1](CLOSED_LOOP_GAMEPLAY_ACCEPTANCE_V1_20260811.md) —
-  production-chain-in-the-loop game simulation, incident fixtures, hard gates
-  and non-vacuous scoring rules.
-- [Sustained AimLab](sustained-aimlab.md) — one-minute randomized ADS and
-  BodyLock acquisition/tracking benchmark.
-- [Vision blind window](vision-blind-window.md) — separates capture,
-  publication, controller and delayed-response clocks.
-- [Causal response shadow](causal-response-shadow.md) — shadow response
-  estimation and evidence requirements.
-- [Native runtime telemetry](native-runtime-telemetry.md) — runtime telemetry
-  schema and causal journal.
-
-## Historical result fixture
-
-- [Axis stress A/B, seed 1337](axis-stress-ab-seed1337.md) — retained result
-  record; do not treat a single seed as current acceptance.
-
-## Archived result narratives
-
-Older gamepad, ADS, manual-mix, mouse and native-controller result summaries
-are indexed under
-[Archived benchmark results](../archive/README.md#benchmark-results).
-
-## Acceptance rule
-
-A production policy change should:
-
-1. reproduce a named defect with a deterministic fixture;
-2. score the responsible controller contribution separately from physical
-   input;
-3. beat a fingerprinted current baseline on the defect metric;
-4. preserve acquisition, tracking, smoothness and user-escape guardrails;
-5. receive a live hand-feel smoke test before being called accepted.
-
-Benchmarks exist to improve real runtime behavior. A score improvement that
-changes scenario semantics or suppresses valid user input is not an
-improvement.
+保留普通单元测试和数字模拟断言，以检查代码能运行、输出有限、状态一致。数字模拟结果不能证明实机体验；后续验收体系由用户按需重新设计。

@@ -266,13 +266,9 @@ struct RuntimeConfig {
     std::map<std::string, std::string> effective_values;
     std::vector<std::string> diagnostics;
     std::string build_commit = "unknown";
-    std::string source_config_sha256;
-    std::string engine_sha256;
     // Hash of the actual module selected by the process. This is kept
     // separate from source/config provenance so a session can prove which
     // executable produced its telemetry without recording a filesystem path.
-    std::string executable_sha256;
-    std::string control_contract_sha256 = "unavailable";
     std::uint32_t control_architecture_version = 0;
     std::uint32_t control_event_schema_version = 0;
 

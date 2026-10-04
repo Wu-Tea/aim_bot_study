@@ -8,7 +8,7 @@
 
 ## 版本与历史：以前确实处理过
 
-- [7 月 Refactor B](../archive/control-history/REFACTOR_B_ACCEPTANCE_20260716.md) 已将生产链路收敛到一个目标计划和一个输出路径，移除了旧 completion/carry-brake、authority、短计划等独立阶段。历史文档曾接受部分跟踪误差换取稳定性；这不是今天允许牺牲索敌的依据，现行用户边界优先。
+- 7 月 Refactor B（旧验收材料已删除） 已将生产链路收敛到一个目标计划和一个输出路径，移除了旧 completion/carry-brake、authority、短计划等独立阶段。历史文档曾接受部分跟踪误差换取稳定性；这不是今天允许牺牲索敌的依据，现行用户边界优先。
 - [8 月 Direct 退役决定](../../.agent-context/decisions/DEC-2026-08-17-001-retire-direct-controller-experiment.md) 同时保留了两条经验：新鲜且有权限的目标应及时得到正确方向的响应；直接响应逐帧误差会放大噪声，不能重新引入已退役的生产路线。
 - [8 月 18 日记录](../../.agent-context/archive/session-log-2026-08-03-to-2026-08-18-pre-20260901-compaction.md) 说明 BodyLock 运动观察器最初为持续移动跟不上而加入。冻结场景中的响应曾从 900 ms 内不能维持所需输出改善到 23 ms；三点中值、变化率限制和先退零也在那次设计中一起引入。这是历史特定场景结果，不是当前全部换向行为的验收。
 - [9 月全链路 82 项清单](vision-controller-audit-20260926/INVENTORY.md) 仍可作机制索引；其中置信度、输出账本等描述已被后续工作区修改。本文保留旧编号作为对应关系，不直接沿用旧状态。

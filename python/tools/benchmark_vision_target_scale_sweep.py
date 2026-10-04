@@ -228,13 +228,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "provenance": {
             "engine": {
                 "path": str(model_path),
-                "sha256": bench.sha256_file(model_path),
                 "inspection": engine_info,
             },
             "benchmark": bench.git_identity(),
             "tool": {
                 "path": str(Path(__file__).resolve()),
-                "sha256": bench.sha256_file(Path(__file__).resolve()),
             },
         },
         "parameters": {

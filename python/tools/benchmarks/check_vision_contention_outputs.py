@@ -3,7 +3,7 @@ import argparse
 import os
 import time
 from pathlib import Path
-from run_vision_contention import ROOT, Child, Sampler, digest, rows, save, verify_signatures
+from run_vision_contention import ROOT, Child, Sampler, rows, save, verify_signatures
 
 
 def main():
@@ -15,7 +15,7 @@ def main():
     model=ROOT/'models/best_480x384.engine'
     exe=ROOT/'native/build/Release/vision_contention_benchmark.exe'
     count=args.fixture.stat().st_size//(640*512*4)
-    save(output/'contract.json',dict(identities={str(p):digest(p) for p in [exe,model,args.fixture]},
+    save(output/'contract.json',dict(
         variants=['baseline','no-flush','no-graph'],hz=20,seconds=10,
         gate='All source images covered; every frame signature identical across variants',
         domain='Hardware correctness only; no performance verdict'))

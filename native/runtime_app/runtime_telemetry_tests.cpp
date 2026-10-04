@@ -95,9 +95,6 @@ runtime_app::TelemetryRecord metadata_record() {
     value.critical = true;
     copy_text(value.session_metadata.session_id, "cleanup-test-session");
     copy_text(value.session_metadata.build_commit, "cleanup-test-revision");
-    copy_text(value.session_metadata.config_hash, "config-sha");
-    copy_text(value.session_metadata.engine_hash, "engine-sha");
-    copy_text(value.session_metadata.executable_sha256, "exe-sha");
     value.session_metadata.capture_width = 640;
     value.session_metadata.capture_height = 640;
     value.session_metadata.active_capture_fps = 180;

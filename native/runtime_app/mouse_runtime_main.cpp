@@ -1,3 +1,4 @@
+#include "vision_engine_service_poller.h"
 #include "runtime_timing.h"
 #include "vision_controller_adapter.h"
 #include "vision_service.h"
@@ -5,7 +6,6 @@
 #include "controller_native/runtime_config.h"
 #include "mouse_native/mouse_controller_session.h"
 #include "mouse_native/mouse_diagnostics.h"
-#include "runtime_provenance.h"
 #include "mouse_native/mouse_runtime_supervisor.h"
 #include "vision_native/vision_engine.h"
 
@@ -220,37 +220,6 @@ bool both_profiles_calibrated(const mouse_native::MouseControllerSession& sessio
                session.runtime().profile(mouse_native::MouseAimMode::Ads));
 }
 
-class MouseVisionEnginePoller final : public runtime_app::IVisionServicePoller {
-public:
-    explicit MouseVisionEnginePoller(
-        std::unique_ptr<vision_native::VisionEngine> engine)
-        : engine_(std::move(engine)) {}
-
-    void set_request(pipeline_contract::VisionRequest request) override {
-        engine_->set_request(request);
-    }
-
-    void set_user_aim_intent(
-        const pipeline_contract::UserAimIntent& intent) override {
-        engine_->set_user_aim_intent(intent);
-    }
-
-    void set_viewport(const runtime_app::ViewportRequest& request) override {
-        engine_->set_viewport(
-            static_cast<int>(request.level),
-            request.width,
-            request.height,
-            request.sequence,
-            request.source_frame_id);
-    }
-
-    vision_native::VisionResult poll_once() override {
-        return engine_->poll_once();
-    }
-
-private:
-    std::unique_ptr<vision_native::VisionEngine> engine_;
-};
 
 runtime_app::ViewportRequest full_capture_viewport(
     const controller_native::RuntimeConfig& config) {
@@ -541,12 +510,7 @@ int main(int argc, char** argv) {
         log_options.max_bytes = static_cast<std::uint64_t>(config.mouse.log_max_mb) * 1024 * 1024;
         std::ostringstream metadata;
         if (log_options.enabled) {
-            wchar_t module[32768]{};
-            GetModuleFileNameW(nullptr,module,32768);
-            metadata << "{\"schema\":1,\"transport\":" << static_cast<int>(options.transport)
-                << ",\"executable_sha256\":" << std::quoted(runtime_app::sha256_file_with_context(module))
-                << ",\"config_sha256\":" << std::quoted(runtime_app::sha256_file_with_context(options.config_path))
-                << ",\"model_sha256\":" << std::quoted(runtime_app::sha256_file_with_context(config.vision.model_path))
+            metadata << "{\"schema\":2,\"transport\":" << static_cast<int>(options.transport)
                 << ",\"profile\":" << std::quoted(config.profile)
                 << ",\"dpi\":" << options.mouse_defaults.dpi
                 << ",\"sensitivity\":" << options.mouse_defaults.sensitivity
@@ -626,7 +590,7 @@ int main(int argc, char** argv) {
         vision_options.keepwarm_when_idle = config.vision.keepwarm_when_idle;
         vision_options.aim_release_hold_ms = config.vision.aim_release_hold_ms;
         runtime_app::VisionService vision_service(
-            std::make_unique<MouseVisionEnginePoller>(std::move(vision_engine)),
+            std::make_unique<runtime_app::VisionEngineServicePoller>(std::move(vision_engine)),
             vision_options);
         vision_service.set_viewport(full_capture_viewport(config));
         vision_service.start();
