@@ -13,6 +13,8 @@ __pycache__/
 config.toml
 # Local calibration/legacy migration inputs; not shipped defaults.
 /config.bo3.toml
+# Personal desktop profiles and curve presets are user data.
+/profiles/
 /config _higher-.toml
 training_data/
 models/train/

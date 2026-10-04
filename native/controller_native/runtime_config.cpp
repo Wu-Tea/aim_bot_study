@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -193,7 +194,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> tracker_keys{
         "aim_height_ratio", "max_observation_age_ms"};
     static const std::unordered_set<std::string> aim_response_curve_keys{
-        "algorithm", "calibration_reference_stick"};
+        "algorithm", "calibration_reference_stick", "custom_points"};
     static const std::unordered_set<std::string> output_transfer_keys{
         "enabled", "axial", "deadzone", "game_exponent"};
     static const std::unordered_set<std::string> ads_keys{
@@ -340,12 +341,33 @@ void apply_gamepad_aim_response_curve_value(
         if (!try_parse_aim_response_curve_algorithm(name, algorithm)) {
             throw std::runtime_error(
                 "invalid gamepad.aim_response_curve.algorithm '" + name +
-                "'; expected linear|cod_dynamic_legacy_lut");
+                "'; expected linear|cod_dynamic_legacy_lut|custom_lut");
         }
         config.algorithm = algorithm;
     } else if (key == "calibration_reference_stick") {
         config.calibration_reference_stick = parse_float_value(
             value, config.calibration_reference_stick);
+    } else if (key == "custom_points") {
+        const auto text = parse_string_value(value);
+        std::istringstream points(text);
+        std::string pair;
+        config.custom_count = 0;
+        if (text.empty() || text.back() == ';') throw std::runtime_error("invalid custom curve points");
+        while (std::getline(points, pair, ';')) {
+            const auto separator = pair.find(':');
+            if (separator == std::string::npos || config.custom_count == 32)
+                throw std::runtime_error("custom curve requires 2..32 x:y points");
+            std::size_t used_x = 0, used_y = 0;
+            float x = 0, y = 0;
+            try {
+                x = std::stof(pair.substr(0, separator), &used_x);
+                y = std::stof(pair.substr(separator + 1), &used_y);
+            } catch (...) { throw std::runtime_error("invalid custom curve number"); }
+            if (used_x != separator || used_y != pair.size() - separator - 1)
+                throw std::runtime_error("invalid custom curve point format");
+            config.custom_stick[config.custom_count] = x;
+            config.custom_response[config.custom_count++] = y;
+        }
     }
 }
 
@@ -944,6 +966,19 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid(
             "gamepad.aim_response_curve.calibration_reference_stick",
             "0.05..1");
+    const auto& curve = config.gamepad.aim_response_curve;
+    if (curve.algorithm == AimResponseCurveAlgorithm::CustomLut || curve.custom_count != 0) {
+        if (curve.custom_count < 2 || curve.custom_count > 32 ||
+            curve.custom_stick[0] != 0 || curve.custom_response[0] != 0 ||
+            curve.custom_stick[curve.custom_count - 1] != 1 || curve.custom_response[curve.custom_count - 1] != 1)
+            invalid("gamepad.aim_response_curve.custom_points", "2..32 points with (0,0) and (1,1) endpoints");
+        for (std::size_t i = 0; i < curve.custom_count; ++i) {
+            const float x = curve.custom_stick[i], y = curve.custom_response[i];
+            if (!std::isfinite(x) || !std::isfinite(y) || x < 0 || x > 1 || y < 0 || y > 1 ||
+                (i && (x - curve.custom_stick[i - 1] < 1e-5f || y - curve.custom_response[i - 1] < 1e-5f)))
+                invalid("gamepad.aim_response_curve.custom_points", "finite strictly increasing input and response");
+        }
+    }
     if (config.gamepad.tracker.aim_height_ratio < 0.0f ||
         config.gamepad.tracker.aim_height_ratio > 1.0f)
         invalid("gamepad.tracker.aim_height_ratio", "0..1");
@@ -1016,10 +1051,14 @@ RuntimeConfig load_runtime_config(
     for (const auto& entry : entries)
         if (entry.section == "runtime" && entry.key == "game")
             config.game = parse_string_value(entry.value);
+    const auto declared_game = config.game;
     if (!game_override.empty()) config.game = game_override;
     if (config.game.empty() || config.game.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
         throw std::runtime_error("invalid game name: " + config.game);
-    if (config.game != "default" && games.count(config.game) == 0)
+    const bool independent_game = games.empty() && declared_game != "default";
+    if (independent_game && config.game != declared_game)
+        throw std::runtime_error("independent profile game mismatch: " + declared_game + " / " + config.game);
+    if (config.game != "default" && games.count(config.game) == 0 && !independent_game)
         throw std::runtime_error("game block not found: " + config.game);
     config.effective_sources["runtime.game"] = game_override.empty() ? "user" : "cli";
     std::vector<Entry> resolved;

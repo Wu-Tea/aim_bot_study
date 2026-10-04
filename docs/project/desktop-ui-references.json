@@ -1,0 +1,1046 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "ps5",
+      "brand": "Sony",
+      "product": "PS5",
+      "screen": "Control Center 与快捷菜单",
+      "source": "https://www.playstation.com/en-ca/support/games/customize-ps5-control-center/",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://gmedia.playstation.com/is/image/SIEPDC/ps5-control-center-24mar22?$100px$",
+          "width": 0
+        },
+        {
+          "url": "https://www.playstation.com/content/dam/global_pdc/en/external-resources/age-ratings/esrb/esrb.svg?$100px--t$",
+          "width": 0
+        },
+        {
+          "url": "https://www.playstation.com/en-ca/support/games/customize-ps5-control-center/{BG_MOBILE}?$100px$",
+          "width": 0
+        },
+        {
+          "url": "https://www.playstation.com/en-ca/support/games/customize-ps5-control-center/{FG_MOBILE}?$100px--t$",
+          "width": 0
+        }
+      ],
+      "notes": {
+        "页面结构": "当前游戏仍作为背景，活动与底部快捷栏叠在其上。",
+        "菜单层级": "先聚焦功能图标，再打开该功能的控制菜单。",
+        "参数项细节": "声音、麦克风、附件承担不同操作；详项进入对应设置。",
+        "注意力路径": "界面保留正在做的事，并把当前可用操作集中在近处。",
+        "本应用的判断": "采用选中对象的明确层级；电视式大留白不作为参数页尺寸。"
+      }
+    },
+    {
+      "id": "psacc",
+      "brand": "Sony",
+      "product": "PlayStation Accessories",
+      "screen": "配置列表、编辑、摇杆曲线",
+      "source": "https://controller.dl.playstation.net/controller/lang/en/2100005.html",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_assign.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_stick.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_trigger.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_hw_edge_slider.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_dse.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_custom1.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_custom2.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_profilename.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_profiletop.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/b_circle.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/b_cross.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/b_square.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/b_triangle.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_profile.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_edit.png",
+          "width": 0
+        },
+        {
+          "url": "https://controller.dl.playstation.net/controller/images/img_psacc_settings.png",
+          "width": 0
+        }
+      ],
+      "notes": {
+        "页面结构": "设备列表、设备身份和 Profile 列表属于对象层；编辑页围绕选定配置展开。",
+        "菜单层级": "配置列表进入编辑，曲线类型属于摇杆编辑页内部。",
+        "参数项细节": "曲线选择、调整、死区、图表、测试与 Apply 组成同一个编辑上下文。",
+        "注意力路径": "当前配置和可编辑功能清楚分开；图表让设置结果可见。",
+        "本应用的判断": "仅保留一个 Profile 入口；曲线页完整表达类型、编辑和应用结果。"
+      }
+    },
+    {
+      "id": "bravia",
+      "brand": "Sony",
+      "product": "BRAVIA",
+      "screen": "Quick Settings 与移动、隐藏菜单",
+      "source": "https://helpguide.sony.net/tv/musltn1/v1/en-003/contents/TP1001675617.html",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://helpguide.sony.net/tv/musltn1/v1/en-003/contents/image/i_quicksettings.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/tv/musltn1/v1/en-003/contents/image/i_input_edit.png",
+          "width": 0
+        }
+      ],
+      "notes": {
+        "页面结构": "观看内容保留，Quick Settings 在画面底部提供常用设置。",
+        "菜单层级": "Edit 选择显示项；选中项长按后提供 Move 和 Hide。",
+        "参数项细节": "项目包含当前设置或状态，而不是只有入口名称。",
+        "注意力路径": "常用功能近，完整设置远；选择焦点适合遥控器导航。",
+        "本应用的判断": "采用常用与高级分层；不复制长按操作或远距离观看尺寸。"
+      }
+    },
+    {
+      "id": "creators",
+      "brand": "Sony",
+      "product": "Creators’ App",
+      "screen": "相机对象与远程拍摄参数",
+      "source": "https://helpguide.sony.net/di-app/ca/v1/en/contents/CA_camera_screen.html",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_camera.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/CA_camera_screen_1_EN.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_home.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_folder.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_discover.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/CA_camera_screen_3.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_1_shooting.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_continuous_shooting.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_cnt_shoot_speed_boost.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_shoot_start_end.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_touch_focus_2.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_touch_focus_cancel_2.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_touch_tracking_2.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_touch_tracking_cancel_2.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_touch_AE.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_touch_AE_cancel.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/ic_stepzoom.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/s_menu_network.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/cE59E.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/ca/v1/en/contents/image/CA_camera_screen_4_EN.png",
+          "width": 0
+        }
+      ],
+      "notes": {
+        "页面结构": "先选相机，远程拍摄页以实时画面和操作面板为核心。",
+        "菜单层级": "MENU 提供文件格式等详细设置；设备列表与拍摄设置分工。",
+        "参数项细节": "快门、光圈、曝光、ISO 等数值集中；拍摄状态有明确标记。",
+        "注意力路径": "主要内容是正在控制的对象，相关数值在内容附近。",
+        "本应用的判断": "配置身份不能重复选择；主操作附近必须显示准确状态。"
+      }
+    },
+    {
+      "id": "ie-layout",
+      "brand": "Sony",
+      "product": "Imaging Edge Desktop",
+      "screen": "编辑工作区与工具栏",
+      "source": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/3_1_retouch_display.php",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/instruction/inst_p_31_retouchdisp_1.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_31_retouchdisp_2.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/s_info.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_01.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_02.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_03.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_04.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_05.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_06.png",
+          "width": 0
+        }
+      ],
+      "notes": {
+        "页面结构": "图像占主工作区，右侧参数面板、上方工具栏、下方图像切换与状态栏各司其职。",
+        "菜单层级": "工具栏处理缩放、适配、旋转、裁剪与属性查看。",
+        "参数项细节": "参数在固定边界内纵向对齐，预览保持主要面积。",
+        "注意力路径": "先看编辑对象，再看相关参数，底部反馈不抢主内容。",
+        "本应用的判断": "曲线页采用主画布加近处数值；参数页使用紧凑功能组。"
+      }
+    },
+    {
+      "id": "ie-items",
+      "brand": "Sony",
+      "product": "Imaging Edge Desktop",
+      "screen": "曝光、参数面板、曲线与版本",
+      "source": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/3_3_retouching.php",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/s_panel_move.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_01.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_02.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/s_wb_pipette.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/s_wb_area.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_03.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_03b.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_04.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_05.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_05b.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_06.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_07.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_08.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_09.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_10.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_11.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_12.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_13.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_15.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/s_ver_open.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_33_retouch_14.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/s_ver_new.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/s_ver_delete.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_01.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_02.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_03.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_04.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_05.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_06.png",
+          "width": 0
+        }
+      ],
+      "notes": {
+        "页面结构": "功能面板可重排；曝光、白平衡、曲线和版本属于不同参数组。",
+        "菜单层级": "曲线通道选择与当前通道重置分开；版本选择和设为当前版本分开。",
+        "参数项细节": "曝光同时提供滑杆、数值和步进；修改版本带标记，曲线节点不能横向越过邻点。",
+        "注意力路径": "相同参数保持一致的输入方式；修改标记显示当前结果。",
+        "本应用的判断": "采用滑杆与精确数值；配置选择不等于已在运行，重置作用范围必须明确。"
+      }
+    },
+    {
+      "id": "ie-compare",
+      "brand": "Sony",
+      "product": "Imaging Edge Desktop",
+      "screen": "调整前后对比",
+      "source": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/3_2_retouch_two_pane.php",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/instruction/inst_p_32_eztoretouch_1.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_32_eztoretouch_2.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/s_info.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_32_eztoretouch_3.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/en/instruction/img/p_32_eztoretouch_4.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_01.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_02.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_03.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_04.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_05.png",
+          "width": 0
+        },
+        {
+          "url": "https://support.d-imaging.sony.co.jp/app/imagingedge/img/use_cut_06.png",
+          "width": 0
+        }
+      ],
+      "notes": {
+        "页面结构": "可并排显示调整前后的图像，另有局部导航与属性窗口。",
+        "菜单层级": "View 中的双视图和同步操作分别控制对比与基准。",
+        "参数项细节": "高光、阴影和越界颜色能在预览上标记。",
+        "注意力路径": "编辑结果可以直接比较，而不只出现成功提示。",
+        "本应用的判断": "曲线可显示保存基准与当前草稿；不伪造游戏画面或改善效果。"
+      }
+    },
+    {
+      "id": "catalyst",
+      "brand": "Sony",
+      "product": "Catalyst Prepare",
+      "screen": "Adjust Color、Inspector、曲线",
+      "source": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Color_correction_editing.htm",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_metadata.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_colorcorrect.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_breathing.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_stabilize.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_Adjustments.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_waveform.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_overlayhistowaveform.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_componenthistowaveform.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_isolate_lrgb.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_settings.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_histogram.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_isolate_rgb.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_vectorscope.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/preview_mode.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_splitpreviewbypass.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_splitpreviewonoff.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_splitpreviewsplitframe.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/splitpreview.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_splitpreviewfullframe.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_Wheels_On.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_unlock.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_reset.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_appsettings.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/EI_Metadata.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/EI_Manual.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_LUT_badge.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_wrench.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_deletepoint.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_Undo.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/di-app/cp/v1/en/Content/Resources/Images/b_Redo.png",
+          "width": 0
+        }
+      ],
+      "notes": {
+        "页面结构": "色彩工作区组合预览、测量图和 Inspector，保存的调整随片段加载。",
+        "菜单层级": "调整工具在窄窗口时进入菜单；Tools 中管理预设与导出。",
+        "参数项细节": "曲线与颜色参数在 Inspector；预览模式可以切换原始和调整结果。",
+        "注意力路径": "控制项与结果反馈相邻，窗口变化时次要动作收进菜单。",
+        "本应用的判断": "曲线操作归一个菜单；主工作区保留，避免永久排列所有文件操作按钮。"
+      }
+    },
+    {
+      "id": "headphones",
+      "brand": "Sony",
+      "product": "Headphones Connect",
+      "screen": "均衡器预设与编辑",
+      "source": "https://helpguide.sony.net/mdr/hpc/v1/en/contents/TP0001548870.html",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://helpguide.sony.net/mdr/hpc/v1/en/contents/image/i011_EN.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/mdr/hpc/v1/en/contents/image/ic050.png",
+          "width": 0
+        },
+        {
+          "url": "https://helpguide.sony.net/mdr/hpc/v1/en/contents/image/i012_EN.png",
+          "width": 0
+        }
+      ],
+      "notes": {
+        "页面结构": "历史版均衡器先展示预设，设置按钮进入详细编辑。",
+        "菜单层级": "预设选择与预设编辑区分。",
+        "参数项细节": "频段滑杆和低频调节集中在编辑屏幕。",
+        "注意力路径": "多数用户先选结果，精调用户再进入参数。",
+        "本应用的判断": "只作为历史界面对照；当前 Sound Connect 单独核对，不据旧截图推断新布局。"
+      }
+    },
+    {
+      "id": "mac-settings",
+      "brand": "Apple",
+      "product": "macOS",
+      "screen": "系统设置搜索",
+      "source": "https://support.apple.com/en-euro/guide/mac-help/mchl8d10839d/mac",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://ipcdn-web.apple.com/assets/v2/web/ca4d94a0-f903-404d-a761-26cba1f8f03e",
+          "width": 572
+        },
+        {
+          "url": "https://ipcdn-web.apple.com/assets/v2/web/63bcccbd-fa92-42ef-bfc3-310583ade18d",
+          "width": 573
+        }
+      ],
+      "notes": {
+        "页面结构": "设置类别与右侧内容分开，搜索结果可以直接定位选项。",
+        "菜单层级": "搜索入口提供匹配项或建议，不要求逐层找到设置。",
+        "参数项细节": "行名称和摘要建立识别线索，详情由该行进入。",
+        "注意力路径": "用户可以使用熟悉词语寻找设置。",
+        "本应用的判断": "增加参数搜索；不要让配置键名成为导航语言。"
+      }
+    },
+    {
+      "id": "mac-control",
+      "brand": "Apple",
+      "product": "macOS",
+      "screen": "Control Center 与细项展开",
+      "source": "https://support.apple.com/guide/mac-help/quickly-change-settings-mchl50f94f8f/15.0/mac/15.0",
+      "reviewed_on": "2026-10-04",
+      "evidence": "macOS Sequoia 15 官方界面与说明；固定版本，未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://help.apple.com/assets/67D1B1065D0706C4AD080C54/67D1B10E5D0706C4AD080C79/en_US/e829da05d7af002600d015b7cdc92533.png",
+          "width": 621
+        }
+      ],
+      "notes": {
+        "页面结构": "紧凑浮层同时展示常用设置，当前应用保留。",
+        "菜单层级": "图标切换状态、滑杆调节数值，项目或箭头展开更多选项。",
+        "参数项细节": "常用值可直接调节，设备选择等细项由局部展开。",
+        "注意力路径": "常用动作不离开当前内容，细项按需要出现。",
+        "本应用的判断": "开关和选择必须有不同语义；应用保留一个主工作区。"
+      },
+      "excluded_image": {
+        "url": "https://ipcdn-web.apple.com/assets/v2/web/a973038b-6700-4b72-8c34-87834987bdd6",
+        "reason": "未固定版本页面的图片含手机界面，不用于 Mac 布局判断"
+      }
+    },
+    {
+      "id": "photos",
+      "brand": "Apple",
+      "product": "Photos",
+      "screen": "整体调整、详情与开关",
+      "source": "https://support.apple.com/en-asia/guide/photos/pht806aea6a6/mac",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://ipcdn-web.apple.com/assets/v2/web/87ac18cf-f19c-4de8-9e73-70a791ebba30",
+          "width": 499
+        },
+        {
+          "url": "https://ipcdn-web.apple.com/assets/v2/web/ec35e39c-e977-418f-9b10-9c44cb1474c3",
+          "width": 362
+        },
+        {
+          "url": "https://ipcdn-web.apple.com/assets/v2/web/dc87c1de-8749-4b65-a8dd-47a05f8f8491",
+          "width": 363
+        },
+        {
+          "url": "https://ipcdn-web.apple.com/assets/v2/web/06a5243b-4c01-4da1-b946-7126f581477b",
+          "width": 362
+        }
+      ],
+      "notes": {
+        "页面结构": "整体调整面板先展示 Light 等大项，Options 展开详细参数。",
+        "菜单层级": "功能展开、自动调整、恢复与该调整的开关分别出现。",
+        "参数项细节": "详项呈紧凑对齐行，已修改调整有标记，可暂时关闭该调整。",
+        "注意力路径": "结果在主图中可见，参数变化标记保持局部。",
+        "本应用的判断": "高级内容按功能组展开；不能用一个总开关隐藏运行页的主要设置。"
+      }
+    },
+    {
+      "id": "logic-inspector",
+      "brand": "Apple",
+      "product": "Logic Pro",
+      "screen": "对象参数检查器",
+      "source": "https://support.apple.com/en-ae/guide/logicpro/lgcpe9cc3b1d/mac",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://help.apple.com/assets/697921A0B89A6DAE620D667A/697921A59331DF6F330EFA33/en_US/883d73d305c449cadffbfeaa578aeae3.png",
+          "width": 476
+        }
+      ],
+      "notes": {
+        "页面结构": "选中对象决定检查器内容；区域、轨道与通道控制保持固定边界。",
+        "菜单层级": "检查器可显示或隐藏，参数始终依附当前对象。",
+        "参数项细节": "名称和值保持对齐；相似控制使用相似结构。",
+        "注意力路径": "参数多时依靠稳定位置建立扫读习惯。",
+        "本应用的判断": "两列按功能组阅读；不把每个参数包装成独立卡片。"
+      }
+    },
+    {
+      "id": "logic-smart",
+      "brand": "Apple",
+      "product": "Logic Pro",
+      "screen": "Smart Controls",
+      "source": "https://support.apple.com/en-md/guide/logicpro/lgcp91601243/mac",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://help.apple.com/assets/697921A0B89A6DAE620D667A/697921A59331DF6F330EFA33/en_US/189dd32365b75ba3f1fd209491b06f65.png",
+          "width": 653
+        }
+      ],
+      "notes": {
+        "页面结构": "选中轨道的关键参数集中在 Smart Controls，映射等细节在检查器。",
+        "菜单层级": "常用调节与参数映射配置区分。",
+        "参数项细节": "控制器具有功能标签，单个控制可映射多个参数。",
+        "注意力路径": "面向当前操作精选控制，底层结构不用全部常驻。",
+        "本应用的判断": "只借鉴精选和分层；本应用不把多个控制参数偷偷绑定到一个滑杆。"
+      }
+    },
+    {
+      "id": "fcp",
+      "brand": "Apple",
+      "product": "Final Cut Pro",
+      "screen": "曲线、菜单与单曲线视图",
+      "source": "https://support.apple.com/en-ca/guide/final-cut-pro/verf87ca7b62/mac",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://help.apple.com/assets/6A29F5537442EFE69C0CD4F3/6A29F558FEEBDB01270C8EF2/en_US/55372310d62e3271cac4bc3a0997c10a.png",
+          "width": 607
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29F5537442EFE69C0CD4F3/6A29F558FEEBDB01270C8EF2/en_US/0346fcd4fd0d9e20ab730f493e5f4ca1.png",
+          "width": 379
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29F5537442EFE69C0CD4F3/6A29F558FEEBDB01270C8EF2/en_US/feda63334a9e92a2668a62f41e4494b1.png",
+          "width": 378
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29F5537442EFE69C0CD4F3/6A29F558FEEBDB01270C8EF2/en_US/5f20279e94f8edaf485982b696f84762.png",
+          "width": 378
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29F5537442EFE69C0CD4F3/6A29F558FEEBDB01270C8EF2/en_US/b6a4fc2c9e806a10975c959e16b41bfb.png",
+          "width": 526
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29F5537442EFE69C0CD4F3/6A29F558FEEBDB01270C8EF2/en_US/bdae6b004653c76373d8bfb545e6a8ba.png",
+          "width": 379
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29F5537442EFE69C0CD4F3/6A29F558FEEBDB01270C8EF2/en_US/993d38c1b4da868caad3607eac853a10.png",
+          "width": 378
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29F5537442EFE69C0CD4F3/6A29F558FEEBDB01270C8EF2/en_US/f1ca1dc131c8552934f0767376f90353.png",
+          "width": 379
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29F5537442EFE69C0CD4F3/6A29F558FEEBDB01270C8EF2/en_US/78b5d31d3975ec2f61253af5df26a3df.png",
+          "width": 378
+        }
+      ],
+      "notes": {
+        "页面结构": "曲线进入 Color inspector，可用全曲线或单曲线视图。",
+        "菜单层级": "顶部菜单区分已有修正和添加修正，View 决定显示范围。",
+        "参数项细节": "添加、拖动、删除节点；可约束轴向或精调；当前曲线单独重置。",
+        "注意力路径": "编辑时图形为主，选择与重置为辅；显示范围由用户明确决定。",
+        "本应用的判断": "提供大画布、当前点坐标、精确输入和清晰重置；手柄曲线保持固定端点与单调约束。"
+      }
+    },
+    {
+      "id": "shortcuts",
+      "brand": "Apple",
+      "product": "Shortcuts",
+      "screen": "行内参数与变量菜单",
+      "source": "https://support.apple.com/en-ca/guide/shortcuts-mac/apdbdab3433f/mac",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [],
+      "notes": {
+        "页面结构": "动作在编辑区按顺序排列，参数直接嵌入动作描述。",
+        "菜单层级": "参数点击后选择字段、关系和输入值。",
+        "参数项细节": "筛选条件能逐项增加，不需要提前显示所有条件。",
+        "注意力路径": "控制项放在用户正在理解的语句位置。",
+        "本应用的判断": "有限互斥选项用紧凑局部菜单；本应用仍保留稳定标签和值的对齐。"
+      }
+    },
+    {
+      "id": "compressor",
+      "brand": "Apple",
+      "product": "Compressor",
+      "screen": "预设、检查器与运行状态",
+      "source": "https://support.apple.com/guide/compressor/compressor-interface-cpsr8747af64/mac",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://help.apple.com/assets/6A29B1BC9B3B540F680B2C61/6A29B1C1A14099787A051EA8/en_US/4adc7ffc61b0f65c9ce3bc3543ac335d.png",
+          "width": 651
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1BC9B3B540F680B2C61/6A29B1C1A14099787A051EA8/en_US/2de8f4daa14ce0d0c5132548631be7a4.png",
+          "width": 651
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1BC9B3B540F680B2C61/6A29B1C1A14099787A051EA8/en_US/bc8f16e9431452ceb46d80a1f63f4d84.png",
+          "width": 651
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1BC9B3B540F680B2C61/6A29B1C1A14099787A051EA8/en_US/aa86a32375d3baca64704a07eca73384.png",
+          "width": 651
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1BC9B3B540F680B2C61/6A29B1C1A14099787A051EA8/en_US/e09cb91b84a82529512d36e89fa0e146.png",
+          "width": 651
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1BC9B3B540F680B2C61/6A29B1C1A14099787A051EA8/en_US/bb79732c3a1db56eb8bf423a1a76d86e.png",
+          "width": 651
+        }
+      ],
+      "notes": {
+        "页面结构": "Current、Active、Completed 分开准备、进行中和已完成工作。",
+        "菜单层级": "选中预设后显示 General、Video、Audio 参数检查器。",
+        "参数项细节": "同一个对象在不同运行阶段有不同可编辑权限。",
+        "注意力路径": "对象类型决定参数，运行阶段决定可执行动作。",
+        "本应用的判断": "区分编辑配置与运行配置；状态文字不能只跟随选中的配置。"
+      }
+    },
+    {
+      "id": "motion",
+      "brand": "Apple",
+      "product": "Motion",
+      "screen": "参数列表、图表、值与动画菜单",
+      "source": "https://support.apple.com/en-mide/guide/motion/motn147486cf/mac",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/b2c7f39231942026c4044c7092702d27.png",
+          "width": 651
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/a366b65b87a11a103f896d41e1da53aa.png",
+          "width": 214
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/65791f5be883ab13e673dce983d671fc.png",
+          "width": 652
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/fa2e837695dc3e097f7f7fc6a75f9840.png",
+          "width": 651
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/8fe716af42c807807c97ee95a2a9c3c4.png",
+          "width": 319
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/86c46fe01c341211a625f6bf6b206b3e.png",
+          "width": 319
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/07e82906194661547be89fc0efd8643d.png",
+          "width": 319
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/9b8bb5a241120666ada315de571c8307.png",
+          "width": 319
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/e266ad4d1ce59279d7fc4bc5d2e24d98.png",
+          "width": 319
+        }
+      ],
+      "notes": {
+        "页面结构": "左侧参数列表与右侧曲线图相邻，工具和显示范围在上方。",
+        "菜单层级": "每个参数的动画菜单由该行进入，图中显示的参数可单独选择。",
+        "参数项细节": "行内包含名称、值和局部操作；可拖动数值或双击精确输入。",
+        "注意力路径": "值、曲线和操作紧邻，局部菜单避免每行堆满按钮。",
+        "本应用的判断": "采用行内数值与上下文操作；浏览滚轮不承担编辑。"
+      }
+    },
+    {
+      "id": "motion-edit",
+      "brand": "Apple",
+      "product": "Motion",
+      "screen": "拖点与精确数值编辑",
+      "source": "https://support.apple.com/guide/motion/modify-keyframes-in-the-keyframe-editor-motn147476b0/6.4/mac/26.6",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明与截图；未现场操作产品",
+      "http_status": 200,
+      "images": [
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/9a7170bb55337ec019763bd9e89a7c22.png",
+          "width": 652
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/537856cc39451a5a72820f4847e481ac.png",
+          "width": 652
+        },
+        {
+          "url": "https://help.apple.com/assets/6A29B1E321AF9E4D94023808/6A29B1E8BC35708749016DFB/en_US/84f030ed1aa5f43f4adb768ebbb8b3d0.png",
+          "width": 337
+        }
+      ],
+      "notes": {
+        "页面结构": "曲线图允许直接调整节点，拖动中出现位置和值。",
+        "菜单层级": "数值编辑可 Return 确认、Escape 取消。",
+        "参数项细节": "图形拖动与精确数值是两种明确编辑方式，修饰键支持细调。",
+        "注意力路径": "编辑结果跟随操作位置，确认和取消边界明确。",
+        "本应用的判断": "曲线拖点与坐标输入并存；输入非法时就地反馈，不移动鼠标焦点。"
+      }
+    },
+    {
+      "id": "sound-connect",
+      "brand": "Sony",
+      "product": "Sound Connect",
+      "screen": "My Device、设备设置与均衡器",
+      "source": "https://www.sony.co.uk/electronics/support/software/00269130",
+      "reviewed_on": "2026-10-04",
+      "evidence": "官方说明 + Sony Corporation 商店宣传图中的界面；支持站图片受限，宣传图不用于测量控件尺寸或证明完整交互",
+      "images": [
+        {
+          "url": "https://play-lh.googleusercontent.com/GAT8Qj6ayF-6geZbv-swAH0r9lFPjbge5CsPKQVvjR9bHZzr_jmDO-YFqbj3iBCA5Gsrm990nwQgWqwzvGEjMg=w1052-h592",
+          "width": 1052
+        },
+        {
+          "url": "https://play-lh.googleusercontent.com/MJlM6qBXdJlXWW4nzPGBLWrjN2UNbaeoCeu23AUDZ3Sua6KoAHQRnQkpSCcm70_sjKBlOLFzkSH6OURbwDEYOg=w1052-h592",
+          "width": 1052
+        },
+        {
+          "url": "https://play-lh.googleusercontent.com/wv7iMx9Cgoy2eLTtmDUpF-H4JCDPCvHNnSBtNmNDFd0HPsE3yiIT4jzFoDkJIu2jXrpABZqrkV_RUq107KKRO00=w1052-h592",
+          "width": 1052
+        },
+        {
+          "url": "https://play-lh.googleusercontent.com/sXID0xsa0iW6eu8vDeWaRqW2iFulhrfvptLocVh37cQ3fowwPw7VGM46alCVZ8EfbEHLPWLHJvThPhYHqUyCdw=w1052-h592",
+          "width": 1052
+        }
+      ],
+      "error": "HTTP Error 403: Forbidden",
+      "notes": {
+        "页面结构": "My Device 汇总设备状态和音效；Scene、Discover、Menu 分别处理场景、推荐和支持。",
+        "菜单层级": "设备内的音效设置与应用菜单分开。",
+        "参数项细节": "环境声模式、均衡器和连接状态围绕当前设备呈现。",
+        "注意力路径": "设备状态先说明对象，用户再进入相关调整。",
+        "本应用的判断": "采用对象明确和状态集中；推荐、历史与场景自动化不进入本应用主路径。"
+      },
+      "image_source": "https://play.google.com/store/apps/details?id=com.sony.songpal.mdr&hl=en"
+    }
+  ],
+  "scope": "14 个产品或产品系列，20 个官方页面主题；历史均衡器界面单独标记"
+}

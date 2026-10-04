@@ -1,601 +1,1075 @@
 from __future__ import annotations
-
 from project_paths import PROJECT_ROOT
-
 import argparse
+from copy import deepcopy
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import queue
+import tempfile
 import threading
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from tkinter import font as tkfont
 import tomllib
 
+from .components import ACCENT, INK, MUTED, RAIL, SURFACE, ChoiceInput, ScrollSurface, StrengthInput, ToggleInput, configure_theme
+from .curve_editor import CurveEditor, ProfileStrip
+from .curve_model import CurveModel
+from .curves import CurveLibrary, curve_document, read_curve, seed_points
 from .runtime import RuntimeManager, tail
-from .settings import ConfigStore, UiPreferences, effective, lookup, update_text
+from .observation import RuntimeObserver
+from .settings import ConfigStore, UiPreferences, effective, lookup
+from .fields import CHOICE_LABELS, COMMON_FIELDS, GAME_FIELDS, field_value
+from .workspace import FIELDS, GAMES, ProfileRepository, projection, put, snapshot, toml_text
 
-GAME_LABELS = {'default': '通用 / COD', 'apex': 'Apex Legends', 'bo3': 'COD：Black Ops III'}
-from .fields import CHOICE_LABELS, COMMON_FIELDS, FIELD_GROUPS, GAME_FIELDS, field_value
+GAME_LABELS = GAMES
+FIELD_MAP = {f[0]: f for f in FIELDS}
+VIEW_ATTRIBUTES = ('surface','inputs','search_rows','field_widgets','page_traces','curve_editor',
+    'curve_choice','preset_value','preset_entries','preset_button','point_title','point_entries',
+    'precision_button','point_error','point_error_label','snap_value','lock_value','snap_toggle',
+    'point_table','tableholder','undo_button','redo_button','add_point_button','remove_point_button',
+    'device_text','fusion_button','learning_summary','learning_table',
+    'advanced_parent','advanced_group','transfer_parent','transfer_group')
+PAGES = {'assist': ('参数调校', '辅助力度与识别目标'), 'curve': ('响应曲线', '直接编辑输入与响应'),
+         'device': ('设备与运行', '模型、手柄与检测设置'), 'feedback': ('运行反馈', '设备状态与响应学习')}
+ASSIST_GROUPS = [
+    ('开镜与跟随', ['gamepad.ads.strength_scale','gamepad.ads.vertical_strength_scale','gamepad.bodylock.strength',
+                   'gamepad.ai_aim.hipfire_multiplier','gamepad.ai_aim.aim_response_learning_enabled'],0),
+    ('识别目标', ['runtime.vision.target_height_ratio','runtime.vision.friendly_filter_enabled'],0),
+    ('开火与压枪', ['gamepad.auto_fire.fire_output','gamepad.auto_fire.manual_fire_input','gamepad.recoil.enabled',
+                   'gamepad.recoil.feedback_amount','gamepad.recoil.hipfire_multiplier'],1)]
+PRIOR_PATHS = [f[0] for f in FIELDS if f[0].endswith('_initial_scale')]
+SHORT_LABELS = {'gamepad.ai_aim.aim_response_learning_enabled':'自适应响应学习',
+                'gamepad.ai_aim.hipfire_multiplier':'腰射辅助倍率', 'runtime.vision.target_height_ratio':'目标高度比例',
+                'runtime.vision.friendly_filter_enabled':'过滤友方目标',
+                'gamepad.ai_aim.body_free_initial_scale':'跟随 · 普通区', 'gamepad.ai_aim.body_slow_initial_scale':'跟随 · 减速区',
+                'gamepad.ai_aim.ads_free_initial_scale':'ADS · 普通区', 'gamepad.ai_aim.ads_slow_initial_scale':'ADS · 减速区'}
+
+
+def raw_value(field, value):
+    return value if field[2] is bool else str(value)
 
 
 class AssistantWindow:
     def __init__(self, root, project):
-        self.root = root
-        self.project = Path(project).resolve()
-        self.store = ConfigStore(self.project)
+        self.root, self.project = root, Path(project).resolve()
         self.manager = RuntimeManager(self.project)
-        self.jobs = queue.Queue()
-        self.busy = False
-        self.loading = False
-        self.drafts = {}
-        self.pinned = set()
-        self.restart_required = False
-        self.pending_request_id = None
+        self.repository = ProfileRepository(self.project)
+        self.curve_library = CurveLibrary(self.project)
         self.preferences = UiPreferences(self.project)
-        self.ui_state = self.preferences.path
-        self.text, self.document, self.digest = self.store.read()
-        self.games = ['default'] + list(self.document.get('games', {}))
-        self.game_labels = {key: GAME_LABELS.get(key, key) for key in self.games}
-        selected = lookup(self.document, 'runtime.game', 'default')
-        ui_settings = self.preferences.read()
-        selected = ui_settings.get('game', selected)
-        active = self.manager.active()
-        if active:
-            selected = active['game']
-        if selected not in self.games:
-            selected = 'default'
-        self.game = tk.StringVar(value=self.game_labels[selected])
-        self.status_text = tk.StringVar(value='已停止')
-        self.device_text = tk.StringVar(value='启动后自动识别手柄')
-        self.model_text = tk.StringVar()
-        self.config_summary = tk.StringVar()
-        self.scope_text = tk.StringVar()
-        self.change_summary = tk.StringVar(value='没有待保存的修改')
-        self.show_details = tk.BooleanVar(value=False)
-        self.notice = tk.StringVar(value='设置保存到 config.toml；支持的参数可直接热重载。')
-        self.inputs = []
-        self.root.title('手柄助手')
-        self.root.geometry('1000x820')
-        self.root.minsize(760, 610)
-        self.root.configure(bg='#f4f6f9')
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.configure('.', font=('Microsoft YaHei UI', 10))
-        style.configure('TFrame', background='#f4f6f9')
-        style.configure('TLabel', background='#f4f6f9', foreground='#243149')
-        style.configure('Title.TLabel', font=('Microsoft YaHei UI', 21, 'bold'))
-        style.configure('Muted.TLabel', foreground='#66758a', font=('Microsoft YaHei UI', 9))
-        style.configure('Status.TLabel', font=('Microsoft YaHei UI', 12, 'bold'))
-        style.configure('Section.TLabel', font=('Microsoft YaHei UI', 12, 'bold'), foreground='#245bd6')
-        style.configure('TButton', padding=(13, 8))
-        style.configure('TCheckbutton', background='#f4f6f9')
-        style.configure('Primary.TButton', background='#245bd6', foreground='white', padding=(22, 11))
-        style.map('Primary.TButton', background=[('active', '#1a4ab4'), ('disabled', '#93a8cf')])
-        style.configure('TNotebook.Tab', padding=(16, 8))
-        outer = ttk.Frame(root, padding=16)
-        outer.pack(fill='both', expand=True)
-        ttk.Label(outer, text='手柄助手', style='Title.TLabel').pack(anchor='w')
-        ttk.Label(outer, text='选择游戏，核对识别模型与响应曲线，再启动辅助。', style='Muted.TLabel').pack(anchor='w', pady=(0, 10))
-        row = ttk.Frame(outer)
-        row.pack(fill='x')
-        ttk.Label(row, text='游戏').pack(side='left', padx=(0, 12))
-        self.selector = ttk.Combobox(row, textvariable=self.game, values=list(self.game_labels.values()), state='readonly', width=27)
-        self.selector.pack(side='left')
-        self.selector.bind('<<ComboboxSelected>>', lambda _: self.change_game())
-        self.primary = ttk.Button(row, text='启动', style='Primary.TButton', command=self.primary_action)
-        self.primary.pack(side='right')
-        self.stop_button = ttk.Button(row, text='停止主程序', command=lambda: self.run_job('正在停止主程序…', self.manager.stop))
-        self.stop_button.pack(side='right', padx=8)
-        self.stop_button.state(['disabled'])
-        ttk.Label(outer, textvariable=self.config_summary, wraplength=690).pack(anchor='w', pady=(8, 0))
-        status = ttk.Frame(outer, padding=(0, 8, 0, 8))
-        status.pack(fill='x')
-        status_details = ttk.Frame(status)
-        status_details.pack(side='left', fill='x', expand=True)
-        status_line = ttk.Frame(status_details)
-        status_line.pack(fill='x')
-        ttk.Label(status_line, textvariable=self.status_text, style='Status.TLabel').pack(side='left')
-        ttk.Label(status_line, textvariable=self.device_text, style='Muted.TLabel').pack(side='left', padx=(14, 0))
-        ttk.Label(status_details, textvariable=self.model_text, style='Muted.TLabel', wraplength=500).pack(anchor='w', pady=(3, 0))
-        fusion_row = ttk.Frame(status)
-        fusion_row.pack(side='right')
-        self.fusion_text = tk.StringVar(value='Fusion：未开启')
-        ttk.Label(fusion_row, textvariable=self.fusion_text, style='Muted.TLabel').pack(anchor='e')
-        self.fusion_button = ttk.Button(fusion_row, text='开启 Fusion', command=self.toggle_fusion)
-        self.fusion_button.pack(side='right')
-        self.notebook = ttk.Notebook(outer)
-        self.pages = {}
-        for key, label in [('game', '游戏设置'), ('common', '设备与性能')]:
-            page = ttk.Frame(self.notebook)
-            self.notebook.add(page, text=label)
-            canvas = tk.Canvas(page, background='#f4f6f9', highlightthickness=0)
-            scrollbar = ttk.Scrollbar(page, orient='vertical', command=canvas.yview)
-            canvas.configure(yscrollcommand=scrollbar.set)
-            scrollbar.pack(side='right', fill='y')
-            canvas.pack(side='left', fill='both', expand=True)
-            form = ttk.Frame(canvas, padding=(16, 14))
-            window = canvas.create_window((0, 0), window=form, anchor='nw')
-            form.bind('<Configure>', lambda _, c=canvas: c.configure(scrollregion=c.bbox('all')))
-            canvas.bind('<Configure>', lambda event, c=canvas, win=window: c.itemconfigure(win, width=event.width))
-            self.bind_scroll(page, canvas)
-            self.pages[key] = form
-        settings_context = ttk.Frame(outer)
-        settings_context.pack(fill='x', pady=(0, 6))
-        ttk.Label(settings_context, textvariable=self.scope_text, style='Muted.TLabel', wraplength=550).pack(side='left', fill='x', expand=True)
-        ttk.Checkbutton(settings_context, text='显示详细参数', variable=self.show_details, command=self.toggle_details).pack(side='right')
-        learning_page = ttk.Frame(self.notebook, padding=16)
-        self.notebook.add(learning_page, text='学习参数')
-        self.learning_summary = tk.StringVar(value='应用未运行，暂无学习数据。')
-        learning_toolbar = ttk.Frame(learning_page)
-        learning_toolbar.pack(fill='x', pady=(0, 12))
-        ttk.Button(learning_toolbar, text='导出学习数据', command=self.export_learning).pack(side='right', padx=(12, 0))
-        ttk.Label(learning_toolbar, textvariable=self.learning_summary, wraplength=465).pack(side='left', fill='x', expand=True)
-        learning_canvas = tk.Canvas(learning_page, background='#f4f6f9', highlightthickness=0)
-        learning_scroll = ttk.Scrollbar(learning_page, orient='vertical', command=learning_canvas.yview)
-        learning_canvas.configure(yscrollcommand=learning_scroll.set)
-        learning_scroll.pack(side='right', fill='y')
-        learning_canvas.pack(side='left', fill='both', expand=True)
-        learning_content = ttk.Frame(learning_canvas)
-        learning_window = learning_canvas.create_window((0, 0), window=learning_content, anchor='nw')
-        learning_content.bind('<Configure>', lambda _: learning_canvas.configure(scrollregion=learning_canvas.bbox('all')))
-        learning_canvas.bind('<Configure>', lambda event: learning_canvas.itemconfigure(learning_window, width=event.width))
-        self.bind_scroll(learning_page, learning_canvas)
-        self.learning_table = ttk.Treeview(learning_content, columns=('effective', 'learned', 'confidence', 'samples'), height=4)
-        self.learning_table.heading('#0', text='响应区域')
-        self.learning_table.column('#0', width=185, minwidth=145)
-        for name, label in [('effective', '生效系数'), ('learned', '学习系数'), ('confidence', '置信度'), ('samples', '有效样本')]:
-            self.learning_table.heading(name, text=label)
-            self.learning_table.column(name, width=100, minwidth=80, anchor='e')
-        for index, name in enumerate(('持续跟随 · 普通区', '持续跟随 · 减速区', 'ADS · 普通区', 'ADS · 减速区')):
-            self.learning_table.insert('', 'end', iid=str(index), text=name, values=('--', '--', '--', '--'))
-        self.learning_table.pack(fill='x')
-        ttk.Label(learning_content, text='系数单位：像素 /（有效摇杆 × 秒）。生效系数结合了初值与置信度；学习系数是样本估计。\n'
-                  '这是控制器对响应的估计，并非独立测得的游戏灵敏度。没有有效样本时显示“未学习”。\n'
-                  '关闭学习会暂停更新，保留当前运行中的估计；重启后使用配置初值。\n'
-                  '仅修改学习开关或腰射 AI 倍率会保留学习数据；其他热重载仍会清理。模型等设置需重启。',
-                  style='Muted.TLabel', wraplength=660).pack(anchor='w', pady=14)
-        footer = ttk.Frame(outer)
-        ttk.Label(outer, textvariable=self.change_summary, wraplength=680).pack(side='bottom', anchor='w', pady=(8, 0))
-        self.save_button = ttk.Button(footer, text='保存并应用', command=self.save)
-        self.save_button.pack(side='left')
-        self.raw_button = ttk.Button(footer, text='编辑配置文件', command=self.open_editor)
-        self.raw_button.pack(side='left', padx=8)
-        ttk.Button(footer, text='查看日志', command=self.show_logs).pack(side='right')
-        ttk.Button(footer, text='重新载入', command=self.reload).pack(side='right', padx=8)
-        self.apply_button = ttk.Button(footer, text='应用已保存配置', command=self.apply_saved_config)
-        self.apply_button.pack(side='left', padx=(0, 8))
-        ttk.Label(outer, textvariable=self.notice, style='Muted.TLabel', wraplength=680).pack(side='bottom', anchor='w', pady=(9, 0))
-        footer.pack(side='bottom', fill='x', pady=(14, 0))
-        self.notebook.pack(fill='both', expand=True)
-        self.root.protocol('WM_DELETE_WINDOW', self.close)
-        self.build_forms()
-        self.poll_id = self.root.after(100, self.poll)
-
-    def selected_game(self):
-        return next(key for key, label in self.game_labels.items() if label == self.game.get())
-
-    def bind_scroll(self, page, canvas):
-        # Bind to this window only; child widgets keep their own wheel behavior.
-        def scroll(event):
-            widget = event.widget
-            while widget is not None:
-                if widget == page:
-                    if event.widget.winfo_class() != 'TCombobox':
-                        canvas.yview_scroll(-int(event.delta / 120), 'units')
-                    return
-                widget = getattr(widget, 'master', None)
-        self.root.bind('<MouseWheel>', scroll, add='+')
-
-    def toggle_details(self):
-        for section in self.detail_sections:
-            if self.show_details.get():
-                section.pack(fill='x', pady=(0, 20))
-            else:
-                section.pack_forget()
-
-    def build_forms(self):
-        self.loading = True
-        self.inputs = []
-        self.variables = {}
-        self.field_specs = {}
-        self.sources = {}
-        self.detail_sections = []
-        game = self.selected_game()
-        native_defaults = self.manager.inspect_defaults(game)
-        common_defaults = self.manager.inspect_defaults('default') if game != 'default' else native_defaults
-        for scope, fields in [('game', GAME_FIELDS), ('common', COMMON_FIELDS)]:
-            form = self.pages[scope]
-            for child in form.winfo_children():
-                child.destroy()
-            data = effective(self.document, game) if scope == 'game' else self.document
-            defaults = native_defaults if scope == 'game' else common_defaults
-            groups = []
-            available = {field[0]: field for field in fields}
-            for title, description, detailed, paths in FIELD_GROUPS:
-                members = [available[path] for path in paths if path in available]
-                if not members:
-                    continue
-                section = ttk.Frame(form)
-                section.pack(fill='x', pady=(0, 20))
-                ttk.Label(section, text=title, style='Section.TLabel').pack(anchor='w')
-                ttk.Label(section, text=description, style='Muted.TLabel', wraplength=580).pack(anchor='w', pady=(4, 8))
-                body = ttk.Frame(section)
-                body.pack(fill='x')
-                body.columnconfigure(1, weight=1)
-                groups.extend((body, row, field) for row, field in enumerate(members))
-                if detailed:
-                    self.detail_sections.append(section)
-            for body, row, field in groups:
-                path, label, kind, fallback, limits = field
-                target = f'games.{game}.{path}' if scope == 'game' and game != 'default' else path
-                original = lookup(data, path, defaults.get(path, fallback))
-                value = self.drafts[target][1] if target in self.drafts else original
-                variable = tk.BooleanVar(value=value) if kind is bool else tk.StringVar(value=str(value))
-                self.variables[target] = variable
-                self.field_specs[target] = field
-                ttk.Label(body, text=label).grid(row=row, column=0, sticky='w', padx=(0, 16), pady=7)
-                if kind is bool:
-                    widget = ttk.Checkbutton(body, text='启用', variable=variable)
-                elif kind is str and limits:
-                    # Canonical values remain in variables and persisted TOML.
-                    display = tk.StringVar(value=CHOICE_LABELS.get(value, value))
-                    widget = ttk.Combobox(body, textvariable=display, values=[CHOICE_LABELS.get(v, v) for v in limits], state='readonly', width=20)
-                    widget.bind('<<ComboboxSelected>>', lambda _, d=display, v=variable, options=limits:
-                                v.set(next(x for x in options if CHOICE_LABELS.get(x, x) == d.get())))
-                    variable.trace_add('write', lambda *_args, d=display, v=variable: d.set(CHOICE_LABELS.get(v.get(), v.get())))
-                else:
-                    widget = ttk.Entry(body, textvariable=variable)
-                widget.grid(row=row, column=1, sticky='ew', pady=7)
-                self.inputs.append(widget)
-                if path.endswith('model_path'):
-                    button = ttk.Button(body, text='选择文件', command=lambda v=variable: self.choose_model(v))
-                    button.grid(row=row, column=2, padx=(8, 0))
-                    self.inputs.append(button)
-                if scope == 'game' and game != 'default':
-                    inherited = lookup(self.document, target) is None
-                    source = tk.StringVar(value='待保存 · 游戏专属' if target in self.drafts else '继承通用' if inherited else '游戏专属')
-                    self.sources[target] = source
-                    ttk.Label(body, textvariable=source, style='Muted.TLabel').grid(row=row, column=3, padx=(12, 0))
-                    if inherited:
-                        button = ttk.Button(body, text='设为专属', command=lambda p=target: self.pin_field(p))
-                        button.grid(row=row, column=4, padx=(8, 0))
-                        self.inputs.append(button)
-                variable.trace_add('write', lambda *_args, p=target, f=field, v=variable, original=original:
-                    self.edit_field(p, f, v.get(), original))
-        self.loading = False
-        self.toggle_details()
-        self.update_model()
-
-    def pin_field(self, path):
-        self.pinned.add(path)
-        field = self.field_specs[path]
-        self.edit_field(path, field, self.variables[path].get(), None)
-
-    def edit_field(self, path, field, value, original):
-        if self.loading:
-            return
-        try:
-            changed = path in self.pinned or field_value(field, value) != original
-        except ValueError:
-            changed = True
-        if changed:
-            self.drafts[path] = (field, value)
-        else:
-            self.drafts.pop(path, None)
-        if path in self.sources:
-            self.sources[path].set('待保存 · 游戏专属' if changed else '继承通用' if lookup(self.document, path) is None else '游戏专属')
-        self.notice.set('有未保存的修改；保存时尝试热重载，不支持的参数会提示重启。' if self.drafts else '设置保存到 config.toml；支持的参数可直接热重载。')
-        self.update_model()
-
-    def change_game(self):
-        if not self.busy:
-            self.build_forms()
-            try:
-                self.preferences.save_game(self.selected_game())
-            except OSError as error:
-                self.notice.set('游戏选择未能记住：' + str(error))
-
-    def update_model(self):
-        game = self.selected_game()
-        path = f'games.{game}.runtime.vision.model_path' if game != 'default' else 'runtime.vision.model_path'
-        model = self.drafts[path][1] if path in self.drafts else lookup(effective(self.document, game), 'runtime.vision.model_path', '')
-        self.model_text.set('模型：' + (Path(model).name if model else '尚未设置'))
-        curve_path = f'games.{game}.gamepad.aim_response_curve.algorithm' if game != 'default' else 'gamepad.aim_response_curve.algorithm'
-        curve = self.variables[curve_path].get()
-        self.config_summary.set(f'正在编辑：{self.game.get()}  ·  工具曲线：{CHOICE_LABELS.get(curve, curve)}' +
-                                ('  ·  含未保存修改' if path in self.drafts or curve_path in self.drafts else '  ·  已保存配置'))
-        self.scope_text.set('通用 / COD 的游戏参数也会被其他游戏继承；需要不同值时，在对应游戏中单独保存。' if game == 'default' else
-                            '当前页只修改此游戏；“设备与性能”中的参数由所有游戏共用。')
-        scopes = {}
-        for target in self.drafts:
-            key = target.split('.')[1] if target.startswith('games.') else 'default'
-            label = self.game_labels.get(key, key) if target.startswith('games.') else '通用配置'
-            scopes[label] = scopes.get(label, 0) + 1
-        self.change_summary.set('待保存：' + '；'.join(f'{label} {count} 项' for label, count in scopes.items()) + '。保存会写入以上所有修改。' if scopes else '没有待保存的修改')
-
-    def choose_model(self, variable):
-        filename = filedialog.askopenfilename(parent=self.root, title='选择识别模型', filetypes=[('TensorRT 模型', '*.engine'), ('所有文件', '*.*')])
-        if filename:
-            try:
-                filename = Path(filename).resolve().relative_to(self.project).as_posix()
-            except ValueError:
-                filename = Path(filename).as_posix()
-            variable.set(str(filename))
-
-    def collect_changes(self):
-        return {path: field_value(field, value) for path, (field, value) in self.drafts.items()}
-
-    def commit(self, changes):
-        if changes:
-            candidate = update_text(self.text, changes)
-            data = tomllib.loads(candidate)
-            games = ['default'] + list(data.get('games', {}))
-            self.store.save(candidate, self.digest, lambda path: self.manager.validate(path, games))
-
-    def run_job(self, label, work, done=None):
-        if self.busy:
-            return
-        self.busy = True
-        self.notice.set(label)
-        for widget in self.inputs + [self.primary, self.stop_button, self.selector, self.save_button, self.raw_button, self.apply_button, self.fusion_button]:
-            widget.state(['disabled'])
-        def worker():
-            try:
-                result = work()
-                self.jobs.put((done, result, None))
-            except Exception as error:
-                self.jobs.put((None, None, str(error)))
-        threading.Thread(target=worker, daemon=True).start()
-
-    def saved(self, _result=None):
-        self.text, self.document, self.digest = self.store.read()
-        self.drafts.clear()
-        self.pinned.clear()
-        self.build_forms()
-        self.notice.set('配置已保存；运行中的参数以热重载结果为准。' if self.manager.active() else '已保存，下次启动生效。')
-
-    def started(self, result):
-        self.saved(result)
+        self.jobs = queue.Queue()
+        self.busy, self.loading, self.closed = False, False, False
+        self.states = {}
+        self.variable_traces = []
+        self.ui_traces = []
+        self.page_traces = []
+        self.views = {}
+        self.current_view = None
+        self.runtime_status = {'phase':'stopped','record':None}
+        self.observation_after=0.
+        self.disposed = False
+        self.profile = None
+        self.page = 'assist'
+        self.inputs, self.variables, self.search_rows = [], {}, []
+        self.pending_reload = None
         self.restart_required = False
-        self.notice.set('已启动。关闭窗口后应用会继续运行；停止请使用上方按钮。')
+        self.notice = tk.StringVar(value='新建配置，或导入已有 TOML 配置。')
+        self.status_text = tk.StringVar(value='已停止')
+        self.change_summary = tk.StringVar(value='')
+        self.search = tk.StringVar()
+        self.watch(self.search,lambda *_:self.filter_rows())
+        self.advanced = tk.BooleanVar(value=False)
+        self.manual_transfer = tk.BooleanVar(value=False)
+        self.show_point_table = tk.BooleanVar(value=False)
+        self.point_syncing = False
+        self.point_dirty = False
+        self.point_x, self.point_y = tk.StringVar(), tk.StringVar()
+        self.watch(self.point_x,self.precision_dirty)
+        self.watch(self.point_y,self.precision_dirty)
+        self.build_shell()
+        self.load_library()
+        self.observer=RuntimeObserver(self.manager)
+        self.next_observation=0.
+        self.root.protocol('WM_DELETE_WINDOW', self.close)
+        self.root.bind('<Destroy>',self.dispose,add='+')
+        self.root.bind('<Control-s>', lambda _:self.save())
+        self.poll_id = self.root.after(150, self.poll)
+
+    def build_shell(self):
+        self.root.title('手柄助手')
+        self.root.geometry('1120x840')
+        self.root.minsize(840,680)
+        configure_theme()
+        self.root.configure(background=SURFACE)
+        shell = ttk.Frame(self.root,padding=(22,16,22,12))
+        shell.pack(fill='both',expand=True)
+        header = ttk.Frame(shell)
+        header.pack(fill='x',pady=(0,12))
+        ttk.Label(header,text='手柄助手',style='Section.TLabel').pack(side='left')
+        ttk.Label(header,text='  /  配置工作室',style='Muted.TLabel').pack(side='left')
+        self.primary = ttk.Button(header,text='启动配置',style='Primary.TButton',command=self.primary_action)
+        self.primary.pack(side='right')
+        self.stop_button = ttk.Button(header,text='停止',command=self.stop_runtime)
+        self.stop_button.pack(side='right',padx=(8,8))
+        self.save_button = ttk.Button(header,text='保存修改',command=self.save)
+        self.save_button.pack(side='right')
+        ttk.Label(header,textvariable=self.status_text,style='Accent.TLabel').pack(side='right',padx=16)
+        strip = ttk.Frame(shell)
+        strip.pack(fill='x',pady=(0,10))
+        self.new_button = ttk.Button(strip,text='＋ 新建',command=self.new_profile)
+        self.new_button.pack(side='right',padx=(8,0))
+        self.manage_value = tk.StringVar(value='manage')
+        self.manage_button = ChoiceInput(strip,self.manage_value,['copy','rename','import','export','reload','reset'],
+            {'manage':'配置管理','copy':'复制当前配置','rename':'重命名','import':'导入配置…',
+             'export':'导出配置…','reload':'重新载入','reset':'恢复创建时的参数'})
+        self.manage_button.pack(side='right',padx=(8,0))
+        self.watch(self.manage_value,self.manage_action)
+        self.profile_strip = ProfileStrip(strip,self.select_profile)
+        self.profile_strip.pack(side='left',fill='x',expand=True)
+        nav = ttk.Frame(shell)
+        nav.pack(fill='x')
+        self.navigation = {}
+        for key,(label,_) in PAGES.items():
+            button = ttk.Button(nav,text=label,style='Nav.TButton',command=lambda k=key:self.show_page(k))
+            button.pack(side='left',padx=(0,3))
+            self.navigation[key]=button
+        ttk.Separator(shell).pack(fill='x',pady=(4,10))
+        page_header = ttk.Frame(shell)
+        page_header.pack(fill='x',pady=(0,10))
+        self.page_title = tk.StringVar()
+        ttk.Label(page_header,textvariable=self.page_title,style='Section.TLabel').pack(side='left')
+        ttk.Label(page_header,textvariable=self.change_summary,style='Muted.TLabel').pack(side='left',padx=12)
+        self.search_entry = ttk.Entry(page_header,textvariable=self.search,width=20)
+        self.search_entry.pack(side='right')
+        self.search_label = ttk.Label(page_header,text='查找参数',style='Muted.TLabel')
+        self.search_label.pack(side='right',padx=8)
+        footer = ttk.Frame(shell)
+        footer.pack(side='bottom',fill='x',pady=(10,0))
+        ttk.Separator(footer).pack(fill='x',pady=(0,8))
+        notice_row=ttk.Frame(footer,height=26);notice_row.pack(fill='x');notice_row.pack_propagate(False)
+        self.notice_summary=tk.StringVar(master=self.root)
+        self.notice_font=tkfont.Font(root=self.root,family='Microsoft YaHei UI',size=9)
+        self.notice_detail=ttk.Button(notice_row,text='详情',style='Link.TButton',command=self.show_notice)
+        self.notice_label=ttk.Label(notice_row,textvariable=self.notice_summary,style='Muted.TLabel')
+        self.notice_label.pack(side='left',fill='x',expand=True)
+        self.watch(self.notice,self.update_notice)
+        self.root.bind('<Configure>',lambda e:self.update_notice() if e.widget==self.root else None,add='+')
+        self.update_notice()
+        self.content_host = ttk.Frame(shell)
+        self.content_host.pack(fill='both',expand=True)
+
+    def register(self, widget):
+        self.inputs.append(widget)
+        return widget
+
+    def update_notice(self,*_):
+        if self.disposed:return
+        message=self.notice.get()
+        first=message.splitlines()[0] if message else ''
+        available=max(160,self.root.winfo_width()-110)
+        preview=first
+        while preview and self.notice_font.measure(preview+'…')>available:preview=preview[:-1]
+        details=preview!=first or first!=message
+        self.notice_summary.set(preview+('…' if details else ''))
+        if details:self.notice_detail.pack(side='right',padx=(8,0))
+        else:self.notice_detail.pack_forget()
+
+    def show_notice(self):
+        window=tk.Toplevel(self.root);window.title('操作详情');window.geometry('760x400');window.transient(self.root)
+        editor=tk.Text(window,background=RAIL,foreground=INK,font=('Microsoft YaHei UI',10),wrap='word',padx=16,pady=14)
+        editor.pack(fill='both',expand=True);editor.insert('1.0',self.notice.get());editor.configure(state='disabled')
+
+    def watch(self,variable,callback,page=False):
+        trace=variable.trace_add('write',callback)
+        (self.page_traces if page else self.ui_traces).append((variable,trace))
+        return trace
+
+    def dispose(self,event):
+        if event.widget!=self.root or self.disposed:return
+        self.disposed=True
+        if hasattr(self,'observer'):self.observer.close()
+        page_traces=[pair for view in self.views.values() for pair in view['page_traces']]
+        for variable,trace in self.variable_traces+self.ui_traces+page_traces:variable.trace_remove('write',trace)
+        self.variable_traces,self.ui_traces,self.page_traces=[],[],[]
+        self.variables={}
+        self.views.clear()
+        # Remove UI-owned variables while the interpreter is on its UI thread.
+        # An in-flight worker may still own the window controller after an
+        # external window destroy; it must not own Tcl variable finalizers.
+        for name,value in list(vars(self).items()):
+            if isinstance(value,tk.Variable):setattr(self,name,None)
+        self.notice_font=None
+
+    def load_library(self, select=None):
+        self.profile_entries = self.repository.entries()
+        for entry in self.profile_entries:
+            if entry['id'] not in self.states:
+                self.make_state(entry)
+        identifiers = [p['id'] for p in self.profile_entries]
+        active = self.manager.active()
+        self.runtime_status['record']=active
+        remembered = select or self.preferences.read().get('profile_id')
+        if not select and active and active.get('profile_id') in identifiers:
+            remembered = active['profile_id']
+        if remembered not in identifiers:
+            remembered = identifiers[0] if identifiers else None
+        self.select_profile(remembered)
+        if remembered and not self.repository.errors:self.notice.set('调整参数后保存；右键参数可恢复创建时的值或查看范围。')
+        if self.repository.errors:
+            self.notice.set('部分配置无法读取；原文件已保留。配置管理 → 重新载入可重试。')
+
+    def make_state(self, entry):
+        saved, expected = self.repository.read(self.repository.path(entry['id']))
+        self.states[entry['id']] = {'saved':saved,'data':deepcopy(saved),'expected':expected,
+            'raw':{f[0]:raw_value(f,lookup(saved['config'],f[0],f[3])) for f in FIELDS},
+            'model':self.model_for(saved)}
+
+    def model_for(self,data):
+        curve=data['curve']
+        return CurveModel(curve['definition']['points'],{'algorithm':curve['algorithm'],'name':curve['definition']['name']})
+
+    @property
+    def state(self): return self.states[self.profile['id']] if self.profile else None
+
+    def dirty(self,state=None):
+        state = state or self.state
+        if not state:return False
+        baseline={f[0]:raw_value(f,lookup(state['saved']['config'],f[0],f[3])) for f in FIELDS}
+        return state['raw']!=baseline or state['data']!=state['saved']
+
+    def select_profile(self,identifier):
+        if self.busy:return
+        if self.profile and self.point_dirty and not self.apply_precision():return
+        self.profile = self.states[identifier]['data'] if identifier in self.states else None
+        if self.profile:
+            self.loading=True
+            for field in FIELDS:
+                path=field[0]
+                if path not in self.variables:
+                    variable=(tk.BooleanVar if field[2] is bool else tk.StringVar)(master=self.root,value=self.state['raw'][path])
+                    trace=variable.trace_add('write',lambda *_,p=path,v=variable:self.field_changed(p,v.get()))
+                    self.variable_traces.append((variable,trace))
+                    self.variables[path]=variable
+                elif self.variables[path].get()!=self.state['raw'][path]:
+                    self.variables[path].set(self.state['raw'][path])
+            self.loading=False
+            self.preferences.save_profile(identifier,self.profile['game'])
+        self.refresh_strip()
+        self.show_page(self.page)
+        self.refresh_actions()
+
+    def refresh_strip(self):
+        self.profile_strip.set_profiles([dict(p, name=self.states[p['id']]['data']['name'],dirty=self.dirty(self.states[p['id']]))
+            for p in self.profile_entries],self.profile['id'] if self.profile else None)
+        self.change_summary.set('有未保存修改' if self.dirty() else '已保存' if self.profile else '')
+
+    def field_changed(self,path,value):
+        if self.loading:return
+        self.state['raw'][path]=value
+        self.refresh_strip()
+        self.refresh_actions()
+        self.validate_visible(path)
+
+    def validate_visible(self,path):
+        record=self.field_widgets.get(path) if hasattr(self,'field_widgets') else None
+        if not record:return
+        widget,error_label=record
+        try:
+            field_value(FIELD_MAP[path],self.state['raw'][path])
+            if error_label.winfo_manager():
+                error_label.configure(text='')
+                error_label.grid_remove()
+            target=widget.entry if isinstance(widget,StrengthInput) else widget
+            target.state(['!invalid'])
+        except ValueError as error:
+            error_label.configure(text=str(error))
+            error_label.grid()
+            target=widget.entry if isinstance(widget,StrengthInput) else widget
+            target.state(['invalid'])
+
+    def show_page(self,page):
+        if self.busy:return
+        if self.point_dirty and not self.apply_precision():return
+        key=page if self.profile else 'empty'
+        if self.current_view is not None:
+            self.views[self.current_view]={name:getattr(self,name,None) for name in VIEW_ATTRIBUTES}
+            if self.current_view!=key:self.surface.pack_forget()
+        self.page=page
+        for nav_page,button in self.navigation.items():button.configure(style='Selected.Nav.TButton' if nav_page==page else 'Nav.TButton')
+        self.page_title.set(PAGES[page][1])
+        self.search_entry.state(['!disabled'] if page in ('assist','device') and self.profile else ['disabled'])
+        self.current_view=key
+        if key in self.views:
+            for name,value in self.views[key].items():setattr(self,name,value)
+            self.surface.pack(fill='both',expand=True)
+            if self.curve_editor:
+                if self.curve_editor.model is not self.state['model']:
+                    self.curve_editor.model=self.state['model']
+                    self.curve_editor.view=[0.,0.,1.]
+                self.curve_editor.baseline=deepcopy(self.state['saved']['curve']['definition']['points'])
+                self.loading=True
+                self.curve_choice.set(self.profile['curve']['algorithm'])
+                self.loading=False
+                self.curve_editor.draw()
+                self.tableholder.pack(fill='x',pady=(8,0)) if self.show_point_table.get() else self.tableholder.pack_forget()
+                self.point_selected(self.curve_editor.selected)
+            for path in self.field_widgets:self.validate_visible(path)
+            self.update_advanced_groups()
+            self.filter_rows()
+            self.refresh_actions()
+            return
+        for name in VIEW_ATTRIBUTES:setattr(self,name,None)
+        self.page_traces=[]
+        self.inputs,self.search_rows,self.field_widgets=[],[],{}
+        self.point_dirty=False
+        self.surface=ScrollSurface(self.content_host,self.root)
+        self.surface.pack(fill='both',expand=True)
+        body=self.surface.content
+        if not self.profile:
+            empty=ttk.Frame(body,padding=(25,70))
+            empty.pack(fill='x')
+            ttk.Label(empty,text='为每一种手感，建立一份配置',style='Title.TLabel').pack(anchor='w')
+            ttk.Label(empty,text='配置独立保存模型、辅助参数和响应曲线。\n选择游戏后，从默认值开始调校，或导入已有配置。',
+                      style='Muted.TLabel').pack(anchor='w',pady=(14,22))
+            ttk.Button(empty,text='＋ 创建第一份配置',style='Primary.TButton',command=self.new_profile).pack(side='left')
+            ttk.Button(empty,text='导入已有配置',command=self.import_profile).pack(side='left',padx=12)
+        elif page=='assist':self.build_assist(body)
+        elif page=='device':self.build_device(body)
+        elif page=='curve':self.build_curve(body)
+        else:self.build_feedback(body)
+        self.surface.install_wheel()
+        self.views[key]={name:getattr(self,name,None) for name in VIEW_ATTRIBUTES}
+        self.filter_rows()
+        self.refresh_actions()
+
+    def columns(self,parent):
+        row=ttk.Frame(parent)
+        row.pack(fill='x')
+        row.columnconfigure((0,1),weight=1,uniform='columns')
+        left,right=ttk.Frame(row),ttk.Frame(row)
+        left.grid(row=0,column=0,sticky='new',padx=(0,18))
+        right.grid(row=0,column=1,sticky='new',padx=(18,0))
+        return left,right
+
+    def group(self,parent,title,paths,slider=True,hint=''):
+        group=ttk.Frame(parent)
+        group.pack(fill='x',pady=(0,14))
+        ttk.Label(group,text=title,style='Section.TLabel').pack(anchor='w',pady=(0,5))
+        if hint:ttk.Label(group,text=hint,style='Muted.TLabel',wraplength=380).pack(anchor='w',pady=(0,5))
+        ttk.Separator(group).pack(fill='x',pady=(0,4))
+        for path in paths:self.field_row(group,path,slider)
+        return group
+
+    def field_row(self,parent,path,slider=True):
+        field=FIELD_MAP[path]
+        _,label,kind,_,limits=field
+        row=ttk.Frame(parent,padding=(0,5))
+        row.pack(fill='x')
+        row.columnconfigure(1,weight=1)
+        label=SHORT_LABELS.get(path,label)
+        ttk.Label(row,text=label,wraplength=140).grid(row=0,column=0,sticky='w',padx=(0,10))
+        row.columnconfigure(0,minsize=145)
+        variable=self.variables[path]
+        if kind is bool:
+            widget=ToggleInput(row,variable)
+        elif kind is str and limits:
+            widget=ChoiceInput(row,variable,limits,CHOICE_LABELS)
+        elif kind is float and slider and not path.endswith('_initial_scale'):
+            widget=StrengthInput(row,variable,limits)
+        else:
+            widget=ttk.Entry(row,textvariable=variable,justify='right' if kind in (int,float) else 'left',width=12)
+        widget.grid(row=0,column=1,sticky='ew')
+        self.register(widget)
+        error=ttk.Label(row,text='',foreground='#f49090',font=('Microsoft YaHei UI',8),wraplength=380)
+        error.grid(row=1,column=0,columnspan=2,sticky='w',pady=(2,0))
+        error.grid_remove()
+        self.field_widgets[path]=(widget,error)
+        self.search_rows.append((row,(label+' '+field[1]+' '+path+' '+parent.winfo_name()).lower()))
+        targets=[widget,widget.entry,widget.scale] if isinstance(widget,StrengthInput) else [widget]
+        targets.extend(row.winfo_children())
+        for target in targets:
+            target.bind('<Button-3>',lambda e,p=path:self.field_menu(p,e),add='+')
+            target.bind('<Shift-F10>',lambda e,p=path:self.field_menu(p,e),add='+')
+        self.validate_visible(path)
+
+    def field_menu(self,path,event):
+        if self.busy:return 'break'
+        if hasattr(self,'field_popup') and self.field_popup.winfo_exists():self.field_popup.destroy()
+        value=tk.StringVar(value='actions')
+        self.field_popup=ChoiceInput(self.root,value,['initial','help'],{'actions':'参数操作','initial':'恢复创建时的值','help':'查看范围与说明'})
+        def action(*_):
+            if self.field_popup.variable.get()=='initial':
+                field=FIELD_MAP[path]
+                self.variables[path].set(raw_value(field,lookup(self.profile['initial']['config'],path,field[3])))
+            elif self.field_popup.variable.get()=='help':
+                field=FIELD_MAP[path]
+                ranges='开关' if field[2] is bool else '、'.join(CHOICE_LABELS.get(v,v) for v in field[4]) if field[2] is str and field[4] else \
+                       ('0 使用原生默认值；手动指定为 80～4000' if path.endswith('_initial_scale') else f'范围 {field[4][0]}～{field[4][1]}')
+                self.notice.set(field[1]+'：'+ranges+'。恢复创建时的值只修改草稿。')
+        value.trace_add('write',action)
+        self.field_popup.open((event.x_root,event.y_root),event.widget)
+        return 'break'
+
+    def build_assist(self,parent):
+        cols=self.columns(parent)
+        for title,paths,column in ASSIST_GROUPS:self.group(cols[column],title,paths)
+        toggle=self.register(ToggleInput(cols[1],self.advanced,'高级：响应初值',lambda:self.show_page('assist'),width=190))
+        toggle.pack(anchor='w',pady=(2,6))
+        self.advanced_parent=cols[1]
+        self.update_advanced_groups()
+        ttk.Label(parent,text='修改保留在当前配置中；保存后，运行实例会尝试热重载支持的参数。',style='Muted.TLabel').pack(anchor='w',pady=(0,4))
+
+    def build_device(self,parent):
+        model=ttk.Frame(parent)
+        model.pack(fill='x',pady=(0,16))
+        ttk.Label(model,text='识别模型',style='Section.TLabel').pack(anchor='w',pady=(0,6))
+        entry=self.register(ttk.Entry(model,textvariable=self.variables['runtime.vision.model_path']))
+        entry.pack(side='left',fill='x',expand=True)
+        self.register(ttk.Button(model,text='选择文件…',command=self.choose_model)).pack(side='left',padx=(8,0))
+        cols=self.columns(parent)
+        common=[f[0] for f in COMMON_FIELDS]
+        self.group(cols[0],'捕获与推理',common[:7],False)
+        self.group(cols[1],'手柄与日志',common[7:],False)
+        self.register(ToggleInput(cols[1],self.manual_transfer,'高级：手动输出补偿',lambda:self.show_page('device'),width=210)).pack(anchor='w',pady=(0,8))
+        self.transfer_parent=cols[1]
+        self.update_advanced_groups()
+        tools=ttk.Frame(parent)
+        tools.pack(fill='x',pady=(8,0))
+        self.register(ttk.Button(tools,text='编辑完整配置…',command=self.raw_editor)).pack(side='left')
+        self.register(ttk.Button(tools,text='保存后重新应用',command=self.apply_saved_config)).pack(side='left',padx=8)
+        self.register(ttk.Button(tools,text='重启当前配置',command=lambda:self.primary_action(force_restart=True))).pack(side='left')
+
+    def update_advanced_groups(self):
+        if self.page=='assist' and self.profile:
+            if self.advanced.get():
+                if self.advanced_group is None:
+                    self.advanced_group=self.group(self.advanced_parent,'响应学习起点',PRIOR_PATHS,False,
+                        '0 使用原生默认值；手动指定范围为 80～4000。')
+                    self.surface.install_wheel(self.advanced_group)
+                else:self.advanced_group.pack(fill='x',pady=(0,14))
+            elif self.advanced_group is not None:self.advanced_group.pack_forget()
+        if self.page=='device' and self.profile:
+            if self.manual_transfer.get():
+                if self.transfer_group is None:
+                    self.transfer_group=self.group(self.transfer_parent,'手动输出补偿',
+                        [f[0] for f in GAME_FIELDS if f[0].startswith('gamepad.output_transfer.')],False,
+                        '已有原生参数；不包含自动测量与反曲线校准。')
+                    self.surface.install_wheel(self.transfer_group)
+                else:self.transfer_group.pack(fill='x',pady=(0,14))
+            elif self.transfer_group is not None:self.transfer_group.pack_forget()
+
+    def build_curve(self,parent):
+        toolbar=ttk.Frame(parent)
+        toolbar.pack(fill='x',pady=(0,10))
+        self.curve_choice=tk.StringVar(value=self.profile['curve']['algorithm'])
+        choice=self.register(ChoiceInput(toolbar,self.curve_choice,['linear','cod_dynamic_legacy_lut','custom_lut'],CHOICE_LABELS))
+        choice.pack(side='left')
+        self.watch(self.curve_choice,self.curve_choice_changed,page=True)
+        self.register(ttk.Button(toolbar,text='导入…',command=self.import_curve)).pack(side='left',padx=8)
+        self.register(ttk.Button(toolbar,text='导出…',command=self.export_curve)).pack(side='left')
+        self.register(ttk.Button(toolbar,text='存为预设…',command=self.save_curve_preset)).pack(side='right')
+        self.preset_value=tk.StringVar(value='presets')
+        self.preset_button=self.register(ChoiceInput(toolbar,self.preset_value,[],{'presets':'曲线预设'}))
+        self.watch(self.preset_value,self.preset_changed,page=True)
+        self.refresh_curve_presets()
+        graphrow=ttk.Frame(parent)
+        graphrow.pack(fill='x')
+        graphrow.columnconfigure(0,weight=1)
+        self.curve_editor=self.register(CurveEditor(graphrow,self.curve_changed,self.point_selected))
+        self.curve_editor.grid(row=0,column=0,sticky='nsew',padx=(0,16))
+        self.curve_editor.model=self.state['model']
+        self.curve_editor.on_error=self.notice.set
+        self.curve_editor.baseline=deepcopy(self.state['saved']['curve']['definition']['points'])
+        side=ttk.Frame(graphrow,width=190)
+        side.grid(row=0,column=1,sticky='ns')
+        self.point_title=tk.StringVar()
+        ttk.Label(side,textvariable=self.point_title,style='Section.TLabel').pack(anchor='w',pady=(0,10))
+        self.point_entries=[]
+        for label,variable in [('输入 %',self.point_x),('响应 %',self.point_y)]:
+            ttk.Label(side,text=label,style='Muted.TLabel').pack(anchor='w')
+            widget=self.register(ttk.Entry(side,textvariable=variable,width=17))
+            widget.pack(fill='x',pady=(3,7))
+            self.point_entries.append(widget)
+            widget.bind('<Return>',lambda _:self.apply_precision())
+            widget.bind('<Escape>',lambda _:self.point_selected(self.curve_editor.selected))
+        self.curve_editor.bind('<<CurvePrecisionRequested>>',lambda _:self.focus_precision())
+        self.precision_button=self.register(ttk.Button(side,text='应用精确坐标',command=self.apply_precision))
+        self.precision_button.pack(fill='x')
+        self.point_error=tk.StringVar()
+        self.point_error_label=ttk.Label(side,textvariable=self.point_error,foreground='#f49090',wraplength=190,font=('Microsoft YaHei UI',8))
+        self.snap_value=tk.BooleanVar()
+        self.lock_value=tk.BooleanVar()
+        self.snap_toggle=self.register(ToggleInput(side,self.snap_value,'吸附 1% 网格',lambda:setattr(self.curve_editor,'snap',self.snap_value.get()),width=190))
+        self.snap_toggle.pack(anchor='w',pady=(10,0))
+        self.register(ToggleInput(side,self.lock_value,'拖动时锁定输入',lambda:setattr(self.curve_editor,'lock_x',self.lock_value.get()),width=190)).pack(anchor='w')
+        ttk.Label(side,text='蓝：当前曲线\n灰虚线：已保存曲线',style='Muted.TLabel').pack(anchor='w',pady=(12,0))
+        actions=ttk.Frame(parent)
+        actions.pack(fill='x',pady=(10,8))
+        self.undo_button=self.register(ttk.Button(actions,text='撤销',command=self.curve_editor.undo))
+        self.undo_button.pack(side='left')
+        self.redo_button=self.register(ttk.Button(actions,text='重做',command=self.curve_editor.redo))
+        self.redo_button.pack(side='left',padx=6)
+        self.add_point_button=self.register(ttk.Button(actions,text='插入点',command=self.add_point))
+        self.add_point_button.pack(side='left')
+        self.remove_point_button=self.register(ttk.Button(actions,text='删除点',command=self.curve_editor.remove))
+        self.remove_point_button.pack(side='left',padx=6)
+        for label,action in [('－',lambda:self.curve_editor.zoom(1.4)),('＋',lambda:self.curve_editor.zoom(.7)),('适合视图',self.curve_editor.fit)]:
+            self.register(ttk.Button(actions,text=label,command=action)).pack(side='right',padx=(5,0))
+        ttk.Label(parent,text='拖动控制点 · Shift 限定方向 · Alt 精细拖动 · 双击空白插点 · 中键平移 · ↑↓ 调响应 · Ctrl+Z / Y',
+                  style='Muted.TLabel').pack(anchor='w',pady=(0,8))
+        self.register(ToggleInput(parent,self.show_point_table,'全部点位',lambda:self.show_page('curve'),width=160)).pack(anchor='w')
+        self.point_table=ttk.Treeview(parent,columns=('input','output'),show='headings',height=4,selectmode='browse')
+        self.point_table.local_scroll=True
+        self.point_table.heading('input',text='控制点输入 %')
+        self.point_table.heading('output',text='响应 %')
+        self.point_table.column('input',width=160,anchor='center')
+        self.point_table.column('output',width=160,anchor='center')
+        tableholder=self.tableholder=ttk.Frame(parent)
+        if self.show_point_table.get():tableholder.pack(fill='x',pady=(8,0))
+        self.point_table.pack(in_=tableholder,side='left',fill='x',expand=True)
+        scrollbar=ttk.Scrollbar(tableholder,command=self.point_table.yview)
+        scrollbar.pack(side='right',fill='y')
+        self.point_table.configure(yscrollcommand=scrollbar.set)
+        self.point_table.bind('<<TreeviewSelect>>',self.table_selected)
+        self.point_table.bind('<Double-Button-1>',lambda _:self.precision_button.focus_set())
+        self.point_selected(self.curve_editor.selected)
+
+    def refresh_curve_presets(self):
+        try:presets=self.curve_library.entries()
+        except (OSError,ValueError,KeyError) as error:
+            presets=[]
+            self.notice.set('曲线预设读取失败：'+str(error))
+        if self.curve_library.errors:self.notice.set('部分曲线预设无法读取，原文件已保留：'+'；'.join(self.curve_library.errors))
+        self.preset_entries={str(p):d for p,d in presets}
+        self.preset_button.choices=list(self.preset_entries)
+        self.preset_button.labels={str(p):d['name'] for p,d in presets}|{'presets':'曲线预设'}
+        self.preset_button.refresh()
+        if presets:self.preset_button.pack(side='right',padx=8)
+        else:self.preset_button.pack_forget()
+
+    def precision_dirty(self,*_):
+        if not self.point_syncing:self.point_dirty=True
+
+    def focus_precision(self):
+        if 0<self.curve_editor.selected<len(self.curve_editor.points)-1:
+            self.point_entries[0].focus_set()
+            self.point_entries[0].selection_range(0,'end')
+
+    def point_selected(self,index):
+        if not self.curve_editor or not hasattr(self,'point_title'):return
+        self.point_syncing=True
+        x,y=self.curve_editor.points[index]
+        for variable,value in ((self.point_x,x),(self.point_y,y)):
+            text=f'{value*100:.6f}'.rstrip('0').rstrip('.')
+            if variable.get()!=text:variable.set(text)
+        self.point_syncing=False
+        self.point_dirty=False
+        title=f'控制点 {index+1} / {len(self.curve_editor.points)}' + (' · 固定' if index in (0,len(self.curve_editor.points)-1) else '')
+        if self.point_title.get()!=title:self.point_title.set(title)
+        for widget in self.point_entries:
+            widget.state(['disabled'] if self.busy or index in (0,len(self.curve_editor.points)-1) else ['!disabled'])
+        if hasattr(self,'point_error'):
+            self.point_error.set('')
+            self.point_error_label.pack_forget()
+        if self.show_point_table.get() and self.point_table.winfo_exists():
+            existing=self.point_table.get_children()
+            for i,p in enumerate(self.curve_editor.points):
+                values=(f'{p[0]*100:.6f}'.rstrip('0').rstrip('.'),f'{p[1]*100:.6f}'.rstrip('0').rstrip('.'))
+                if str(i) in existing:
+                    if self.point_table.item(str(i),'values')!=values:self.point_table.item(str(i),values=values)
+                else:self.point_table.insert('', 'end', iid=str(i),values=values)
+            for iid in existing:
+                if int(iid)>=len(self.curve_editor.points):self.point_table.delete(iid)
+            if self.point_table.selection()!=(str(index),):self.point_table.selection_set(str(index))
+        if hasattr(self,'undo_button') and self.undo_button.winfo_exists():
+            self.undo_button.state(['!disabled'] if self.curve_editor.model.undo_stack and not self.busy else ['disabled'])
+            self.redo_button.state(['!disabled'] if self.curve_editor.model.redo_stack and not self.busy else ['disabled'])
+            self.remove_point_button.state(['!disabled'] if 0<index<len(self.curve_editor.points)-1 and not self.busy else ['disabled'])
+            self.add_point_button.state(['!disabled'] if len(self.curve_editor.points)<32 and not self.busy else ['disabled'])
+            self.precision_button.state(['!disabled'] if 0<index<len(self.curve_editor.points)-1 and not self.busy else ['disabled'])
+
+    def table_selected(self,_):
+        if not self.curve_editor or self.busy or not self.show_point_table.get():return
+        selected=self.point_table.selection()
+        if selected and int(selected[0])!=self.curve_editor.selected:self.curve_editor.select(int(selected[0]))
+
+    def apply_precision(self):
+        if not self.point_dirty:return True
+        try:
+            self.curve_editor.exact(float(self.point_x.get())/100,float(self.point_y.get())/100)
+            return True
+        except ValueError as error:
+            self.point_error.set(str(error))
+            self.point_error_label.pack(anchor='w',pady=8,before=self.snap_toggle)
+            return False
+
+    def curve_changed(self,points):
+        metadata=self.curve_editor.model.metadata
+        self.profile['curve']={'algorithm':metadata['algorithm'],'definition':curve_document(metadata['name'],points)}
+        self.loading=True
+        self.curve_choice.set(metadata['algorithm'])
+        self.loading=False
+        self.refresh_strip()
+        self.refresh_actions()
+
+    def curve_choice_changed(self,*_):
+        if self.loading:return
+        algorithm=self.curve_choice.get()
+        if algorithm!='custom_lut':
+            points=seed_points(algorithm,self.project)
+            self.curve_editor.model.replace(points,{'algorithm':algorithm,'name':'响应曲线'})
+        else:
+            self.curve_editor.model.begin()
+            self.curve_editor.model.metadata['algorithm']='custom_lut'
+            self.curve_editor.model.commit()
+        self.curve_editor.changed()
+
+    def add_point(self):
+        try:self.curve_editor.add_midpoint()
+        except ValueError as error:self.notice.set(str(error))
+
+    def use_curve(self,data):
+        self.curve_editor.model.replace(data['points'],{'algorithm':'custom_lut','name':data['name']})
+        self.curve_editor.changed()
+
+    def preset_changed(self,*_):
+        if self.preset_value.get() in self.preset_entries:self.use_curve(self.preset_entries[self.preset_value.get()])
+
+    def import_curve(self):
+        path=filedialog.askopenfilename(parent=self.root,title='导入响应曲线',filetypes=[('标准曲线 JSON','*.json')])
+        if path:
+            try:self.use_curve(read_curve(path))
+            except (OSError,ValueError,KeyError) as error:self.notice.set('导入失败：'+str(error))
+
+    def export_curve(self):
+        if self.point_dirty and not self.apply_precision():return
+        path=filedialog.asksaveasfilename(parent=self.root,title='导出响应曲线',defaultextension='.json',
+            initialfile=self.profile['name']+'-curve.json',filetypes=[('标准曲线 JSON','*.json')])
+        if path:
+            writer=UiPreferences(self.project);writer.path=Path(path)
+            try:writer.write(self.profile['curve']['definition']);self.notice.set('曲线已导出。')
+            except OSError as error:self.notice.set('导出失败：'+str(error))
+
+    def save_curve_preset(self):
+        if self.point_dirty and not self.apply_precision():return
+        name=self.name_dialog('保存曲线预设',self.profile['name']+' 响应曲线')
+        if name:
+            try:self.curve_library.create(name,self.curve_editor.points);self.refresh_curve_presets();self.notice.set('预设已保存；其他配置的曲线保持独立。')
+            except (ValueError,OSError) as error:self.notice.set(str(error))
+
+    def filter_rows(self):
+        query=self.search.get().strip().lower()
+        if self.profile and self.page=='assist' and query and not self.advanced.get() and \
+            any(query in (SHORT_LABELS.get(p,'')+' '+FIELD_MAP[p][1]+' '+p).lower() for p in PRIOR_PATHS) and \
+            not any(p in self.field_widgets for p in PRIOR_PATHS):
+            self.advanced.set(True)
+            self.show_page('assist')
+            return
+        for row,text in self.search_rows:
+            if query and query not in text:row.pack_forget()
+            else:row.pack(fill='x')
+
+    def name_dialog(self,title,initial='',game=False):
+        window=tk.Toplevel(self.root)
+        window.title(title)
+        window.configure(background=SURFACE)
+        window.resizable(False,False)
+        window.transient(self.root)
+        frame=ttk.Frame(window,padding=22)
+        frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text=title,style='Section.TLabel').pack(anchor='w',pady=(0,14))
+        name=tk.StringVar(value=initial)
+        ttk.Label(frame,text='配置名称' if game else '名称',style='Muted.TLabel').pack(anchor='w')
+        entry=ttk.Entry(frame,textvariable=name,width=35)
+        entry.pack(fill='x',pady=(4,12))
+        selected_game=tk.StringVar(value='apex')
+        if game:
+            ttk.Label(frame,text='游戏 · 创建后保持固定',style='Muted.TLabel').pack(anchor='w')
+            ChoiceInput(frame,selected_game,list(GAMES),GAMES).pack(fill='x',pady=(4,12))
+            ttk.Label(frame,text='Apex / BO3 默认线性，通用 / COD 使用原生动态曲线。',style='Muted.TLabel',wraplength=330).pack(anchor='w',pady=(0,12))
+        error=tk.StringVar()
+        ttk.Label(frame,textvariable=error,foreground='#f49090').pack(anchor='w')
+        result=[]
+        def confirm():
+            if not 1<=len(name.get().strip())<=80:error.set('名称应为 1～80 个字符。');return
+            result.append((name.get().strip(),selected_game.get()) if game else name.get().strip())
+            window.destroy()
+        buttons=ttk.Frame(frame);buttons.pack(fill='x',pady=(12,0))
+        ttk.Button(buttons,text='确认',style='Primary.TButton',command=confirm).pack(side='right')
+        ttk.Button(buttons,text='取消',command=window.destroy).pack(side='right',padx=8)
+        window.bind('<Return>',lambda _:confirm())
+        window.bind('<Escape>',lambda _:window.destroy())
+        window.update_idletasks()
+        window.geometry(f'+{self.root.winfo_rootx()+90}+{self.root.winfo_rooty()+100}')
+        window.grab_set();entry.focus_set();entry.selection_range(0,'end')
+        self.root.wait_window(window)
+        return result[0] if result else None
+
+    def new_profile(self):
+        result=self.name_dialog('新建配置','',True)
+        if not result:return
+        name,game=result
+        def work():
+            defaults=self.manager.inspect_defaults(game,f'[runtime]\ngame="{game}"\n')
+            defaults['runtime.vision.model_path']=''
+            return self.repository.create(name,game,defaults,validate=self.native_validator(game))
+        self.run_job('正在创建独立配置…',work,lambda p:self.profile_created(p))
+
+    def profile_created(self,profile):
+        self.load_library(profile['id'])
+        self.notice.set('配置已创建。选择识别模型后即可启动；调整参数后点击保存。')
+
+    def native_validator(self,game):
+        if not self.manager.executable.is_file():return None
+        return lambda path:self.manager.validate(path,[game])
+
+    def manage_action(self,*_):
+        action=self.manage_value.get()
+        if action=='manage':return
+        self.manage_value.set('manage')
+        if self.busy:return
+        if action=='import':self.import_profile();return
+        if action=='reload':self.reload_library();return
+        if not self.profile:self.notice.set('先创建或导入一份配置。');return
+        if action=='copy':
+            name=self.name_dialog('复制当前配置',self.profile['name']+' 副本')
+            if name:
+                try:candidate=self.collect()
+                except ValueError as error:self.notice.set(str(error));return
+                self.run_job('正在复制配置…',lambda:self.repository.duplicate(candidate,name,self.native_validator(candidate['game'])),self.profile_created)
+        elif action=='rename':
+            name=self.name_dialog('重命名配置',self.profile['name'])
+            if name:
+                state=self.state
+                candidate=deepcopy(state['saved']);candidate['name']=name
+                def done(expected):
+                    state['expected']=expected
+                    state['saved']['name']=state['data']['name']=name
+                    self.refresh_strip();self.notice.set('配置已重命名。')
+                self.run_job('正在重命名…',lambda:self.repository.save(candidate,state['expected'],self.native_validator(candidate['game'])),done)
+        elif action=='export':self.export_profile()
+        elif action=='reset':
+            if messagebox.askyesno('恢复创建时的参数','把当前草稿恢复为配置创建时的参数和曲线？保存后才会写入文件。',parent=self.root):
+                initial=deepcopy(self.profile['initial'])
+                self.profile.update(initial)
+                self.state['raw']={f[0]:raw_value(f,lookup(self.profile['config'],f[0],f[3])) for f in FIELDS}
+                self.state['model']=self.model_for(self.profile)
+                self.select_profile(self.profile['id'])
+
+    def import_profile(self):
+        path=filedialog.askopenfilename(parent=self.root,title='导入为独立配置',filetypes=[('配置文件','*.toml *.json'),('所有文件','*.*')])
+        if not path:return
+        game=None
+        if Path(path).suffix.lower()=='.json':
+            try:
+                document=json.loads(Path(path).read_text(encoding='utf-8-sig'))
+                if not isinstance(document,dict):raise ValueError('配置 JSON 必须是对象。')
+                if document.get('schema_version')==2:
+                    self.repository.check(document);game=document['game']
+                elif document.get('kind')=='normalized_stick_response':
+                    raise ValueError('这是响应曲线文件，请从响应曲线工作区导入。')
+            except (OSError,ValueError,KeyError,TypeError) as error:self.notice.set('导入失败：'+str(error));return
+        result=self.name_dialog('导入配置',Path(path).stem,not bool(game))
+        if not result:return
+        if game:name=result
+        else:name,game=result
+        self.run_job('正在读取并校验导入配置…',lambda:self.repository.import_file(path,name,game,
+            self.manager.inspect_defaults(game,f'[runtime]\ngame="{game}"\n'),self.native_validator(game)),self.profile_created)
+
+    def export_profile(self):
+        try:candidate=self.collect()
+        except ValueError as error:self.notice.set(str(error));return
+        path=filedialog.asksaveasfilename(parent=self.root,title='导出配置',initialfile=self.profile['name']+'.json',
+            defaultextension='.json',filetypes=[('完整配置 JSON','*.json'),('原生配置 TOML','*.toml')])
+        if not path:return
+        def work():
+            if Path(path).suffix.lower()=='.toml':
+                target=Path(path)
+                if target.exists():
+                    ConfigStore(self.project,target).save(toml_text(projection(candidate)),target.read_bytes())
+                else:
+                    # The save dialog already confirmed the export destination.
+                    with target.open('x',encoding='utf-8',newline='\n') as stream:stream.write(toml_text(projection(candidate)))
+            else:
+                writer=UiPreferences(self.project);writer.path=Path(path);writer.write(candidate)
+        self.run_job('正在导出配置…',work,lambda _:self.notice.set('配置已导出，包括当前有效草稿。'))
+
+    def reload_library(self):
+        if any(self.dirty(s) for s in self.states.values()) and not messagebox.askyesno('重新载入','丢弃未保存草稿，重新读取磁盘配置？',parent=self.root):return
+        identifier=self.profile['id'] if self.profile else None
+        self.states={};self.profile=None;self.point_dirty=False
+        self.load_library(identifier)
+        self.notice.set('已重新载入。'+(' 无法读取：'+'；'.join(self.repository.errors) if self.repository.errors else ''))
+
+    def choose_model(self):
+        path=filedialog.askopenfilename(parent=self.root,title='选择 TensorRT 识别模型',filetypes=[('TensorRT 模型','*.engine'),('所有文件','*.*')])
+        if path:
+            value=Path(path).resolve()
+            try:value=value.relative_to(self.project)
+            except ValueError:pass
+            self.variables['runtime.vision.model_path'].set(value.as_posix())
+
+    def collect(self):
+        if self.point_dirty and not self.apply_precision():raise ValueError('请修正选中控制点的坐标。')
+        data=deepcopy(self.profile)
+        for field in FIELDS:put(data['config'],field[0],field_value(field,self.state['raw'][field[0]]))
+        self.repository.check(data)
+        return data
+
+    def owns_active_config(self,record):
+        return bool(record and self.profile and record['game']==self.profile['game'] and
+            Path(record.get('config_path',self.project/'config.toml')).resolve()==self.repository.runtime_path(self.profile).resolve())
 
     def save(self):
-        try:
-            changes = self.collect_changes()
-        except ValueError as error:
-            messagebox.showerror('设置未保存', str(error), parent=self.root)
-            return
-        if changes:
-            def work():
-                self.commit(changes)
-                active = self.manager.active()
-                affects_active = active and any(not path.startswith('games.') or path.startswith(f'games.{active["game"]}.') for path in changes)
-                if affects_active:
-                    try:
-                        return self.manager.reload_config()
-                    except Exception as error:
-                        return {'apply_error': str(error)}
-            self.run_job('正在校验、保存并应用…', work, self.applied)
+        if self.busy or not self.profile:return
+        try:candidate=self.collect()
+        except ValueError as error:self.notice.set(str(error));return
+        state=self.state
+        def work():
+            expected=self.repository.save(candidate,state['expected'],self.native_validator(candidate['game']))
+            result={'expected':expected}
+            if self.owns_active_config(self.manager.active()):
+                try:result['reload']=self.manager.reload_config()
+                except Exception as error:result['apply_error']=str(error)
+            return result
+        def done(result):
+            state['saved']=deepcopy(candidate)
+            state['data'].update(deepcopy(candidate))
+            state['expected']=result['expected']
+            state['raw']={f[0]:raw_value(f,lookup(candidate['config'],f[0])) for f in FIELDS}
+            self.loading=True
+            for path,variable in self.variables.items():variable.set(state['raw'][path])
+            self.loading=False
+            if self.curve_editor:
+                self.curve_editor.baseline=deepcopy(candidate['curve']['definition']['points']);self.curve_editor.draw()
+            self.refresh_strip()
+            self.notice.set('配置已保存，将在下次启动时生效。')
+            if 'reload' in result:self.applied(result['reload'])
+            if 'apply_error' in result:
+                self.restart_required=True
+                self.notice.set('配置已保存，尚未应用：'+result['apply_error'])
+        self.run_job('正在校验并保存…',work,done)
 
-    def applied(self, result):
-        self.saved()
-        self.pending_request_id = None
-        if not result:
-            return
-        if 'apply_error' in result:
-            self.notice.set('配置已保存，尚未应用：' + result['apply_error'])
-            return
-        status = result['status']
-        self.restart_required = status == 3
-        if status == 2:
-            learning_action = '保留' if 'learning preserved' in result.get('message', '') else '清理'
-            self.notice.set(f'已热重载，配置版本 {result["revision"]}；响应学习数据已{learning_action}。')
-        elif status == 1:
-            self.pending_request_id = result['request_id']
-            self.notice.set('重载已受理，等待新视觉帧；当前尚未全部生效。')
-        elif status == 3:
-            self.notice.set('配置已保存，这些修改需要重启：' + result['message'].removeprefix('restart required: '))
+    def applied(self,result):
+        status=result.get('status')
+        self.restart_required=status==3
+        if status!=1:self.pending_reload=None
+        if status==2:
+            self.pending_reload=None
+            action='保留' if 'learning preserved' in result.get('message','') else '重置'
+            self.notice.set(f'已热重载，配置版本 {result.get("revision", "—")}；响应学习数据已{action}。')
+        elif status==1:
+            active=self.manager.active()
+            self.pending_reload=(active['process_id'],result['request_id']) if active else None
+            self.notice.set('配置已保存；重载已受理，等待新视觉帧，尚未全部生效。')
+        elif status==3:
+            self.notice.set('配置已保存，需要重启：'+result.get('message','').removeprefix('restart required: '))
         else:
-            self.notice.set('配置未应用：' + result['message'])
+            self.restart_required=True
+            self.notice.set('配置已保存，尚未应用：'+result.get('message','未知错误'))
 
     def apply_saved_config(self):
-        if self.drafts:
-            self.save()
-        elif self.manager.active():
-            self.run_job('正在热重载已保存配置…', self.manager.reload_config, self.applied)
-        else:
-            self.notice.set('应用未运行，保存的配置将在启动时生效。')
+        if self.dirty():self.save()
+        elif self.owns_active_config(self.manager.active()):self.run_job('正在热重载…',self.manager.reload_config,self.applied)
+        else:self.notice.set('当前配置未运行；保存内容将在启动时生效。')
+
+    def primary_action(self,force_restart=False):
+        if self.busy or not self.profile:return
+        try:candidate=self.collect()
+        except ValueError as error:self.notice.set(str(error));return
+        state=self.state
+        def work():
+            expected=self.repository.save(candidate,state['expected'],self.native_validator(candidate['game']))
+            try:
+                model=self.project/lookup(candidate['config'],'runtime.vision.model_path','')
+                if not model.is_file():raise ValueError('识别模型文件不存在，请在设备与运行中选择模型。')
+                active=self.manager.active()
+                if active:
+                    self.manager.stop()
+                    deadline=time.monotonic()+8
+                    while self.manager.active():
+                        if time.monotonic()>deadline:raise ValueError('退出请求已发送，但旧程序尚未退出；请查看运行日志。')
+                        time.sleep(.05)
+                record=self.manager.start(candidate['game'],projection(candidate),self.repository.runtime_path(candidate),candidate['id'])
+                return {'expected':expected,'record':record}
+            except Exception as error:
+                return {'expected':expected,'start_error':str(error)}
+        def done(result):
+            state['saved']=deepcopy(candidate);state['data'].update(deepcopy(candidate));state['expected']=result['expected']
+            state['raw']={f[0]:raw_value(f,lookup(candidate['config'],f[0])) for f in FIELDS}
+            self.restart_required=False;self.pending_reload=None
+            self.refresh_strip()
+            self.notice.set('启动失败：'+result['start_error'] if 'start_error' in result else '启动请求已提交，正在等待原生程序与手柄就绪。')
+        self.run_job('正在保存并重启…' if force_restart or self.manager.active() else '正在保存并启动…',work,done)
+
+    def stop_runtime(self):self.run_job('正在请求正常退出…',self.manager.stop,lambda _:self.notice.set('已发送正常退出请求。'))
+
+    def run_job(self,label,work,done=None):
+        if self.busy:return
+        self.busy=True
+        self.notice.set(label)
+        self.refresh_actions()
+        for widget in self.inputs:
+            if widget.winfo_exists():widget.state(['disabled'])
+        def worker():
+            try:self.jobs.put((done,work(),None))
+            except Exception as error:self.jobs.put((done,None,str(error)))
+        threading.Thread(target=worker,daemon=True).start()
+
+    def refresh_actions(self):
+        for widget in [self.primary,self.stop_button,self.save_button,self.new_button,self.manage_button,*self.navigation.values()]:
+            widget.state(['disabled'] if self.busy else ['!disabled'])
+        if self.busy:return
+        active=self.runtime_status.get('record')
+        self.stop_button.state(['!disabled'] if active else ['disabled'])
+        self.primary.state(['!disabled'] if self.profile else ['disabled'])
+        self.save_button.state(['!disabled'] if self.profile and self.dirty() else ['disabled'])
+        self.primary.configure(text='重启配置' if self.owns_active_config(active) else '切换并启动' if active else '启动配置')
+
+    def build_feedback(self,parent):
+        self.device_text=tk.StringVar(value='未运行')
+        ttk.Label(parent,textvariable=self.device_text,style='Accent.TLabel').pack(anchor='w',pady=(0,12))
+        tools=ttk.Frame(parent);tools.pack(fill='x',pady=(0,18))
+        self.fusion_button=self.register(ttk.Button(tools,text='开启 Fusion',command=self.toggle_fusion))
+        self.fusion_button.pack(side='left')
+        self.register(ttk.Button(tools,text='查看日志…',command=self.show_logs)).pack(side='left',padx=8)
+        self.register(ttk.Button(tools,text='导出响应学习…',command=self.export_learning)).pack(side='left')
+        ttk.Label(parent,text='响应学习',style='Section.TLabel').pack(anchor='w',pady=(0,8))
+        self.learning_summary=tk.StringVar(value='尚无运行数据。')
+        ttk.Label(parent,textvariable=self.learning_summary,style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(0,10))
+        self.learning_table=ttk.Treeview(parent,columns=('region','effective','learned','confidence','samples'),show='headings',height=4)
+        for key,label in [('region','区域'),('effective','当前响应'),('learned','学习响应'),('confidence','置信度'),('samples','样本数')]:
+            self.learning_table.heading(key,text=label);self.learning_table.column(key,width=100,anchor='center')
+        for i,label in enumerate(['跟随 · 普通区','跟随 · 减速区','ADS · 普通区','ADS · 减速区']):
+            self.learning_table.insert('', 'end',iid=str(i),values=(label,'—','—','—','—'))
+        self.learning_table.pack(fill='x')
+        ttk.Label(parent,text='响应单位：px / (有效摇杆 × 秒)。这是控制器内部响应估计，不能代替独立游戏曲线校准。',
+            style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(12,0))
 
     def toggle_fusion(self):
-        enabled = not bool(self.manager.fusion_state())
-        self.run_job('正在打开 Fusion…' if enabled else '正在关闭 Fusion…', lambda: self.manager.set_fusion(enabled),
-                     lambda _: self.notice.set('Fusion 已打开。' if enabled else 'Fusion 已关闭。'))
+        enabled=not bool(self.manager.fusion_state())
+        self.run_job('正在打开 Fusion…' if enabled else '正在关闭 Fusion…',lambda:self.manager.set_fusion(enabled),
+                     lambda _:self.notice.set('Fusion 已打开。' if enabled else 'Fusion 已关闭。'))
 
     def export_learning(self):
-        data = self.manager.learning()
-        if not data:
-            self.notice.set('当前没有可导出的原生学习数据。')
-            return
-        from datetime import datetime, timezone
-        folder = self.project / 'runs/desktop/learning'
-        folder.mkdir(parents=True, exist_ok=True)
-        path = folder / (datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '.json')
-        value = {'exported_at_utc': datetime.now(timezone.utc).isoformat(), 'runtime': self.manager.active(),
-                 'units': 'px / (effective_stick * second)', 'region_order': ['body_free', 'body_slow', 'ads_free', 'ads_slow'],
-                 'measurement_kind': 'controller response estimate, not independent game calibration', 'learning': data}
-        path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
-        self.notice.set('已导出学习数据：' + str(path))
+        data=self.manager.learning()
+        if not data:self.notice.set('当前没有可导出的原生学习数据。');return
+        folder=self.project/'runs/desktop/learning';folder.mkdir(parents=True,exist_ok=True)
+        path=folder/(datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'.json')
+        value={'exported_at_utc':datetime.now(timezone.utc).isoformat(),'runtime':self.manager.active(),
+            'units':'px / (effective_stick * second)','region_order':['body_free','body_slow','ads_free','ads_slow'],
+            'measurement_kind':'controller response estimate, not independent game calibration','learning':data}
+        writer=UiPreferences(self.project);writer.path=path
+        try:writer.write(value);self.notice.set('已导出响应学习：'+path.name)
+        except OSError as error:self.notice.set(str(error))
 
-    def primary_action(self):
-        active = self.manager.active()
-        game = self.selected_game()
-        if active and active['game'] == game and self.drafts:
-            self.save()
-            return
-        if active and active['game'] == game and not self.restart_required:
-            self.run_job('正在停止…', self.manager.stop)
-            return
-        try:
-            changes = self.collect_changes()
-        except ValueError as error:
-            messagebox.showerror('无法启动', str(error), parent=self.root)
-            return
-        def work():
-            self.commit(changes)
-            if self.manager.active():
-                self.manager.stop()
-                deadline = time.monotonic() + 8
-                while self.manager.active():
-                    if time.monotonic() >= deadline:
-                        raise ValueError('程序尚未退出，请查看日志；不会同时启动第二个控制实例。')
-                    time.sleep(.05)
-            _, data, _ = self.store.read()
-            record = self.manager.start(game, data)
-            return record
-        self.run_job('正在切换并启动…' if active else '正在启动…', work, self.started)
-
-    def reload(self):
-        if self.busy:
-            return
-        if self.drafts and not messagebox.askyesno('重新载入', '重新载入会放弃未保存的修改，是否继续？', parent=self.root):
-            return
-        try:
-            self.saved()
-            self.notice.set('已重新载入配置。')
-        except Exception as error:
-            messagebox.showerror('读取配置失败', str(error), parent=self.root)
-
-    def open_editor(self):
-        if self.busy:
-            return
-        if self.drafts:
-            messagebox.showinfo('高级配置', '请先保存当前表单修改，再打开高级配置。', parent=self.root)
-            return
-        original, _, digest = self.store.read()
-        window = tk.Toplevel(self.root)
-        window.title('高级配置 · config.toml')
-        window.geometry('930x690')
-        frame = ttk.Frame(window, padding=16)
-        frame.pack(fill='both', expand=True)
-        ttk.Label(frame, text='共用配置与所有游戏分块；保存前会校验，原文件自动备份。').pack(anchor='w', pady=(0, 10))
-        editor = tk.Text(frame, font=('Consolas', 10), wrap='none', undo=True)
-        editor.pack(fill='both', expand=True)
-        editor.insert('1.0', original)
-        def save_raw():
-            candidate = editor.get('1.0', 'end-1c')
+    def raw_editor(self):
+        try:text=toml_text(projection(self.collect()))
+        except ValueError as error:self.notice.set(str(error));return
+        window=tk.Toplevel(self.root);window.title('完整配置 · 当前草稿');window.geometry('850x600');window.transient(self.root)
+        frame=ttk.Frame(window,padding=16);frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text='编辑后先校验，再写入当前草稿。保存修改时才写入配置库。',style='Muted.TLabel').pack(anchor='w',pady=(0,10))
+        editor=tk.Text(frame,background=RAIL,foreground=INK,insertbackground=INK,font=('Consolas',10),undo=True,wrap='none',padx=12,pady=10)
+        editor.pack(fill='both',expand=True);editor.insert('1.0',text)
+        error=tk.StringVar();ttk.Label(frame,textvariable=error,foreground='#f49090',wraplength=790).pack(anchor='w',pady=8)
+        def apply():
             try:
-                data = tomllib.loads(candidate)
-                games = ['default'] + list(data.get('games', {}))
-            except Exception as error:
-                messagebox.showerror('配置格式有误', str(error), parent=window)
-                return
-            def finished(_):
-                if window.winfo_exists():
-                    window.destroy()
-                self.applied(_)
-            def work_raw():
-                self.store.save(candidate, digest, lambda path: self.manager.validate(path, games))
-                if self.manager.active():
+                data=tomllib.loads(editor.get('1.0','end-1c'))
+                if 'games' in data or lookup(data,'runtime.game')!=self.profile['game']:raise ValueError('完整配置必须保持当前游戏，且不包含 games 继承表。')
+                candidate=snapshot(data,self.profile['game'],self.project)
+                native=self.native_validator(self.profile['game'])
+                if native:
+                    handle,filename=tempfile.mkstemp(prefix='.editor-',suffix='.toml',dir=self.project)
+                    temporary=Path(filename)
                     try:
-                        return self.manager.reload_config()
-                    except Exception as error:
-                        return {'apply_error': str(error)}
-            self.run_job('正在校验并应用高级配置…', work_raw, finished)
-        ttk.Button(frame, text='校验并保存', command=save_raw).pack(anchor='e', pady=(12, 0))
+                        with os.fdopen(handle,'w',encoding='utf-8',newline='\n') as stream:stream.write(toml_text(data))
+                        native(temporary)
+                    finally:temporary.unlink(missing_ok=True)
+                self.profile.update(candidate)
+                self.state['raw']={f[0]:raw_value(f,lookup(candidate['config'],f[0])) for f in FIELDS}
+                self.state['model']=self.model_for(self.profile)
+                window.destroy();self.select_profile(self.profile['id']);self.notice.set('完整配置已进入草稿；点击保存后生效。')
+            except (ValueError,KeyError,TypeError,OSError) as problem:error.set(str(problem))
+        ttk.Button(frame,text='校验并写入草稿',style='Primary.TButton',command=apply).pack(anchor='e')
+        window.bind('<Escape>',lambda _:window.destroy());window.grab_set();editor.focus_set()
 
     def show_logs(self):
-        status = self.manager.status()
-        record = status.get('record') or status.get('last_record')
-        window = tk.Toplevel(self.root)
-        window.title('运行日志')
-        window.geometry('900x580')
-        editor = tk.Text(window, font=('Consolas', 10), wrap='word', padx=12, pady=12)
-        editor.pack(fill='both', expand=True)
-        value = '尚无运行日志。'
-        if record:
-            value = tail(record['stdout_path']) + '\n' + tail(record['stderr_path'])
-        editor.insert('1.0', value)
-        editor.configure(state='disabled')
+        status=self.manager.status();record=status.get('record') or status.get('last_record')
+        window=tk.Toplevel(self.root);window.title('运行日志');window.geometry('900x580');window.configure(background=SURFACE)
+        editor=tk.Text(window,background=RAIL,foreground=INK,insertbackground=INK,font=('Consolas',10),wrap='word',padx=12,pady=12)
+        editor.pack(fill='both',expand=True)
+        value='尚无运行日志。'
+        if record:value=tail(record.get('stdout_path',''))+'\n'+tail(record.get('stderr_path',''))
+        editor.insert('1.0',value);editor.configure(state='disabled')
+
+    def process_jobs(self):
+        while True:
+            try:done,result,error=self.jobs.get_nowait()
+            except queue.Empty:break
+            self.busy=False
+            for widget in self.inputs:
+                if widget.winfo_exists():widget.state(['!disabled'])
+            if error:self.notice.set('操作未完成：'+error)
+            elif done:done(result)
+            self.observation_after=time.monotonic()
+            self.next_observation=0.
+            self.refresh_actions()
+            if self.curve_editor:self.point_selected(self.curve_editor.selected)
 
     def poll(self):
-        try:
-            while True:
-                done, result, error = self.jobs.get_nowait()
-                self.busy = False
-                for widget in self.inputs + [self.primary, self.selector, self.save_button, self.raw_button, self.apply_button, self.fusion_button]:
-                    widget.state(['!disabled'])
-                if error:
-                    self.notice.set('操作未完成，请检查提示。')
-                    messagebox.showerror('操作未完成', error, parent=self.root)
-                elif done:
-                    done(result)
-                else:
-                    self.notice.set('已发送正常退出请求。')
-        except queue.Empty:
-            pass
+        if self.closed:return
+        self.process_jobs()
         if not self.busy:
-            status = self.manager.status()
-            phase = status['phase']
-            record = status.get('record')
-            fusion = self.manager.fusion_state()
-            self.fusion_text.set('Fusion：已开启' + ('，等待主程序' if not record else '') if fusion else
-                                 'Fusion：未开启' + ('（主程序启动后可开启）' if not record else ''))
-            self.fusion_button.configure(text='关闭 Fusion' if fusion else '开启 Fusion')
-            self.fusion_button.state(['!disabled'] if fusion or status.get('initialized') else ['disabled'])
-            learning = self.manager.learning() if record else None
+            if time.monotonic()>=self.next_observation:
+                self.observer.request(learning=self.page=='feedback' or bool(self.pending_reload),fusion=self.page=='feedback')
+                self.next_observation=time.monotonic()+.5
+            observation=self.observer.drain()
+            if observation:
+                if 'error' in observation:self.notice.set('运行状态读取失败：'+observation['error'])
+                elif observation['sampled_at']>=self.observation_after:self.apply_observation(observation)
+        self.poll_id=self.root.after(50,self.poll)
+
+    def apply_observation(self,observation):
+        status=observation['status'];self.runtime_status=status
+        record=status.get('record');phase=status['phase']
+        description={'stopped':'已停止','starting':'正在启动','running':'运行中','waiting_device':'等待手柄','stopping':'正在停止','failed':'运行失败'}.get(phase,phase)
+        if record:
+            state=self.states.get(record.get('profile_id'))
+            name=state['saved']['name'] if state else GAMES.get(record['game'],record['game'])
+            description+=' · '+(name if len(name)<=10 else name[:9]+'…')
+        self.status_text.set(description)
+        if phase=='failed' and status.get('error')!=getattr(self,'last_runtime_failure',None):
+            self.last_runtime_failure=status.get('error')
+            self.notice.set('运行失败：'+status['error'].strip().splitlines()[-1])
+        learning=observation['learning']
+        if self.pending_reload:
+            pid,request=self.pending_reload
+            if not record or record.get('process_id')!=pid:self.pending_reload=None
+            elif learning and learning.get('completed_id')==request and learning.get('status')!=1:self.applied(learning)
+        if self.page=='feedback' and self.profile:
+            owner=' · '+GAMES.get(record['game'],record['game']) if record else ''
+            self.device_text.set(status.get('device','未运行')+owner+(' · 虚拟输出已连接' if status.get('virtual_connected') else ''))
+            fusion=observation['fusion']
+            if fusion is not None:
+                self.fusion_button.configure(text='关闭 Fusion' if fusion else '开启 Fusion')
+                self.fusion_button.state(['!disabled'] if fusion or status.get('initialized') else ['disabled'])
             if learning:
-                if self.pending_request_id is not None and learning['completed_id'] == self.pending_request_id and learning['status'] == 2:
-                    learning_action = '保留' if 'learning preserved' in learning.get('message', '') else '清理'
-                    self.notice.set(f'已热重载，配置版本 {learning["revision"]}；响应学习数据已{learning_action}。')
-                    self.pending_request_id = None
-                self.restart_required = learning['status'] == 3
-                self.learning_summary.set(f'当前配置版本：{learning["revision"]}  ·  手动输入：{learning["manual_fire_input"]}  ·  自动输出：{learning["fire_output"]}' +
-                                          ('  ·  等待配置提交' if learning['status'] == 1 else ''))
-                for index, values in enumerate(learning['regions']):
-                    self.learning_table.item(str(index), values=(f'{values["effective"]:.2f}',
-                        f'{values["learned"]:.2f}' if values['samples'] else '未学习',
-                        f'{values["confidence"]:.1%}', values['samples']))
+                self.learning_summary.set(f'配置版本 {learning["revision"]} · 手动输入 {learning["manual_fire_input"]} · 自动输出 {learning["fire_output"]}')
+                for i,values in enumerate(learning['regions']):
+                    self.learning_table.item(str(i),values=(['跟随 · 普通区','跟随 · 减速区','ADS · 普通区','ADS · 减速区'][i],
+                        f'{values["effective"]:.2f}',f'{values["learned"]:.2f}' if values['samples'] else '未学习',f'{values["confidence"]:.1%}',values['samples']))
             else:
-                self.learning_summary.set('当前程序尚未提供学习数据。' if record else '应用未运行，暂无学习数据。')
-                for index in range(4):
-                    self.learning_table.item(str(index), values=('--', '--', '--', '--'))
-            label = self.game_labels.get(record['game'], record['game']) if record else ''
-            descriptions = {'stopped': '已停止', 'starting': '正在启动…', 'running': '运行中',
-                            'waiting_device': '等待手柄', 'stopping': '正在停止…', 'failed': '启动失败'}
-            self.status_text.set(descriptions[phase] + (' · ' + label if label else ''))
-            if phase == 'failed':
-                error_lines = status['error'].strip().splitlines()
-                self.notice.set(error_lines[-1] if error_lines else '启动失败，请查看日志。')
-            self.device_text.set(('启动识别：' + status['device'] if record else '启动后自动识别手柄') +
-                                 ('  ·  虚拟输出已连接' if status.get('virtual_connected') else '') +
-                                 ('。请连接手柄后停止并重启。' if phase == 'waiting_device' else ''))
-            if record:
-                text = '切换并启动' if record['game'] != self.selected_game() else '保存并应用' if self.drafts else '重启应用' if self.restart_required else '停止运行'
-                self.primary.configure(text=text)
-                self.stop_button.state(['!disabled'])
-            else:
-                self.primary.configure(text='保存并启动' if self.drafts else '启动 ' + self.game.get())
-                self.stop_button.state(['disabled'])
-            if phase == 'stopping':
-                self.primary.state(['disabled'])
-                self.stop_button.state(['disabled'])
-            else:
-                self.primary.state(['!disabled'])
-        self.poll_id = self.root.after(500, self.poll)
+                self.learning_summary.set('应用未运行，暂无学习数据。' if not record else '原生程序尚未提供学习数据。')
+                for i in range(4):self.learning_table.item(str(i),values=(['跟随 · 普通区','跟随 · 减速区','ADS · 普通区','ADS · 减速区'][i],'—','—','—','—'))
+        self.refresh_actions()
 
     def close(self):
-        if self.busy:
-            messagebox.showinfo('操作进行中', '请等待当前操作完成后再关闭窗口。', parent=self.root)
-            return
-        if self.drafts and not messagebox.askyesno('关闭窗口', '还有未保存的修改，是否放弃这些修改并关闭？', parent=self.root):
-            return
-        try:
-            self.preferences.save_game(self.selected_game())
-        except OSError as error:
-            messagebox.showerror('游戏选择未保存', str(error), parent=self.root)
-            return
+        if self.busy:self.notice.set('请等待当前保存或运行操作完成后关闭。');return
+        if (self.point_dirty or any(self.dirty(s) for s in self.states.values())) and not messagebox.askyesno('关闭配置工作室','有未保存的修改，确定丢弃草稿并关闭？',parent=self.root):return
+        self.closed=True
         self.root.after_cancel(self.poll_id)
         self.root.destroy()
 
