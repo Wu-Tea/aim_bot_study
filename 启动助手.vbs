@@ -10,4 +10,4 @@ If Not fs.FileExists(executable) Then
 End If
 shell.CurrentDirectory = project
 command = """" & executable & """ --project """ & project & """"
-shell.Run command, 0, False
+shell.Run command, 1, False
