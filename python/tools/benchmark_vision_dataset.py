@@ -581,19 +581,29 @@ def parse_yolo_label_file(
         if not line or line.startswith("#"):
             continue
         parts = line.split()
-        if len(parts) < 5:
+        if len(parts) != 5 and (len(parts) < 7 or len(parts) % 2 != 1):
             continue
         try:
             class_id = int(float(parts[0]))
-            cx, cy, width, height = (float(parts[index]) for index in range(1, 5))
-        except ValueError:
+            coordinates = [float(value) for value in parts[1:]]
+        except (ValueError, OverflowError):
+            continue
+        if not all(math.isfinite(value) for value in coordinates):
             continue
         if not class_is_selected(class_id, class_names, selected_classes):
             continue
-        x1 = (cx - width / 2.0) * image_width
-        y1 = (cy - height / 2.0) * image_height
-        x2 = (cx + width / 2.0) * image_width
-        y2 = (cy + height / 2.0) * image_height
+        if len(parts) == 5:
+            cx, cy, width, height = coordinates
+            x1 = (cx - width / 2.0) * image_width
+            y1 = (cy - height / 2.0) * image_height
+            x2 = (cx + width / 2.0) * image_width
+            y2 = (cy + height / 2.0) * image_height
+        else:
+            # YOLO segmentation rows are class + vertex pairs, not cx/cy/w/h.
+            # Detection evaluation uses the polygon's axis-aligned enclosing box.
+            xs, ys = coordinates[::2], coordinates[1::2]
+            x1, x2 = min(xs) * image_width, max(xs) * image_width
+            y1, y2 = min(ys) * image_height, max(ys) * image_height
         boxes.append(
             Box(
                 x1=max(0.0, min(float(image_width), x1)),

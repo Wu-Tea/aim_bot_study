@@ -9,6 +9,29 @@ from tools import benchmark_vision_dataset as bench
 
 
 class VisionBenchmarkToolTests(unittest.TestCase):
+    def test_segmentation_labels_use_polygon_extents_not_first_vertices(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            label = Path(tmp) / "image.txt"
+            label.write_text(
+                "0 0.3 0.2 0.7 0.4 0.5 0.8 0.2 0.6\n"
+                "1 0.5 0.5 0.1 0.2\n", encoding="utf-8")
+            boxes = bench.parse_yolo_label_file(label, 100, 200)
+        self.assertEqual(len(boxes), 2)
+        self.assertEqual(boxes[0], bench.Box(20, 40, 70, 160, class_id=0))
+        self.assertEqual(boxes[1].class_id, 1)
+        for actual, expected in zip((boxes[1].x1, boxes[1].y1, boxes[1].x2, boxes[1].y2),
+                                    (45, 80, 55, 120)):
+            self.assertAlmostEqual(actual, expected)
+
+    def test_yolo_parser_rejects_invalid_polygon_and_nonfinite_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            label = Path(tmp) / "image.txt"
+            label.write_text(
+                "0 0.2 0.3 0.4 0.5 0.6\n"  # Incomplete vertex pair.
+                "0 0.2 0.3 nan 0.5 0.6 0.7\n"
+                "0 0.5 0.5 inf 0.2\n", encoding="utf-8")
+            self.assertEqual(bench.parse_yolo_label_file(label, 100, 200), [])
+
     def test_box_iou_handles_overlap_and_empty_union(self):
         left = bench.Box(0, 0, 10, 10)
         right = bench.Box(5, 5, 15, 15)
