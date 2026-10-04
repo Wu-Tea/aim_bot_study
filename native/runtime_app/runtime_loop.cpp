@@ -691,13 +691,16 @@ void RuntimeLoop::apply_pending_config() {
         if (snapshot.policy_revision != vision_policy_revision_ + 1 || snapshot.freshness != VisionSnapshotFreshness::Fresh) return;
         ++vision_policy_revision_;
     }
-    controller_.apply_hot_config(next.gamepad);
+    const bool preserve_learning = preserve_response_learning_on_reload(config_, next);
+    controller_.apply_hot_config(next.gamepad, preserve_learning);
     config_.gamepad = next.gamepad;
     config_.ads = next.ads;
     config_.vision.friendly_filter_enabled = next.vision.friendly_filter_enabled;
     config_.vision.target_height_ratio = next.vision.target_height_ratio;
     config_.vision.target_wide_low_height_ratio = next.vision.target_wide_low_height_ratio;
-    control_bridge_->complete(controller_.learning_snapshot());
+    config_.effective_values = next.effective_values;
+    config_.effective_sources = next.effective_sources;
+    control_bridge_->complete(controller_.learning_snapshot(), preserve_learning);
     pending_hot_config_.reset();
     policy_requested_ = false;
 }

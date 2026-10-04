@@ -69,6 +69,12 @@ struct AssistControlStateMachineInput {
     pipeline_contract::Vec2f filtered_manual_stick{};
     // AI-only output is the desired total proposal for the per-axis T-M solve.
     pipeline_contract::Vec2f ai_stick{};
+    // The solver separately identifies no positioning or sustaining-motion
+    // work. A zero after shaping, or cancellation of those two components,
+    // is not arrival. Production publishes this evidence on the same tick;
+    // absent evidence retains the existing manual arbitration.
+    bool solver_hold_x = false;
+    bool solver_hold_y = false;
     // TargetCoordinator has already interpreted these axes as a correction of
     // D inside the valid R. They are not generic raw-manual passthrough.
     bool manual_correction_x = false;

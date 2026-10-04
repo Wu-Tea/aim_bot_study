@@ -218,7 +218,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "enabled", "feedback_amount", "feedback_min_amount", "feedback_max_amount",
         "hipfire_multiplier"};
     static const std::unordered_set<std::string> ai_aim_keys{
-        "ai_delta_gain", "target_max_age_ms", "ads_activation_radius_px",
+        "ai_delta_gain", "hipfire_multiplier", "aim_response_learning_enabled", "target_max_age_ms", "ads_activation_radius_px",
         "ads_pickup_base_radius_px", "ads_scope_ready_trigger", "ads_snap_window_ms",
         "ads_snap_max_ai_force", "ads_snap_max_ai_force_y",
         "ads_completion_radius_px", "ads_completion_fresh_frames",
@@ -353,7 +353,16 @@ void apply_gamepad_ai_aim_value(
     GamepadAiAimConfig& config,
     const std::string& key,
     const std::string& value) {
-    if (key == "ai_delta_gain") {
+    if (key == "hipfire_multiplier") {
+        const auto text = trim(value);
+        std::size_t used = 0;
+        config.hipfire_multiplier = std::stof(text, &used);
+        if (used != text.size()) throw std::runtime_error("invalid AI hipfire multiplier");
+    } else if (key == "aim_response_learning_enabled") {
+        const auto text = trim(value);
+        if (text != "true" && text != "false") throw std::runtime_error("aim_response_learning_enabled requires true or false");
+        config.aim_response_learning_enabled = text == "true";
+    } else if (key == "ai_delta_gain") {
         config.ai_delta_gain = parse_float_value(value, config.ai_delta_gain);
     } else if (key == "target_max_age_ms") {
         config.target_max_age_ms = parse_float_value(value, config.target_max_age_ms);
@@ -761,6 +770,9 @@ void validate_runtime_config(RuntimeConfig& config) {
         config.gamepad.recoil.hipfire_multiplier < 0.0f ||
         config.gamepad.recoil.hipfire_multiplier > 1.0f)
         invalid("gamepad.recoil.hipfire_multiplier", "finite 0..1");
+    if (!std::isfinite(config.gamepad.ai_aim.hipfire_multiplier) ||
+        config.gamepad.ai_aim.hipfire_multiplier < 0.0f || config.gamepad.ai_aim.hipfire_multiplier > 3.0f)
+        invalid("gamepad.ai_aim.hipfire_multiplier", "finite 0..3");
     const float initial_response = config.gamepad.ai_aim.aim_response_initial_scale;
     if (!std::isfinite(initial_response) ||
         (initial_response != 0.0f && (initial_response < 80.0f || initial_response > 4000.0f)))

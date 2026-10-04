@@ -148,9 +148,17 @@ pipeline_contract::Vec2f AssistControlStateMachine::cooperative_output(
                 return intentional_d ? native_axis * manual_weight : 0.0f;
             }
         }
-        if (!std::isfinite(desired_axis) ||
-            std::fabs(desired_axis) <= material) {
+        if (!std::isfinite(desired_axis)) {
             return native_axis;
+        }
+        if (std::fabs(desired_axis) <= material) {
+            // Only the solver can request a position hold. Shaping may cross
+            // zero while a moving target still requires nonzero work; retain
+            // its existing arbitration rather than reinterpret that transient
+            // as arrival. At D, an actual zero request remains an owned T.
+            if (!config_.use_gamepad_intent_for_arbitration) return native_axis;
+            if (!(vertical ? input.solver_hold_y : input.solver_hold_x)) return native_axis;
+            return native_axis * manual_weight;
         }
 
         if (input.mode == pipeline_contract::ControlMode::BodyLockFollow &&

@@ -47,6 +47,7 @@ struct VisionRuntimeConfig {
 
 struct GamepadAiAimConfig {
     float ai_delta_gain = 1.0f;
+    float hipfire_multiplier = 1.0f; // AI only; physical ADS-ready input is unscaled.
     float target_max_age_ms = 96.0f;
     // Response-demand normalization only; Vision owns target admission.
     float ads_activation_radius_px = 135.0f;

@@ -10,6 +10,8 @@ GAME_FIELDS = [
     ('gamepad.ads.strength_scale', 'ADS 水平力度', float, 1.0, (0, 3)),
     ('gamepad.ads.vertical_strength_scale', 'ADS 垂直力度', float, 1.0, (0, 3)),
     ('gamepad.bodylock.strength', '持续跟随力度', float, 1.0, (0, 3)),
+    ('gamepad.ai_aim.hipfire_multiplier', '腰射 AI 力度倍率', float, 1.0, (0, 3)),
+    ('gamepad.ai_aim.aim_response_learning_enabled', '学习游戏响应曲线', bool, True, None),
     ('gamepad.ai_aim.body_free_initial_scale', '跟随普通区响应初值（0=继承）', float, 0.0, (0, 4000)),
     ('gamepad.ai_aim.body_slow_initial_scale', '跟随减速区响应初值（0=继承）', float, 0.0, (0, 4000)),
     ('gamepad.ai_aim.ads_free_initial_scale', 'ADS 普通区响应初值（0=继承）', float, 0.0, (0, 4000)),

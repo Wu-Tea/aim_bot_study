@@ -18,6 +18,7 @@ inline std::string hot_reload_restrictions(const controller_native::RuntimeConfi
     static const std::set<std::string> allowed{
         "gamepad.ads.strength_scale", "gamepad.ads.vertical_strength_scale",
         "gamepad.bodylock.strength", "gamepad.bodylock.vertical_strength",
+        "gamepad.ai_aim.hipfire_multiplier", "gamepad.ai_aim.aim_response_learning_enabled",
         "gamepad.ai_aim.aim_response_initial_scale",
         "gamepad.ai_aim.body_free_initial_scale", "gamepad.ai_aim.body_slow_initial_scale",
         "gamepad.ai_aim.ads_free_initial_scale", "gamepad.ai_aim.ads_slow_initial_scale",
@@ -50,6 +51,23 @@ inline std::string hot_reload_restrictions(const controller_native::RuntimeConfi
         }
     }
     return restart;
+}
+
+// These controls change AI actuation/training admission, not the calibrated
+// game response. Other reloads retain the existing reset contract.
+inline bool preserve_response_learning_on_reload(const controller_native::RuntimeConfig& before,
+                                                const controller_native::RuntimeConfig& after) {
+    std::set<std::string> keys;
+    for (const auto& value : before.effective_values) keys.insert(value.first);
+    for (const auto& value : after.effective_values) keys.insert(value.first);
+    bool changed = false;
+    for (const auto& key : keys) {
+        auto a = before.effective_values.find(key), b = after.effective_values.find(key);
+        if (a != before.effective_values.end() && b != after.effective_values.end() && a->second == b->second) continue;
+        changed = true;
+        if (key != "gamepad.ai_aim.hipfire_multiplier" && key != "gamepad.ai_aim.aim_response_learning_enabled") return false;
+    }
+    return changed;
 }
 
 struct RuntimeLearningRegion { float effective = 500, learned = 500, confidence = 0; std::uint32_t samples = 0; };
@@ -102,9 +120,10 @@ public:
         prepared_.store(false, std::memory_order_release);
         return candidate_;
     }
-    void complete(const std::array<controller_native::AimResponseEstimate, 4>& values = {}) noexcept {
+    void complete(const std::array<controller_native::AimResponseEstimate, 4>& values = {}, bool preserved = false) noexcept {
         for (int i = 0; i < 4; ++i) cleared_learning_[i] = {values[i].scale_px_per_stick_second,
             values[i].learned_scale, values[i].confidence, values[i].accepted_samples};
+        learning_preserved_ = preserved;
         completed_.store(true, std::memory_order_release);
         SetEvent(finished_);
     }
@@ -139,10 +158,12 @@ private:
                 ++state_.revision;
                 state_.status = 2;
                 state_.completed_id = state_.request_id;
-                strcpy_s(state_.message, "applied; response learning cleared");
+                strcpy_s(state_.message, learning_preserved_ ? "applied; response learning preserved" : "applied; response learning cleared");
                 write_bindings(*current_);
                 const auto& value = *current_;
-                std::cout << "[RuntimeControl] applied revision=" << state_.revision << " learning_cleared=1 game=" << value.game
+                std::cout << "[RuntimeControl] applied revision=" << state_.revision << " learning_cleared=" << !learning_preserved_ << " game=" << value.game
+                    << " hipfire_ai_multiplier=" << value.gamepad.ai_aim.hipfire_multiplier
+                    << " response_learning_enabled=" << value.gamepad.ai_aim.aim_response_learning_enabled
                     << " ads_x=" << value.ads.strength_scale << " ads_y=" << value.ads.vertical_strength_scale
                     << " body_x=" << value.gamepad.ai_aim.body_lock_max_ai_force << " body_y=" << value.gamepad.ai_aim.body_lock_max_ai_force_y
                     << " recoil_enabled=" << value.gamepad.recoil.enabled << " recoil_amount=" << value.gamepad.recoil.feedback_amount
@@ -182,6 +203,7 @@ private:
     RuntimeControlSnapshot state_{};
     RuntimeLearningRegion learning_[4]{};
     RuntimeLearningRegion cleared_learning_[4]{};
+    bool learning_preserved_ = false;
     std::uint64_t learning_at_ = 0;
     std::shared_ptr<const controller_native::RuntimeConfig> current_, candidate_;
     std::function<controller_native::RuntimeConfig()> loader_;

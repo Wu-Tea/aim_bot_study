@@ -354,14 +354,18 @@ void NativeGamepadController::clear_learning() noexcept {
     // not become samples for the new one. Target and ADS state stay owned.
 }
 
-void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& config) {
+void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& config, bool preserve_learning) {
     config_.ai_aim.aim_response_initial_scale = config.ai_aim.aim_response_initial_scale;
     config_.ai_aim.body_free_initial_scale = config.ai_aim.body_free_initial_scale;
     config_.ai_aim.body_slow_initial_scale = config.ai_aim.body_slow_initial_scale;
     config_.ai_aim.ads_free_initial_scale = config.ai_aim.ads_free_initial_scale;
     config_.ai_aim.ads_slow_initial_scale = config.ai_aim.ads_slow_initial_scale;
-    aim_response_estimator_ = AimResponseEstimator(response_estimator_config(config_));
-    ads_response_estimator_ = AdsResponseEstimator(ads_response_estimator_config(config_));
+    if (!preserve_learning) {
+        aim_response_estimator_ = AimResponseEstimator(response_estimator_config(config_));
+        ads_response_estimator_ = AdsResponseEstimator(ads_response_estimator_config(config_));
+    }
+    config_.ai_aim.hipfire_multiplier = config.ai_aim.hipfire_multiplier;
+    config_.ai_aim.aim_response_learning_enabled = config.ai_aim.aim_response_learning_enabled;
     config_.ai_aim.ads_snap_max_ai_force = config.ai_aim.ads_snap_max_ai_force;
     config_.ai_aim.ads_snap_max_ai_force_y = config.ai_aim.ads_snap_max_ai_force_y;
     config_.ai_aim.body_lock_max_ai_force = config.ai_aim.body_lock_max_ai_force;
@@ -374,7 +378,7 @@ void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& confi
     bodylock_controller_.set_force_limits(config_.ai_aim.body_lock_max_ai_force, config_.ai_aim.body_lock_max_ai_force_y);
     recoil_ = RecoilReducer(config_.recoil);
     auto_fire_gate_.reconfigure(config_.auto_fire, config_.ai_aim);
-    clear_learning();
+    if (!preserve_learning) clear_learning();
 }
 
 pipeline_contract::VisionObservationBatch NativeGamepadController::observation_batch_from(
@@ -1113,7 +1117,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
 
     const bool target_authoritative =
         plan.target_id != 0 && plan.aim_authority > 0.0f &&
-        plan.mode != pipeline_contract::ControlMode::Manual;
+        plan.mode != pipeline_contract::ControlMode::Manual &&
+        (last_tick_preparation_.scope.physical_ads_ready || config_.ai_aim.hipfire_multiplier > 0.0f);
     pipeline_contract::Vec2f requested{};
     pipeline_contract::Vec2f shaped{};
     BodylockFollowControllerOutput bodylock_diagnostics{};
@@ -1139,6 +1144,12 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         plan,
         dt,
         {});
+    // Scale only AI, before arbitration. Physical input and recoil stay owned
+    // independently; the physical ADS-ready signal selects full ADS strength.
+    if (!last_tick_preparation_.scope.physical_ads_ready && config_.ai_aim.hipfire_multiplier != 1.0f) {
+        shaped.x = clamp_unit(shaped.x * config_.ai_aim.hipfire_multiplier);
+        shaped.y = clamp_unit(shaped.y * config_.ai_aim.hipfire_multiplier);
+    }
     if (intent.activation == pipeline_contract::AssistActivation::Application) {
         // Budget the AI proposal before the sole manual/AI arbiter. Physical
         // passthrough and recoil do not belong to this application budget.
@@ -1235,6 +1246,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     control_input.manual_axis_activity = {
         intent.right_x.activity, intent.right_y.activity};
     control_input.ai_stick = {shaped.x, shaped.y};
+    control_input.solver_hold_x = bodylock_diagnostics.position_hold_x;
+    control_input.solver_hold_y = bodylock_diagnostics.position_hold_y;
     control_input.manual_correction_x = plan.manual_correction_x;
     control_input.manual_correction_y = plan.manual_correction_y;
     control_input.manual_exit_requested = plan.manual_exit_requested;

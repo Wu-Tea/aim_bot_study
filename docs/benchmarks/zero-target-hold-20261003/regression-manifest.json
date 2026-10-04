@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "incident_id": "bodylock-owned-zero-manual-leak-20261003",
+  "title": "An owned zero command must retain low-intent allocation at a centered static target",
+  "symptom": "Small wrong physical input moves an initially centered static target away and triggers correction after the AI solver has zero remaining work.",
+  "evidence": {
+    "facts": [
+      {
+        "id": "F1",
+        "claim": "505 of 512 complete native static-plant cases exceed the predeclared 0.05 px hold tolerance, maximum 4.25013208 px, with every BodyLock/identity/direct-observation trigger passing.",
+        "source": {
+          "kind": "benchmark",
+          "artifact_id": "native-red-hold",
+          "locator": "red-primary-proof/centered-native-hold.json cases and summary"
+        }
+      },
+      {
+        "id": "F2",
+        "claim": "The original sole arbiter returns unweighted raw M whenever shaped AI is sub-material, including a true zero solver request at D.",
+        "source": {
+          "kind": "code",
+          "artifact_id": "arbiter-source",
+          "locator": "HEAD cooperative_output sub-material branch"
+        }
+      },
+      {
+        "id": "F3",
+        "claim": "Every RED and GREEN primary case keeps exact raw physical input on ADS release; four seeds, both axes/curves, and matched source/effect cadence are explicit.",
+        "source": {
+          "kind": "benchmark",
+          "artifact_id": "native-red-hold",
+          "locator": "all 512 raw_release and trigger fields"
+        }
+      }
+    ],
+    "inferences": [
+      {
+        "id": "I1",
+        "claim": "Loss of target allocation at an owned zero is the cause of this native static-plant defect. A shaped zero or canceled position/motion sum alone cannot establish arrival.",
+        "basis": [
+          "F1",
+          "F2",
+          "F3"
+        ]
+      }
+    ],
+    "unknowns": [
+      {
+        "id": "U1",
+        "question": "Whether this defect caused the BO7 replay two-stage movement is unproven without its matching tick inputs and runtime identity."
+      },
+      {
+        "id": "U2",
+        "question": "Broader micro-motion tolerance, image jitter and human acceleration in the full native chain remain unvalidated."
+      }
+    ]
+  },
+  "known_bad": {
+    "runtime_sha256": "fe3b6a9c07ba7b10b1d62bc4ef8e74b25db2d4ceca7c6bc91af432fdddbf055b",
+    "source_commit": "fed883969003327e5fd50d92d148a483346536c4",
+    "audit_artifact_id": "native-red-hold",
+    "audit_artifact_sha256": "a7d4af97c66dbb728ab728385f01b4c5db79d92dbf8d852b6a0d2e0e2870d063"
+  },
+  "fixture": {
+    "kind": "native_benchmark",
+    "source_files": [
+      "../../../native/controller_native/zero_target_hold_incident.cpp"
+    ],
+    "build_target": "cod_native_zero_target_hold_incident",
+    "run_command": [
+      "runs/cod-target-hold-repair-20261003/baseline-bin/cod_native_zero_target_hold_incident.exe",
+      "--case",
+      "centered_target_ignores_wrong_low_intent",
+      "--artifacts",
+      "runs/cod-target-hold-repair-20261003/red-primary-proof"
+    ],
+    "trigger_assertions": [
+      "Every case has >100 BodyLock ticks and >100 held-input BodyLock ticks",
+      "Every case has >10 direct observations, stable nonzero target identity and finite bounded output",
+      "Every case retains exact physical right stick on physical ADS release"
+    ],
+    "covariates": {
+      "freshness": "direct fresh frame every seeded 5/8/16 ms, held snapshot between source frames",
+      "target_generation": "single constant selector generation 991; stable generated target id asserted",
+      "target_count": 1,
+      "right_stick_manual": "zero before 64 ms, then seeded 0.0200..0.1399 on one axis, sign alternates every 120 ms",
+      "left_stick_manual": "exactly zero",
+      "recoil_firing": "physically not firing; recoil/profile disabled",
+      "controller_mode": "actual ADS admission -> BodyLock; physical ADS release countercontrol",
+      "refresh_rate_hz": "native controller 1000 Hz, source period 5/8/16 ms; 600/2400 ms scenarios",
+      "logging_mode": "offline JSON only, runtime telemetry off"
+    },
+    "scope": "Unchanged centered_native_hold function and oracles. New producer semantics and supplemental countercontrols are separately registered."
+  },
+  "oracles": [
+    {
+      "id": "O1",
+      "metric": "maximum_centered_target_displacement_px",
+      "operator": "<=",
+      "threshold": 0.05,
+      "unit": "px",
+      "evidence_fact_ids": [
+        "F1",
+        "F2",
+        "F3"
+      ]
+    }
+  ],
+  "counterfactuals": [
+    {
+      "id": "C1",
+      "change": "physically release ADS",
+      "expected": "all 512 cases immediately return exact raw right stick"
+    },
+    {
+      "id": "C2",
+      "change": "start real target motion after an observed exact hold",
+      "expected": "64 supplemental cases resume directionally correct output and establish aligned motion evidence within frozen deadlines"
+    },
+    {
+      "id": "C3",
+      "change": "remove motion evidence, use identity-only cue, or leave any unfinished position/motion work",
+      "expected": "solver does not label the axis as a position hold"
+    }
+  ],
+  "red_proof": {
+    "runtime_sha256": "fe3b6a9c07ba7b10b1d62bc4ef8e74b25db2d4ceca7c6bc91af432fdddbf055b",
+    "command": [
+      "runs/cod-target-hold-repair-20261003/baseline-bin/cod_native_zero_target_hold_incident.exe",
+      "--case",
+      "centered_target_ignores_wrong_low_intent",
+      "--artifacts",
+      "runs/cod-target-hold-repair-20261003/red-primary-proof"
+    ],
+    "exit_code": 1,
+    "report": {
+      "id": "native-red-hold",
+      "path": "../../../runs/cod-target-hold-repair-20261003/red-primary-proof/centered-native-hold.json",
+      "sha256": "a7d4af97c66dbb728ab728385f01b4c5db79d92dbf8d852b6a0d2e0e2870d063"
+    },
+    "failed_oracles": [
+      {
+        "oracle_id": "O1",
+        "observed": 4.25013208
+      }
+    ]
+  },
+  "green_proof": {
+    "runtime_sha256": "3a061be90a2eb39d45806e5f50584800fcfd51b8e132299f932759bc8f3717bc",
+    "command": [
+      "runs/cod-target-hold-repair-20261003/candidate-build/Release/cod_native_zero_target_hold_incident.exe",
+      "--case",
+      "centered_target_ignores_wrong_low_intent",
+      "--artifacts",
+      "runs/cod-target-hold-repair-20261003/green-primary-proof"
+    ],
+    "exit_code": 0,
+    "report": {
+      "id": "native-green-hold",
+      "path": "../../../runs/cod-target-hold-repair-20261003/green-primary-proof/centered-native-hold.json",
+      "sha256": "4afb116b7790b9bb1cdebc90a5ca513fb582938a52ad2d48a37220673e44458c"
+    },
+    "passed_oracles": [
+      {
+        "oracle_id": "O1",
+        "observed": 0
+      }
+    ]
+  },
+  "verification": {
+    "focused_tests": [
+      {
+        "command": [
+          "runs/cod-target-hold-repair-20261003/candidate-build/Release/cod_native_zero_target_hold_incident.exe",
+          "--artifacts",
+          "runs/cod-target-hold-repair-20261003/staged-green"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "ctest",
+          "--test-dir",
+          "native/build",
+          "-C",
+          "Release",
+          "-L",
+          "^(base|functional)$",
+          "--output-on-failure"
+        ],
+        "exit_code": 0
+      }
+    ],
+    "ab_comparison": {
+      "baseline_runtime_sha256": "fe3b6a9c07ba7b10b1d62bc4ef8e74b25db2d4ceca7c6bc91af432fdddbf055b",
+      "candidate_runtime_sha256": "3a061be90a2eb39d45806e5f50584800fcfd51b8e132299f932759bc8f3717bc",
+      "invariants_checked": true,
+      "primary_covariates": [
+        "seed",
+        "case",
+        "duration_ms",
+        "axis",
+        "curve",
+        "vision_ms",
+        "delay_ms",
+        "gain",
+        "manual"
+      ],
+      "protected_matrices": [
+        {
+          "directory": "candidate-matrix-final",
+          "packs": 16,
+          "runs": 128,
+          "opportunities": 1728,
+          "protected_regressions": 0
+        },
+        {
+          "directory": "candidate-validation",
+          "packs": 16,
+          "runs": 128,
+          "opportunities": 1728,
+          "protected_regressions": 0
+        }
+      ]
+    },
+    "diff_reviewed": true,
+    "artifact_manifest": {
+      "id": "hold-artifact-manifest",
+      "path": "../../../runs/cod-target-hold-repair-20261003/evidence.json",
+      "sha256": "3f70e7ca909a9427620c222071b759c82ff594e26c7487fdf44eca690579c203"
+    }
+  },
+  "acceptance": "Only the exact zero-hold native invariant is offline complete; BO7 jitter, new onset curve and overall product/live acceptance remain open."
+}

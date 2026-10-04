@@ -152,6 +152,8 @@ activation_range_px = 80
 tolerance_px = 8
 
 [gamepad.ai_aim]
+hipfire_multiplier = 1.0 # 0..3; AI input only when physical ADS is not ready; decimals accepted
+aim_response_learning_enabled = true # false pauses sample updates; the selected tool LUT is unchanged
 # Cue-only BodyLock stays conservative for targets no taller than 12% of the
 # capture, blends continuously above that, and reaches full retained authority
 # for close targets at this height ratio.

@@ -23,6 +23,7 @@ void register_bodylock_follow_controller_tests(native_test::Registry&);
 void register_bodylock_target_motion_observer_tests(native_test::Registry&);
 void register_bodylock_recoil_feedback_incident_tests(native_test::Registry&);
 void register_bodylock_motion_anchor_incident_tests(native_test::Registry&);
+void register_zero_target_hold_incident(native_test::Registry&);
 void register_aim_dynamics_shaper_tests(native_test::Registry&);
 void register_aim_response_estimator_tests(native_test::Registry&);
 void register_response_model_aim_solver_tests(native_test::Registry&);
@@ -91,6 +92,7 @@ int main(int argc, char** argv) {
     register_bodylock_target_motion_observer_tests(registry);
     register_bodylock_recoil_feedback_incident_tests(registry);
     register_bodylock_motion_anchor_incident_tests(registry);
+    register_zero_target_hold_incident(registry);
     register_aim_dynamics_shaper_tests(registry);
     register_aim_response_estimator_tests(registry);
     register_response_model_aim_solver_tests(registry);

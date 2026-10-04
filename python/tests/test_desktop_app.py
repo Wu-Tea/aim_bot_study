@@ -260,6 +260,28 @@ class DesktopWidgetTests(unittest.TestCase):
             self.app.collect_changes()
         self.assertEqual((self.project / 'config.toml').read_text(encoding='utf-8'), CONFIG)
 
+    def test_hipfire_ai_decimal_and_learning_switch_roundtrip(self):
+        production = Path(__file__).resolve().parents[2] / 'native/build/Release/cod_native_runtime.exe'
+        self.app.manager.executable = production
+        self.app.game.set('Apex Legends')
+        self.app.change_game()
+        self.app.variables['games.apex.gamepad.ai_aim.hipfire_multiplier'].set('0.75')
+        self.app.variables['games.apex.gamepad.ai_aim.aim_response_learning_enabled'].set(False)
+        self.app.commit(self.app.collect_changes())
+        data = self.app.store.read()[1]
+        self.assertEqual(data['games']['apex']['gamepad']['ai_aim']['hipfire_multiplier'], .75)
+        self.assertIs(data['games']['apex']['gamepad']['ai_aim']['aim_response_learning_enabled'], False)
+        self.assertEqual(data['games']['bo3'], tomllib.loads(CONFIG)['games']['bo3'])
+        result = subprocess.run([str(production), '--config', str(self.project / 'config.toml'), '--game', 'apex', '--dump-effective-config'],
+                                capture_output=True, timeout=10, creationflags=0x08000000)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('gamepad.ai_aim.hipfire_multiplier=0.75 source=game:apex', result.stdout.decode('utf-8'))
+        self.assertIn('gamepad.ai_aim.aim_response_learning_enabled=0 source=game:apex', result.stdout.decode('utf-8'))
+
+    def test_learning_preserved_ack_is_displayed_truthfully(self):
+        self.app.applied({'status': 2, 'revision': 2, 'message': 'applied; response learning preserved'})
+        self.assertIn('学习数据已保留', self.app.notice.get())
+
     def test_learning_export_preserves_raw_values_and_identifies_estimate(self):
         values = {'status': 2, 'revision': 4, 'sampled_at_ms': 123, 'manual_fire_input': 'RT', 'fire_output': 'RB',
                   'regions': [{'effective': 510, 'learned': 530, 'confidence': .5, 'samples': 22}] * 4}

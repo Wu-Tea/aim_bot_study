@@ -25,6 +25,7 @@ add_executable(cod_native_base_tests
     controller_native/bodylock_target_motion_observer_tests.cpp
     controller_native/bodylock_recoil_feedback_incident_tests.cpp
     controller_native/bodylock_motion_anchor_incident.cpp
+    controller_native/zero_target_hold_incident.cpp
     controller_native/aim_dynamics_shaper_tests.cpp
     controller_native/aim_response_estimator_tests.cpp
     controller_native/startup_response_prior_tests.cpp
@@ -191,3 +192,9 @@ add_executable(cod_native_bodylock_motion_anchor_incident
 cod_native_defaults(cod_native_bodylock_motion_anchor_incident)
 target_link_libraries(cod_native_bodylock_motion_anchor_incident PRIVATE
     controller_native_core)
+
+add_executable(cod_native_zero_target_hold_incident EXCLUDE_FROM_ALL
+    controller_native/zero_target_hold_incident.cpp)
+cod_native_defaults(cod_native_zero_target_hold_incident)
+target_compile_definitions(cod_native_zero_target_hold_incident PRIVATE ZERO_TARGET_HOLD_STANDALONE)
+target_link_libraries(cod_native_zero_target_hold_incident PRIVATE controller_native_core)

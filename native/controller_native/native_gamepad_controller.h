@@ -147,7 +147,7 @@ public:
 
     void reset();
     // Called only at a tick boundary; preserves target identity and ADS lease.
-    void apply_hot_config(const GamepadRuntimeConfig& config);
+    void apply_hot_config(const GamepadRuntimeConfig& config, bool preserve_learning = false);
     void clear_learning() noexcept;
     std::array<AimResponseEstimate, 4> learning_snapshot() const noexcept;
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);

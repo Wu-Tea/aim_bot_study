@@ -26,6 +26,11 @@ struct BodylockFollowControllerOutput {
     pipeline_contract::Vec2f motion_stick{};
     pipeline_contract::Vec2f effective_motion_stick{};
     pipeline_contract::Vec2f error_rate_px_per_sec{};
+    // An owned zero: no remaining position work AND no sustaining target
+    // motion on this axis. Cancellation/braking and unknown motion are not
+    // arrival, even when the final solver/shaper command happens to be zero.
+    bool position_hold_x = false;
+    bool position_hold_y = false;
     pipeline_contract::Vec2f response_max_force{};
     float response_horizon_seconds = 0.0f;
     float response_horizon_y_seconds = 0.0f;

@@ -70,6 +70,12 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     const auto solved = solve_response_model_aim(request);
     result.position_stick = solved.position_stick;
     result.motion_stick = solved.motion_stick;
+    const bool observed_motion = target_motion_total_valid &&
+        plan.lifecycle == pipeline_contract::TargetLifecycle::Observed;
+    result.position_hold_x = observed_motion &&
+        solved.position_stick.x == 0.0f && solved.motion_stick.x == 0.0f;
+    result.position_hold_y = observed_motion &&
+        solved.position_stick.y == 0.0f && solved.motion_stick.y == 0.0f;
     result.effective_motion_stick = solved.bounded_motion_stick;
     result.radial_motion_bound_applied = solved.radial_motion_bound_applied;
     result.constraint_reason = solved.radial_motion_bound_reason;

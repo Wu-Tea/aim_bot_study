@@ -144,7 +144,8 @@ class AssistantWindow:
         self.learning_table.pack(fill='x')
         ttk.Label(learning_content, text='系数单位：像素 /（有效摇杆 × 秒）。生效系数结合了初值与置信度；学习系数是样本估计。\n'
                   '这是控制器对响应的估计，并非独立测得的游戏灵敏度。没有有效样本时显示“未学习”。\n'
-                  '成功热重载会清理学习系数、置信度和采样历史；模型等设置仍需重启。',
+                  '关闭学习会暂停更新，保留当前运行中的估计；重启后使用配置初值。\n'
+                  '仅修改学习开关或腰射 AI 倍率会保留学习数据；其他热重载仍会清理。模型等设置需重启。',
                   style='Muted.TLabel', wraplength=660).pack(anchor='w', pady=14)
         footer = ttk.Frame(outer)
         self.save_button = ttk.Button(footer, text='保存并应用', command=self.save)
@@ -301,7 +302,8 @@ class AssistantWindow:
         status = result['status']
         self.restart_required = status == 3
         if status == 2:
-            self.notice.set(f'已热重载，配置版本 {result["revision"]}；响应学习数据已清理。')
+            learning_action = '保留' if 'learning preserved' in result.get('message', '') else '清理'
+            self.notice.set(f'已热重载，配置版本 {result["revision"]}；响应学习数据已{learning_action}。')
         elif status == 1:
             self.pending_request_id = result['request_id']
             self.notice.set('重载已受理，等待新视觉帧；当前尚未全部生效。')
@@ -457,7 +459,8 @@ class AssistantWindow:
             learning = self.manager.learning() if record else None
             if learning:
                 if self.pending_request_id is not None and learning['completed_id'] == self.pending_request_id and learning['status'] == 2:
-                    self.notice.set(f'已热重载，配置版本 {learning["revision"]}；响应学习数据已清理。')
+                    learning_action = '保留' if 'learning preserved' in learning.get('message', '') else '清理'
+                    self.notice.set(f'已热重载，配置版本 {learning["revision"]}；响应学习数据已{learning_action}。')
                     self.pending_request_id = None
                 self.restart_required = learning['status'] == 3
                 self.learning_summary.set(f'当前配置版本：{learning["revision"]}  ·  手动输入：{learning["manual_fire_input"]}  ·  自动输出：{learning["fire_output"]}' +

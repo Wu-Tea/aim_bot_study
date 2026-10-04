@@ -386,6 +386,49 @@ void test_hot_reload_randomized_manual_fire_and_recoil() {
 
 void register_control_pipeline_primitives_tests(
     native_test::Registry& registry) {
+    registry.add_case("BaseEndToEnd", "hipfire_ai_multiplier_keeps_ads_and_manual", [] {
+        for (bool ads : {false, true}) for (int direction : {-1, 1}) {
+            const auto run = [=](float multiplier) {
+                auto config = controller_native::incident_fixture::base_config(100, 200);
+                config.ai_aim.hipfire_multiplier = multiplier;
+                config.ai_aim.aim_response_learning_enabled = false;
+                config.auto_fire.manual_fire_activates_ai_aim = true;
+                double now = 10;
+                controller_native::NativeGamepadController controller(config, &now);
+                controller_native::incident_fixture::TargetSpec spec;
+                spec.observation_id = 1;
+                spec.selector_generation = 991;
+                spec.has_enemy_cue = spec.enemy_identity_confirmed = true;
+                controller.submit_vision_snapshot(controller_native::incident_fixture::observed_snapshot(
+                    spec, 1, now, direction * 18.0f, direction * 8.0f));
+                auto physical = controller_native::incident_fixture::ads_input(.06f, -.03f, true);
+                physical.left_trigger = ads ? 1.0f : 0.0f;
+                auto output = controller.build_output(physical);
+                const auto mode = controller.last_target_plan().mode;
+                require_true(controller.last_target_plan().target_id != 0 && mode != pipeline_contract::ControlMode::Manual,
+                    "multiplier test must admit a real target through ADS or manual-fire scope");
+                const auto shaped = controller.last_output_components().shaped_assist_stick;
+                return std::make_pair(output, shaped);
+            };
+            const auto baseline = run(1.0f);
+            require_true(std::hypot(baseline.second.x, baseline.second.y) > .0001f, "AI multiplier trigger must produce actual work");
+            for (float multiplier : {0.0f, .5f, .75f, 1.25f, 2.0f, 3.0f}) {
+                const auto result = run(multiplier);
+                const float scale = ads ? 1.0f : multiplier;
+                require_true(std::fabs(result.second.x - baseline.second.x * scale) < 1e-6f &&
+                    std::fabs(result.second.y - baseline.second.y * scale) < 1e-6f, "hipfire AI multiplier must scale both axes while ADS stays exact");
+                if (ads) require_true(result.first.right_x == baseline.first.right_x && result.first.right_y == baseline.first.right_y,
+                    "hipfire multiplier must leave final ADS actuator output unchanged");
+                if (!ads && multiplier != 0 && multiplier != 1) require_true(
+                    result.first.right_x != baseline.first.right_x || result.first.right_y != baseline.first.right_y,
+                    "hipfire multiplier must reach actual actuator output, not only diagnostics");
+                require_true(result.first.right_trigger == 1.0f && result.first.left_trigger == (ads ? 1.0f : 0.0f),
+                    "AI multiplier must preserve physical fire and scope passthrough");
+                if (!ads && multiplier == 0) require_true(result.first.right_x == .06f && result.first.right_y == -.03f,
+                    "zero hipfire AI must restore exact manual passthrough");
+            }
+        }
+    });
     registry.add_case("BaseEndToEnd", "hot_reload_randomized_manual_fire_recoil", test_hot_reload_randomized_manual_fire_and_recoil);
     registry.add_case("BaseContracts", "game_transfer_contract_randomized", test_game_transfer_contract_and_randomized_roundtrip);
     registry.add_case("BaseEndToEnd", "game_transfer_final_stage_lifecycle", test_game_transfer_final_stage_and_lifecycle);

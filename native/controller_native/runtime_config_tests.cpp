@@ -573,7 +573,34 @@ void test_hot_reload_diff_and_control_channel() {
     CloseHandle(request); UnmapViewOfFile(memory); CloseHandle(mapping);
 }
 
+void test_hipfire_ai_and_response_learning_config() {
+    TempConfig base("cod_ai_controls_base.toml", "[gamepad.ai_aim]\n");
+    auto before = controller_native::load_runtime_config(base.path());
+    require(before.gamepad.ai_aim.hipfire_multiplier == 1.0f && before.gamepad.ai_aim.aim_response_learning_enabled,
+        "new controls must preserve existing defaults");
+    TempConfig changed("cod_ai_controls_changed.toml", "[gamepad.ai_aim]\nhipfire_multiplier=0.75\naim_response_learning_enabled=false\n");
+    auto after = controller_native::load_runtime_config(changed.path());
+    require(after.diagnostics.empty() && after.gamepad.ai_aim.hipfire_multiplier == .75f &&
+        !after.gamepad.ai_aim.aim_response_learning_enabled, "decimal multiplier and disabled learning must reach native config");
+    require(runtime_app::hot_reload_restrictions(before, after).empty() &&
+        runtime_app::preserve_response_learning_on_reload(before, after), "new controls must be hot eligible without discarding learned response");
+    auto prior_changed = after;
+    prior_changed.effective_values["gamepad.ai_aim.body_free_initial_scale"] = "700";
+    require(!runtime_app::preserve_response_learning_on_reload(after, prior_changed), "changing response priors still requires learning reset");
+    for (const auto* value : {"-0.1", "3.01", "nan", "inf", "0.75junk"}) {
+        TempConfig invalid("cod_ai_controls_invalid.toml", std::string("[gamepad.ai_aim]\nhipfire_multiplier=") + value + "\n");
+        bool rejected = false;
+        try { (void)controller_native::load_runtime_config(invalid.path()); } catch (...) { rejected = true; }
+        require(rejected, "AI multiplier must be finite, complete decimal input within 0..3");
+    }
+    TempConfig invalid_bool("cod_ai_controls_bool.toml", "[gamepad.ai_aim]\naim_response_learning_enabled=\"false\"\n");
+    bool rejected = false;
+    try { (void)controller_native::load_runtime_config(invalid_bool.path()); } catch (...) { rejected = true; }
+    require(rejected, "learning switch must be a boolean, not a quoted string");
+}
+
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "hipfire_ai_and_response_learning_config", test_hipfire_ai_and_response_learning_config);
     registry.add_case("BaseContracts", "region_prior_config_boundaries", test_region_prior_config_boundaries);
     registry.add_case("BaseContracts", "hot_reload_diff_control_channel", test_hot_reload_diff_and_control_channel);
     registry.add_case("BaseContracts", "external_stop_signal_listener_lifetime", test_external_stop_signal_obeys_listener_lifetime);

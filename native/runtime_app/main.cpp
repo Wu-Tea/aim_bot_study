@@ -201,6 +201,8 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
         "gamepad.enemy_mark.lt_cooldown_ms",
         config.gamepad.enemy_mark.lt_cooldown_ms);
     const auto& aim = config.gamepad.ai_aim;
+    line("gamepad.ai_aim.hipfire_multiplier", aim.hipfire_multiplier);
+    line("gamepad.ai_aim.aim_response_learning_enabled", aim.aim_response_learning_enabled);
     line("gamepad.tracker.aim_height_ratio", config.gamepad.tracker.aim_height_ratio);
     line(
         "gamepad.tracker.max_observation_age_ms",

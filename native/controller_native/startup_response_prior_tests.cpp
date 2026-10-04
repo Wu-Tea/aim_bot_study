@@ -369,6 +369,47 @@ void high_rate_source_keeps_response_learning(const native_test::TestContext& co
 }
 
 void register_startup_response_prior_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "learning_pause_preserves_and_resumes_samples", [] {
+        for (int axis : {0, 1}) {
+            auto config = incident_fixture::base_config(100, 200);
+            config.ai_aim.ads_completion_fresh_frames = 1;
+            config.ai_aim.aim_response_effect_delay_ms = 0;
+            config.ai_aim.aim_response_initial_scale = 500;
+            double now = 10;
+            NativeGamepadController controller(config, &now);
+            incident_fixture::TargetSpec spec;
+            spec.observation_id = spec.selector_generation = 1; spec.has_enemy_cue = true;
+            float error = 0, last = 0; int frame = 0;
+            const auto advance = [&](int count, float gain) {
+                for (int i = 0; i < count; ++i, ++frame) {
+                    now = 10 + frame / 160.0;
+                    error -= last * gain / 160;
+                    controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, frame + 1, now,
+                        axis ? 0 : error, axis ? error : 0));
+                    controller.build_output(incident_fixture::ads_input());
+                    last = static_cast<int>(frame * 50.0 / 160) % 2 ? -.15f : .15f;
+                    GamepadOutputState receipt; receipt.right_x = axis ? 0 : last; receipt.right_y = axis ? -last : 0;
+                    controller.observe_delivered_output(receipt, true, now);
+                }
+            };
+            advance(320, 800);
+            auto learned = controller.learning_snapshot();
+            require(learned[0].accepted_samples + learned[1].accepted_samples > 10, "pause test must first establish real learned samples");
+            config.ai_aim.aim_response_learning_enabled = false;
+            controller.apply_hot_config(config, true);
+            advance(160, 1000);
+            auto paused = controller.learning_snapshot();
+            for (int region = 0; region < 4; ++region) require(paused[region].accepted_samples == learned[region].accepted_samples &&
+                paused[region].learned_scale == learned[region].learned_scale && paused[region].confidence == learned[region].confidence,
+                "disabled learning must preserve every region without accepting samples");
+            config.ai_aim.aim_response_learning_enabled = true;
+            controller.apply_hot_config(config, true);
+            advance(160, 800);
+            auto resumed = controller.learning_snapshot();
+            require(resumed[0].accepted_samples + resumed[1].accepted_samples > paused[0].accepted_samples + paused[1].accepted_samples,
+                "re-enabled learning must resume actual native samples");
+        }
+    });
     registry.add_case("BaseBodyLock","four_region_snapshot_priors",four_region_snapshot_priors);
     registry.add_context_case("BaseBodyLock","high_rate_camera_observation",high_rate_source_keeps_camera_observation);
     registry.add_context_case("BaseBodyLock","high_rate_response_learning",high_rate_source_keeps_response_learning);
