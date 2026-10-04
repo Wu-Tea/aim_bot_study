@@ -109,3 +109,37 @@ and machine-local runtime assets out of project context.
 - Removed only a superseded early scan CSV and a generated probe object (87.70 MiB); latest raw logs, RED/GREEN evidence, final matrix reports and runtime backup retained. Unrelated workspace work excluded from the commit.
 - Record: `docs/benchmarks/CONTROLLER_MULTIPLAYER_CHECKPOINT_20260926.md`; source/build/audit hashes remain in its referenced local artifacts.
 - SyncSet reviewer: `accept_draft`; direct user authorization covers recording, prior handoff archived, no raw telemetry/personal machine paths copied into context, no new global acceptance decision. No subagents used.
+
+
+## 2026-10-04 — Isolated C++ cognition refactor completed
+
+- User authorized completion in a new worktree without repeated questions. Branch `codex/cognition-refactor-20261004`; inherited source/doc snapshot `1251273` preserves original concurrent changes. Original workspace untouched; output media excluded from the snapshot.
+- Read project-cognition method and existing coordination review; updated existing project model instead of introducing a new knowledge framework. Concentrated IPC implementation/reload transitions, Loop control versus diagnostics, shared telemetry shapes and Fusion conversion; removed repeated derived state and field mapping. Kept reasonable controller/Vision/mouse ownership boundaries and actual Python dependencies.
+- RED-to-GREEN boundary fixes: malformed scalar configuration is rejected rather than silently defaulted/prefix-parsed; output disabled does not construct a virtual gamepad. No production selector/control algorithm change; one obsolete Python selector expectation aligned with the existing native flat-person identity contract.
+- Fresh Release full build, CTest 50/50 groups and affected Python tests 134/134 pass. Actual output-disabled TensorRT runtime completes control-value and vision-policy reloads via Python IPC/Loop and named-event stop, with current telemetry serialized. Device receiver, gameplay, Fusion window and independent review remain unverified.
+- Scope/details/source/verification: `docs/project/CURRENT_STATE.md`. Old SHA256 validation and benchmark acceptance framework remain retired; retained simulation tests do not constitute a release verdict.
+- SyncSet reviewer: accept_draft (self-review); user's current one-pass authorization covers this worktree handoff/milestone update. No decision rewrite, raw telemetry, personal captures or secrets included. No subagents or cross-chat confirmation claimed.
+
+
+## 2026-10-04 — Test cleanup and C++-only authorization
+
+- User authorized deletion/consolidation of old tests, emphasizing pre-August scenarios. Removed 74 Python test modules, 29 native historical incident drivers and 14 test-only fixtures; removed 13 source-shape assertions and migrated current product authority/manual-correction assertions into native base contracts.
+- Release all-target build and CTest 50/50 groups pass. Remaining Python full collection was 270 pass/1 skip before removing 13 static assertions; affected startup 18 pass and final default basic set 123 pass, full collection now 258. Old detailed fallback/research/incident coverage is intentionally retired, not equivalent coverage.
+- Latest user explicitly authorizes eliminating Python runtime/build/tool participation and dependencies, with useful capabilities implemented in C++. This supersedes earlier retention boundaries. Migration is in progress; GUI/config/start-stop/hot-reload/learning display are selected useful capabilities.
+- SyncSet self-review accept_draft under continuing one-pass authorization: current scope and completed checks only; no secrets/raw logs/decision rewrites. Original workspace remains untouched.
+
+## 2026-10-04 — C++-only migration completed
+
+- User explicitly authorized retirement of every Python path and dependency. Removed remaining Python runtime, GUI, tests, training, research/analysis tools and pybind extension. Selected desktop config edit/validate/save, verified start/stop, reload/state/learning and logs now use native C++; old graphical curve editor and preset library are retired, user assets and native curve semantics preserved.
+- Native DesktopSession owns configuration bytes/conflict detection and PID+creation-time+normalized executable identity. Win32 window delegates commands; existing IPC ABI extracted into one shared header. Suspended child startup records ownership before running; shutdown uses the runtime event, no process-name force kill. SDK SDL/ViGEm inputs now come from native runtime_deps or explicit build parameters, not site-packages.
+- Fresh Python-free CMake configure and full Release build pass. Final CTest 51/51 groups pass including numerical simulation and hidden window. Real output-disabled native TensorRT start/control reload/vision-policy reload/stop pass; learning preserved then cleared at appropriate commits. Standalone native vision completes three real captured/inferred frames. PowerShell AST and background start/stop/Fusion previews pass.
+- Malformed config-line RED regression corrected at native loader; Windows executable-path ownership mismatch reproduced and corrected at native session normalization. No controller algorithm change. Native config editor uses current loader subset; general TOML editing is not promised.
+- Physical input/output/gameplay, Canvas exclusion and full manual GUI use remain unverified. No ONNX available for real trtexec export. Automatic approval rejected recursive ignored Python/pytest cache cleanup with blocked by policy; no workaround attempted. These historical ignored outputs do not participate in current paths.
+- Source model and docs updated in target worktree only. SyncSet self-review accept_draft under ongoing one-pass authorization; original workspace untouched, no decision rewrites, no external coordination confirmation claimed.
+
+## 2026-10-04 — Merge into dev while preserving dev GUI
+
+- User requested direct dev merge, excluding new GUI and retaining current dev version. Saved existing uncommitted cleanup/source state as 05d1c83, then merged refactor ancestry. Kept dev GUI/config workspace/curves/runtime/IPC, VBS, GUI docs/tests and background start/stop/Fusion scripts exactly unchanged. Excluded all new native desktop sources/target/tests. Retained native independent-game profile support from dev.
+- Runtime/diagnostics/state ownership refactor, historical test reduction, native DLL build inputs and non-GUI Python/pybind retirement are integrated. Python UI exception supersedes blanket retirement; native control/Vision/build still have no Python participation. User configs/models/profiles and original untracked output artifacts untouched.
+- Full merged Release build passes; CTest 50/50 groups and GUI unittest 66/66 pass. Actual retained Python RuntimeManager/ControlChannel starts merged TensorRT runtime with output disabled, applies control reload revision 0→1, and gracefully stops exit=0. GUI source/launch scripts have zero diff from pre-merge dev. No controller algorithm change or new live gameplay acceptance.
+- SyncSet accept_draft self-review under direct merge and ongoing one-pass authorization. Updated current entry/model/handoff to reflect Python GUI exception; no new decisions, raw logs, secrets or writes to project-cognition.

@@ -1,21 +1,23 @@
+> 当前 dev 合并约定：runtime、Vision 和构建走 C++；GUI 沿用 dev 的 Python/Tk 配置工作室。新 C++ GUI 未合入。本文原生助手相关旧检查不作为当前要求，界面操作见 [桌面助手](DESKTOP_ASSISTANT.md)。
+
 # Project Documentation
 
-This directory contains maintained project references. Read historical
+Read Current State first. Python paths and tool instructions in older records are retired; they are historical evidence, not current build or runtime dependencies. This directory also contains maintained project references. Read historical
 baselines, completed acceptance stages and paused research through
 [the archive](../archive/README.md).
 
 ## Read First
 
-1. [Current State](CURRENT_STATE.md) — source-backed project model, capability boundaries, lifecycle, current refactor progress and unknowns.
+1. [Current State](CURRENT_STATE.md) — source-backed project model, ownership, lifecycle and completed isolated C++ refactor; includes verification and live-device gaps.
 2. [Aim Control Product Contract V1](AIM_CONTROL_PRODUCT_CONTRACT_V1_20260811.md) — product intent and ownership; apply current AGENTS.md and later confirmed decisions where older thresholds differ.
-3. [Desktop Assistant](DESKTOP_ASSISTANT.md) — the Python configuration and process-control entry used with the native runtime.
+3. [Desktop Assistant](DESKTOP_ASSISTANT.md) — dev Python/Tk configuration and process-control entry.
 
 Historical implementation rationale is in [Legacy Control Stack Cleanup](LEGACY_CONTROL_STACK_CLEANUP_20260810.md) and [the archive](../archive/README.md). Historical executable identities, acceptance reports and old handoffs do not define current continuation work. SHA256 provenance and benchmark acceptance tooling were retired on 2026-10-04; ordinary functional tests and numerical simulations remain.
 
 ## Runtime and Architecture
 
 - [Gamepad Overview](GAMEPAD_OVERVIEW.md) - main hand-controller path.
-- [Vision Overview](VISION_OVERVIEW.md) - shared Python/native Vision contract.
+- [Vision Overview](VISION_OVERVIEW.md) - native Vision ownership and historical contract.
 - [Mouse Overview](MOUSE_OVERVIEW.md) - current mouse entry points and historical implementation.
 - [Mouse Input Replacement Route](MOUSE_ROUTE_INPUT_REPLACEMENT_20260908.md) - physical capture, one virtual output owner and AI runtime integration gates.
 - [Mouse Virtual Relay Desktop Acceptance](MOUSE_VIRTUAL_RELAY_DESKTOP_VERIFIED_20260908.md) - measured movement, left/right buttons, vertical wheel and normal-exit recovery.
@@ -26,9 +28,9 @@ Historical implementation rationale is in [Legacy Control Stack Cleanup](LEGACY_
 - [Native Log Sessions](NATIVE_LOG_SESSIONS.md) - structured session logs and
   cleanup.
 - [Recoil Record/Replay Validation](RECOIL_RECORD_REPLAY_VALIDATION.md) -
-  recoil operation and acceptance.
+  historical recoil tooling (Python commands retired).
 
-## Vision Data and Training
+## Historical Vision Data and Training (tools retired)
 
 - [Person Detector Training](PERSON_DETECTOR_TRAINING.md)
 - [Person Detector Training Results](PERSON_DETECTOR_TRAINING_RESULTS.md)
@@ -51,7 +53,7 @@ implementation records
 ## Repository Layout
 
 - [Python and native repository layout, 2026-09-30](REPOSITORY_LAYOUT_20260930.md) -
-  source ownership, current build paths, preserved local assets and verification.
+  historical layout before Python retirement; current ownership/build paths are in CURRENT_STATE.md.
 
 When the question is what runs today, prefer current code and effective
 configuration, then `CURRENT_STATE.md`. When the question is intended product

@@ -1,36 +1,29 @@
 # Agent Handoff
 
-Last updated: 2026-09-26
-Active scope: commit the tested gamepad controller checkpoint and preserve its limitations.
+Last updated: 2026-10-04
+Active scope: native refactor merged into dev; dev GUI preserved, new C++ GUI excluded.
 
-## Current State
+## Current state
 
-- **User-confirmed:** after the new build, ordinary multiplayer with normal aim assist felt free of the previously noticed jitter/oscillation. User requested latest-log review, documentation, generated-file cleanup and a scoped commit.
-- **Repository evidence:** retained fixes cover the 15–30% continuous per-axis intent curve, raw zero-deadzone passthrough, acknowledged DS4 camera-command coordinates/time, confidence units and high-rate source-window starvation. No rejected predictive/adaptive model experiment remains in production.
-- Tested gameplay binary SHA-256: `14b5bdb4435f8d20c8fe3a766a724a82e26e3e4da335df813f8dd4d801fd58e8`. It was built from the pre-commit working tree, not solely the embedded old commit identity.
-- **Offline evidence:** 410 product cases passed; 56 high-rate subcases prove observation/learning repair; 16 matrix packs (864 opportunities) have no new protected regressions against the preceding continuous-intent worktree; 1,944 development scan cases unchanged. This does not reverse prior rejected candidate results.
-- **Log evidence:** two intact rotations cover about 658 seconds, 61,766 unique controller samples and 142,981 delivery records; no recorded delivery errors, nonfinite axes or output range violations. Final rotation has a truncated last line and remains excluded and untouched.
-- **Open observations:** one short firing-related error/output reversal segment and one ADS-to-extension authority jump remain screening findings, not proven causes. No matched live A/B, independent camera truth or complete game/hardware covariates.
-- Audit status is **INSUFFICIENT_EVIDENCE** for full acceptance. User feel confirmation is limited to normal multiplayer. Strong-AA Warzone/Zombie and the frozen synthetic response/delay mismatch RED remain open; do not label the entire system LIVE-ACCEPTED.
+- Latest user explicitly requested merge into dev and preserve dev GUI. This supersedes the prior blanket Python retirement for desktop UI. Native gameplay/control/Vision/build stay C++; Python is retained only for desktop configuration/curves/process management/IPC and GUI checks. Do not restore Python gameplay, training or analysis paths.
+- dev GUI baseline 0ab4020, pre-merge cleanup/source preservation 05d1c83. Original untracked output screenshots/reports and ignored models/config/profiles remain intact. Refactor branch remains available independently; it contains the excluded C++ GUI.
+- GUI implementation, root VBS, GUI docs and background start/stop/Fusion launch scripts exactly preserve 05d1c83. New native desktop sources/target/tests are excluded from dev. Native IPC protocol is shared and unchanged (protocol=1, snapshot=640 bytes).
+- Merged runtime ownership/RAII/diagnostics/telemetry refactor, strict config parsing, optional output resource creation, historical test cleanup, pybind and non-GUI Python retirement, native SDL/ViGEm DLL inputs. Preserve dev independent game-profile parsing and its regression; no production controller algorithm change.
+- Current model/links: [Current State](../docs/project/CURRENT_STATE.md); build/entry: [README](../README.md); GUI: [Desktop Assistant](../docs/project/DESKTOP_ASSISTANT.md).
 
-## Next Action
+## Verification and limits
 
-- Preserve this checkpoint. If a new symptom is reported, compare against its exact binary/config identity and convert a confirmed episode into a RED before changing behavior.
-- Prioritize the two saved screening episodes if they recur; do not attribute all improvement to the high-rate fix, since stable 160 Hz did not trigger starvation.
-- Raw logs and build backups stay local. Telemetry was enabled for this capture; its overhead precludes comparison with no-log timing.
+- Merged dev full Release build passes. CTest 50/50 groups and retained GUI unittest 66/66 pass. GUI/native config assertions include independent-game identity and malformed inputs.
+- Actual retained Python RuntimeManager/ControlChannel starts merged TensorRT runtime with device output disabled, control reload applies revision 0→1, graceful stop completes exit=0 and owned active record becomes inert. Temporary config isolated; original config/profile assets unchanged.
+- GUI source/entry/scripts have no diff versus pre-merge dev. No new live receiver, gameplay, Canvas capture exclusion or feel acceptance; disabled output does not prove delivery. Engine export untested without ONNX.
+- Earlier isolated branch ignored-cache recursive cleanup was rejected by automatic review with blocked by policy; not retried/bypassed. Historical ignored outputs may remain, outside current build paths.
 
-## Relevant Records
+## Continuing boundaries
 
-- `docs/benchmarks/CONTROLLER_MULTIPLAYER_CHECKPOINT_20260926.md`
-- `docs/benchmarks/CONTROLLER_OFFLINE_REPAIR_20260926.md`
-- `docs/benchmarks/CONTROLLER_CHAIN_REFACTOR_20260926.md`
-- `docs/benchmarks/oscillation-20260926/high-rate-regression-manifest.json`
-- `docs/benchmarks/AIMLAB_OPTIMIZATION_CONTRACT_V1_20260827.md`
-- `decisions/DEC-2026-08-11-001-incident-first-gameplay-validation.md`
+- SHA256 checking/provenance and benchmark comparison/release framework stay retired. GUI path-derived mutex names do not constitute provenance validation. Ordinary tests and useful numerical simulations remain.
+- Preserve zero-deadzone raw manual passthrough, continuous 15–30% intent, search/acquisition/identity/handover, same-tick controller chain and resource/button release. ai_proposal knobs remain unknown/inert.
+- GUI uses the existing Python 3.11+ Tk/stdlib environment; no retired vision/controller Python packages are needed. Native build needs SDKs/DLLs and compatible models, not Python.
 
-## Boundaries
+## Context review
 
-- Native passthrough has zero software deadzone; AI manual weight rises smoothly over 15–30%. Keep the full controller chain in lockstep.
-- Do not exchange acquisition/identity/handover regressions for aggregate smoothness points.
-- Unrelated GPU contention, training, Flash tools and research work remain outside this commit and must not be cleaned up.
-- Previous Fusion handoff is preserved in `archive/handoff-2026-09-01-before-controller-checkpoint.md`; its live-display questions were not investigated in this task.
+SyncSet: update current dev handoff/model and append merge milestone. Reviewer accept_draft (self-review) under user's direct merge/one-pass authorization. Latest scope overrides historical isolation/GUI-retirement claims; historic verification distinguished from merged results. No decision rewrite, secrets/raw logs/assets or writes to project-cognition.

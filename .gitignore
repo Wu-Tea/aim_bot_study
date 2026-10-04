@@ -39,3 +39,4 @@ scheduler_benchmark.json
 /native/build/
 /native/build-*/
 /python/*.egg-info/
+/runtime_deps/windows-x64/*.dll

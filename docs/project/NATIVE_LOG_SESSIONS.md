@@ -1,3 +1,5 @@
+> 2026-10-04：本文涉及的 Python 工具/命令已退役，仅保留历史格式和设计记录；当前入口、构建和资源归属见 [CURRENT_STATE.md](CURRENT_STATE.md)。原生 runtime 的日志和 recoil 功能仍保留。
+
 # Native Debug Log Sessions
 
 High-rate native telemetry is disabled by default. Enable it only while reproducing a problem by setting either `runtime.telemetry.enabled = true` or the compatibility switch `runtime.vision.aim_perf_file_log = true`.

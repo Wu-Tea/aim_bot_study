@@ -6,6 +6,11 @@
 
 namespace runtime_app {
 
+inline std::uint64_t steady_time_point_ns(std::chrono::steady_clock::time_point value) noexcept {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(value.time_since_epoch()).count());
+}
+
 class AbsoluteDeadlineState {
 public:
     AbsoluteDeadlineState(

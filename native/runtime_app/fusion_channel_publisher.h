@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <string>
 
+namespace vision_native { struct VisionResult; }
+
 namespace runtime_app {
 
 class FusionChannelPublisher {
@@ -33,6 +35,10 @@ public:
 
     // True once open() succeeded and we haven't self-disabled.
     bool enabled() const noexcept { return enabled_; }
+
+    // Owns the Vision-to-overlay conversion; uses bounded stack storage.
+    void publish_vision_result(const vision_native::VisionResult& result,
+                              int frame_width, int frame_height);
 
     // Publish a batch of detections + target info.
     // `frame_width` / `frame_height` must be > 0.

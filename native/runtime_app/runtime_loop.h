@@ -37,7 +37,19 @@ public:
     void attach_control_bridge(RuntimeControlBridge* bridge) noexcept { control_bridge_ = bridge; }
 
 private:
+    struct TickTimes {
+        std::chrono::steady_clock::time_point tick_started, pipeline_started,
+            output_started, output_finished;
+        std::uint64_t physical_read_ns;
+    };
     void run_once();
+    void record_vision_diagnostics(bool aiming);
+    void record_tick_diagnostics(
+        const controller_native::PhysicalGamepadState& physical,
+        const controller_native::GamepadOutputState& output,
+        const controller_native::VirtualGamepadUpdateResult& output_result,
+        const TickTimes& times, bool aiming, bool assist_aiming,
+        const pipeline_contract::CommittedCaptureObservation* committed_capture);
     void apply_pending_config();
     void submit_vision_result(const vision_native::VisionResult& result,
                               std::uint64_t controller_consume_ns,
@@ -68,20 +80,17 @@ private:
     controller_native::NativeGamepadController controller_;
     controller_native::OutputComposer output_composer_;
     ViewportController viewport_controller_;
-    controller_native::VirtualGamepad virtual_gamepad_;
+    std::unique_ptr<controller_native::VirtualGamepad> virtual_gamepad_;
     PersonDetectionGesture person_detection_gesture_;
     std::unique_ptr<vision_native::VisionEngine> vision_engine_;
     std::unique_ptr<VisionService> vision_service_;
     VisionDeliveryGate vision_delivery_gate_;
     vision_native::VisionResult latest_vision_result_;
     bool has_latest_vision_result_ = false;
-    bool latest_vision_aiming_ = false;
     bool enemy_mark_vision_active_ = false;
     std::uint64_t enemy_mark_target_scope_ = 0;
     std::uint64_t latest_vision_service_sequence_ = 0;
-    std::uint64_t latest_result_timestamp_ns_ = 0;
     std::uint64_t latest_vision_publish_ns_ = 0;
-    bool latest_vision_publish_available_ = false;
     std::uint64_t latest_controller_submit_complete_ns_ = 0;
     std::uint64_t latest_controller_consume_started_ns_ = 0;
     unsigned int selected_xinput_user_index_ = 0;
@@ -92,7 +101,6 @@ private:
 
     // fusion visual overlay
     FusionChannelPublisher fusion_publisher_;
-    bool fusion_enabled_ = false;
 };
 
 }  // namespace runtime_app

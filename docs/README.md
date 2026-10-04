@@ -1,3 +1,5 @@
+当前接续以 [项目模型](project/CURRENT_STATE.md) 和 [原生助手](project/DESKTOP_ASSISTANT.md) 为准。Python 运行、构建、训练、桥接和工具路径已退役；较早文档中的相关命令仅说明历史，不是现行入口。
+
 # Documentation
 
 这里是项目文档的中央入口。先读当前状态，再按任务进入运行、benchmark、训练或历史证据。

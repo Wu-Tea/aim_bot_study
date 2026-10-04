@@ -41,49 +41,53 @@ std::string strip_comment(const std::string& line) {
 
 std::string parse_string_value(std::string value) {
     value = trim(std::move(value));
+    if (!value.empty() && (value.front() == '"' || value.back() == '"') &&
+        (value.size() < 2 || value.front() != '"' || value.back() != '"'))
+        throw std::runtime_error("unterminated quoted configuration value");
     if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
         return value.substr(1, value.size() - 2);
     }
     return value;
 }
 
-bool parse_bool_value(const std::string& value, bool fallback) {
+bool parse_bool_value(const std::string& value) {
     std::string normalized = trim(value);
     std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
     });
-    if (normalized == "true" || normalized == "1" || normalized == "yes" || normalized == "on") {
-        return true;
-    }
-    if (normalized == "false" || normalized == "0" || normalized == "no" || normalized == "off") {
-        return false;
-    }
-    return fallback;
+    if (normalized == "true" || normalized == "1" || normalized == "yes" || normalized == "on") return true;
+    if (normalized == "false" || normalized == "0" || normalized == "no" || normalized == "off") return false;
+    throw std::runtime_error("invalid boolean value: " + value);
 }
 
-int parse_int_value(const std::string& value, int fallback) {
+int parse_int_value(const std::string& value) {
+    const auto text = trim(value);
+    std::size_t used = 0;
     try {
-        return std::stoi(trim(value));
-    } catch (const std::exception&) {
-        return fallback;
+        const int parsed = std::stoi(text, &used);
+        if (used == text.size()) return parsed;
+    } catch (const std::logic_error&) {
+        throw std::runtime_error("invalid integer value: " + value);
     }
+    throw std::runtime_error("invalid integer value: " + value);
 }
 
-unsigned int parse_uint_value(const std::string& value, unsigned int fallback) {
-    try {
-        const int parsed = std::stoi(trim(value));
-        return parsed < 0 ? fallback : static_cast<unsigned int>(parsed);
-    } catch (const std::exception&) {
-        return fallback;
-    }
+unsigned int parse_uint_value(const std::string& value) {
+    const int parsed = parse_int_value(value);
+    if (parsed < 0) throw std::runtime_error("negative unsigned value: " + value);
+    return static_cast<unsigned int>(parsed);
 }
 
-float parse_float_value(const std::string& value, float fallback) {
+float parse_float_value(const std::string& value) {
+    const auto text = trim(value);
+    std::size_t used = 0;
     try {
-        return std::stof(trim(value));
-    } catch (const std::exception&) {
-        return fallback;
+        const float parsed = std::stof(text, &used);
+        if (used == text.size() && std::isfinite(parsed)) return parsed;
+    } catch (const std::logic_error&) {
+        throw std::runtime_error("invalid finite number: " + value);
     }
+    throw std::runtime_error("invalid finite number: " + value);
 }
 
 void apply_runtime_vision_value(
@@ -91,54 +95,54 @@ void apply_runtime_vision_value(
     const std::string& key,
     const std::string& value) {
     if (key == "crop_width" || key == "capture_width") {
-        config.capture_width = parse_int_value(value, config.capture_width);
+        config.capture_width = parse_int_value(value);
     } else if (key == "crop_height" || key == "capture_height") {
-        config.capture_height = parse_int_value(value, config.capture_height);
+        config.capture_height = parse_int_value(value);
     } else if (key == "tensor_width") {
-        config.tensor_width = parse_int_value(value, config.tensor_width);
+        config.tensor_width = parse_int_value(value);
     } else if (key == "tensor_height") {
-        config.tensor_height = parse_int_value(value, config.tensor_height);
+        config.tensor_height = parse_int_value(value);
     } else if (key == "require_isotropic_resize") {
         config.require_isotropic_resize =
-            parse_bool_value(value, config.require_isotropic_resize);
+            parse_bool_value(value);
     } else if (key == "dynamic_viewport_enabled") {
         config.dynamic_viewport_enabled =
-            parse_bool_value(value, config.dynamic_viewport_enabled);
+            parse_bool_value(value);
     } else if (key == "viewport_precision_width") {
         config.viewport_precision_width =
-            parse_int_value(value, config.viewport_precision_width);
+            parse_int_value(value);
     } else if (key == "viewport_precision_height") {
         config.viewport_precision_height =
-            parse_int_value(value, config.viewport_precision_height);
+            parse_int_value(value);
     } else if (key == "viewport_normal_width") {
         config.viewport_normal_width =
-            parse_int_value(value, config.viewport_normal_width);
+            parse_int_value(value);
     } else if (key == "viewport_normal_height") {
         config.viewport_normal_height =
-            parse_int_value(value, config.viewport_normal_height);
+            parse_int_value(value);
     } else if (key == "viewport_rescue_width") {
         config.viewport_rescue_width =
-            parse_int_value(value, config.viewport_rescue_width);
+            parse_int_value(value);
     } else if (key == "viewport_rescue_height") {
         config.viewport_rescue_height =
-            parse_int_value(value, config.viewport_rescue_height);
+            parse_int_value(value);
     } else if (key == "viewport_prediction_ms") {
         config.viewport_prediction_ms =
-            parse_float_value(value, config.viewport_prediction_ms);
+            parse_float_value(value);
     } else if (key == "capture_fps") {
-        config.capture_fps = parse_int_value(value, config.capture_fps);
+        config.capture_fps = parse_int_value(value);
     } else if (key == "idle_capture_fps") {
-        config.idle_capture_fps = parse_int_value(value, config.idle_capture_fps);
+        config.idle_capture_fps = parse_int_value(value);
     } else if (key == "aim_release_hold_ms") {
-        config.aim_release_hold_ms = parse_int_value(value, -1);
+        config.aim_release_hold_ms = parse_int_value(value);
     } else if (key == "keepwarm_when_idle") {
-        config.keepwarm_when_idle = parse_bool_value(value, config.keepwarm_when_idle);
+        config.keepwarm_when_idle = parse_bool_value(value);
     } else if (key == "friendly_filter_enabled") {
-        config.friendly_filter_enabled = parse_bool_value(value, config.friendly_filter_enabled);
+        config.friendly_filter_enabled = parse_bool_value(value);
     } else if (key == "target_height_ratio") {
-        config.target_height_ratio = parse_float_value(value, config.target_height_ratio);
+        config.target_height_ratio = parse_float_value(value);
     } else if (key == "target_wide_low_height_ratio") {
-        config.target_wide_low_height_ratio = parse_float_value(value, config.target_wide_low_height_ratio);
+        config.target_wide_low_height_ratio = parse_float_value(value);
     } else if (key == "color_readback_mode") {
         config.color_readback_mode = parse_string_value(value);
     } else if (key == "model_path") {
@@ -148,18 +152,18 @@ void apply_runtime_vision_value(
     } else if (key == "quit_key") {
         config.quit_key = parse_string_value(value);
     } else if (key == "native_cue_sidecar") {
-        config.native_cue_sidecar = parse_bool_value(value, config.native_cue_sidecar);
+        config.native_cue_sidecar = parse_bool_value(value);
     } else if (key == "perf_log") {
-        config.perf_log = parse_bool_value(value, config.perf_log);
+        config.perf_log = parse_bool_value(value);
     } else if (key == "gpu_service_enabled") {
-        config.gpu_service_enabled = parse_bool_value(value, config.gpu_service_enabled);
+        config.gpu_service_enabled = parse_bool_value(value);
     } else if (key == "fusion_enabled") {
-        config.fusion_enabled = parse_bool_value(value, config.fusion_enabled);
+        config.fusion_enabled = parse_bool_value(value);
     } else if (key == "fusion_session") {
         config.fusion_session = parse_string_value(value);
     } else if (key == "fusion_show_all_detections") {
         config.fusion_show_all_detections =
-            parse_bool_value(value, config.fusion_show_all_detections);
+            parse_bool_value(value);
     }
 }
 
@@ -293,11 +297,11 @@ void apply_runtime_gamepad_value(
         config.auto_fire_output = parse_string_value(value);
         config.auto_fire.fire_output = config.auto_fire_output;
     } else if (key == "rb_counts_as_aiming") {
-        config.rb_counts_as_aiming = parse_bool_value(value, config.rb_counts_as_aiming);
+        config.rb_counts_as_aiming = parse_bool_value(value);
     } else if (key == "xinput_auto_detect") {
-        config.xinput_auto_detect = parse_bool_value(value, config.xinput_auto_detect);
+        config.xinput_auto_detect = parse_bool_value(value);
     } else if (key == "xinput_user_index") {
-        config.xinput_user_index = parse_uint_value(value, config.xinput_user_index);
+        config.xinput_user_index = parse_uint_value(value);
     }
 }
 
@@ -310,24 +314,23 @@ void apply_gamepad_auto_fire_value(
     } else if (key == "manual_fire_input") {
         config.manual_fire_input = parse_string_value(value);
     } else if (key == "manual_fire_activates_ai_aim") {
-        config.manual_fire_activates_ai_aim = parse_bool_value(
-            value, config.manual_fire_activates_ai_aim);
+        config.manual_fire_activates_ai_aim = parse_bool_value(value);
     } else if (key == "aim_only") {
-        config.aim_only = parse_bool_value(value, config.aim_only);
+        config.aim_only = parse_bool_value(value);
     } else if (key == "max_source_age_ms") {
-        config.max_source_age_ms = parse_float_value(value, config.max_source_age_ms);
+        config.max_source_age_ms = parse_float_value(value);
     } else if (key == "require_aim_ready") {
-        config.require_aim_ready = parse_bool_value(value, config.require_aim_ready);
+        config.require_aim_ready = parse_bool_value(value);
     } else if (key == "manual_takeover_release_seconds") {
         config.manual_takeover_release_seconds =
-            parse_float_value(value, config.manual_takeover_release_seconds);
+            parse_float_value(value);
     } else if (key == "manual_takeover_resume_delay_seconds") {
         config.manual_takeover_resume_delay_seconds =
-            parse_float_value(value, config.manual_takeover_resume_delay_seconds);
+            parse_float_value(value);
     } else if (key == "pulse_width_ms") {
-        config.pulse_width_ms = parse_float_value(value, config.pulse_width_ms);
+        config.pulse_width_ms = parse_float_value(value);
     } else if (key == "pulse_period_ms") {
-        config.pulse_period_ms = parse_float_value(value, config.pulse_period_ms);
+        config.pulse_period_ms = parse_float_value(value);
     }
 }
 
@@ -345,8 +348,7 @@ void apply_gamepad_aim_response_curve_value(
         }
         config.algorithm = algorithm;
     } else if (key == "calibration_reference_stick") {
-        config.calibration_reference_stick = parse_float_value(
-            value, config.calibration_reference_stick);
+        config.calibration_reference_stick = parse_float_value(value);
     } else if (key == "custom_points") {
         const auto text = parse_string_value(value);
         std::istringstream points(text);
@@ -376,98 +378,88 @@ void apply_gamepad_ai_aim_value(
     const std::string& key,
     const std::string& value) {
     if (key == "hipfire_multiplier") {
-        const auto text = trim(value);
-        std::size_t used = 0;
-        config.hipfire_multiplier = std::stof(text, &used);
-        if (used != text.size()) throw std::runtime_error("invalid AI hipfire multiplier");
+        config.hipfire_multiplier = parse_float_value(value);
     } else if (key == "aim_response_learning_enabled") {
         const auto text = trim(value);
         if (text != "true" && text != "false") throw std::runtime_error("aim_response_learning_enabled requires true or false");
         config.aim_response_learning_enabled = text == "true";
     } else if (key == "ai_delta_gain") {
-        config.ai_delta_gain = parse_float_value(value, config.ai_delta_gain);
+        config.ai_delta_gain = parse_float_value(value);
     } else if (key == "target_max_age_ms") {
-        config.target_max_age_ms = parse_float_value(value, config.target_max_age_ms);
+        config.target_max_age_ms = parse_float_value(value);
     } else if (key == "ads_activation_radius_px") {
         config.ads_activation_radius_px =
-            parse_float_value(value, config.ads_activation_radius_px);
+            parse_float_value(value);
     } else if (key == "ads_pickup_base_radius_px") {
         config.ads_pickup_base_radius_px =
-            parse_float_value(value, config.ads_pickup_base_radius_px);
+            parse_float_value(value);
     } else if (key == "ads_scope_ready_trigger") {
         config.ads_scope_ready_trigger =
-            parse_float_value(value, config.ads_scope_ready_trigger);
+            parse_float_value(value);
     } else if (key == "ads_snap_window_ms") {
-        config.ads_snap_window_ms = parse_int_value(value, config.ads_snap_window_ms);
+        config.ads_snap_window_ms = parse_int_value(value);
     } else if (key == "ads_snap_max_ai_force") {
-        config.ads_snap_max_ai_force = parse_float_value(value, config.ads_snap_max_ai_force);
+        config.ads_snap_max_ai_force = parse_float_value(value);
     } else if (key == "ads_snap_max_ai_force_y") {
-        config.ads_snap_max_ai_force_y = parse_float_value(value, config.ads_snap_max_ai_force_y);
+        config.ads_snap_max_ai_force_y = parse_float_value(value);
     } else if (key == "ads_completion_radius_px") {
         config.ads_completion_radius_px =
-            parse_float_value(value, config.ads_completion_radius_px);
+            parse_float_value(value);
     } else if (key == "ads_completion_fresh_frames") {
         config.ads_completion_fresh_frames =
-            parse_int_value(value, config.ads_completion_fresh_frames);
+            parse_int_value(value);
     } else if (key == "ads_target_wait_ms") {
         config.ads_target_wait_ms =
-            parse_float_value(value, config.ads_target_wait_ms);
+            parse_float_value(value);
     } else if (
         key == "ads_extension_budget_ms" ||
         key == "ads_max_acquisition_ms") {
         config.ads_extension_budget_ms =
-            parse_float_value(value, config.ads_extension_budget_ms);
+            parse_float_value(value);
     } else if (key == "auto_fire_ready_error_px") {
-        config.auto_fire_ready_error_px = parse_float_value(value, config.auto_fire_ready_error_px);
+        config.auto_fire_ready_error_px = parse_float_value(value);
     } else if (key == "auto_fire_ready_frames") {
-        config.auto_fire_ready_frames = parse_int_value(value, config.auto_fire_ready_frames);
+        config.auto_fire_ready_frames = parse_int_value(value);
     } else if (key == "auto_fire_ready_max_ai_stick") {
         config.auto_fire_ready_max_ai_stick =
-            parse_float_value(value, config.auto_fire_ready_max_ai_stick);
+            parse_float_value(value);
     } else if (key == "cue_hold_body_lock_force_scale") {
         config.cue_hold_body_lock_force_scale =
-            parse_float_value(value, config.cue_hold_body_lock_force_scale);
+            parse_float_value(value);
     } else if (key == "cue_hold_full_force_min_target_height_ratio") {
         config.cue_hold_full_force_min_target_height_ratio =
-            parse_float_value(
-                value,
-                config.cue_hold_full_force_min_target_height_ratio);
+            parse_float_value(value);
     } else if (key == "body_lock_max_ai_force") {
-        config.body_lock_max_ai_force = parse_float_value(value, config.body_lock_max_ai_force);
+        config.body_lock_max_ai_force = parse_float_value(value);
     } else if (key == "body_lock_max_ai_force_y") {
         config.body_lock_max_ai_force_y =
-            parse_float_value(value, config.body_lock_max_ai_force_y);
+            parse_float_value(value);
     } else if (key == "body_lock_box_tolerance_px") {
         config.body_lock_box_tolerance_px =
-            parse_float_value(value, config.body_lock_box_tolerance_px);
+            parse_float_value(value);
     } else if (key == "body_lock_activation_box_px") {
         config.body_lock_activation_box_px =
-            parse_float_value(value, config.body_lock_activation_box_px);
+            parse_float_value(value);
     } else if (key == "aim_response_effect_delay_ms") {
-        config.aim_response_effect_delay_ms = parse_float_value(
-            value, config.aim_response_effect_delay_ms);
+        config.aim_response_effect_delay_ms = parse_float_value(value);
     } else if (key == "aim_response_initial_scale") {
-        config.aim_response_initial_scale = parse_float_value(
-            value, config.aim_response_initial_scale);
+        config.aim_response_initial_scale = parse_float_value(value);
     } else if (key == "body_free_initial_scale" || key == "body_slow_initial_scale" ||
                key == "ads_free_initial_scale" || key == "ads_slow_initial_scale") {
-        std::size_t used = 0;
-        const auto text = trim(value);
-        const float scale = std::stof(text, &used);
-        if (used != text.size()) throw std::runtime_error("invalid response prior: " + key);
+        const float scale = parse_float_value(value);
         if (key == "body_free_initial_scale") config.body_free_initial_scale = scale;
         else if (key == "body_slow_initial_scale") config.body_slow_initial_scale = scale;
         else if (key == "ads_free_initial_scale") config.ads_free_initial_scale = scale;
         else config.ads_slow_initial_scale = scale;
     } else if (key == "desired_point_traversal_ms") {
         config.desired_point_traversal_ms =
-            parse_float_value(value, config.desired_point_traversal_ms);
+            parse_float_value(value);
     } else if (key == "desired_point_boundary_exit_ms") {
         config.desired_point_boundary_exit_ms =
-            parse_float_value(value, config.desired_point_boundary_exit_ms);
+            parse_float_value(value);
     } else if (key == "visual_authority_enabled") {
         config.visual_authority_enabled =
-            parse_bool_value(value, config.visual_authority_enabled);
+            parse_bool_value(value);
     }
 }
 
@@ -476,27 +468,27 @@ void apply_gamepad_recoil_value(
     const std::string& key,
     const std::string& value) {
     if (key == "enabled") {
-        config.enabled = parse_bool_value(value, config.enabled);
+        config.enabled = parse_bool_value(value);
     } else if (key == "feedback_amount") {
-        config.feedback_amount = parse_float_value(value, config.feedback_amount);
+        config.feedback_amount = parse_float_value(value);
     } else if (key == "feedback_min_amount") {
-        config.feedback_min_amount = parse_float_value(value, config.feedback_min_amount);
+        config.feedback_min_amount = parse_float_value(value);
     } else if (key == "feedback_max_amount") {
-        config.feedback_max_amount = parse_float_value(value, config.feedback_max_amount);
+        config.feedback_max_amount = parse_float_value(value);
     } else if (key == "hipfire_multiplier") {
-        config.hipfire_multiplier = parse_float_value(value, config.hipfire_multiplier);
+        config.hipfire_multiplier = parse_float_value(value);
     }
 }
 
 void apply_recoil_environment_overrides(GamepadRecoilConfig& config) {
     if (const char* enabled = std::getenv("ENABLE_RECOIL_RUNTIME")) {
         if (enabled[0] != '\0') {
-            config.enabled = parse_bool_value(enabled, config.enabled);
+            config.enabled = parse_bool_value(enabled);
         }
     }
     if (const char* enabled = std::getenv("RECOIL_ENABLED")) {
         if (enabled[0] != '\0') {
-            config.enabled = parse_bool_value(enabled, config.enabled);
+            config.enabled = parse_bool_value(enabled);
         }
     }
 }
@@ -504,12 +496,12 @@ void apply_recoil_environment_overrides(GamepadRecoilConfig& config) {
 void apply_gamepad_environment_overrides(GamepadRuntimeConfig& config) {
     if (const char* auto_detect = std::getenv("GAMEPAD_XINPUT_AUTO_DETECT")) {
         if (auto_detect[0] != '\0') {
-            config.xinput_auto_detect = parse_bool_value(auto_detect, config.xinput_auto_detect);
+            config.xinput_auto_detect = parse_bool_value(auto_detect);
         }
     }
     if (const char* user_index = std::getenv("GAMEPAD_XINPUT_USER_INDEX")) {
         if (user_index[0] != '\0') {
-            config.xinput_user_index = parse_uint_value(user_index, config.xinput_user_index);
+            config.xinput_user_index = parse_uint_value(user_index);
             config.xinput_auto_detect = false;
         }
     }
@@ -518,25 +510,25 @@ void apply_gamepad_environment_overrides(GamepadRuntimeConfig& config) {
 void apply_vision_environment_overrides(VisionRuntimeConfig& config) {
     if (const char* capture_fps = std::getenv("VISION_CAPTURE_FPS")) {
         if (capture_fps[0] != '\0') {
-            config.capture_fps = parse_int_value(capture_fps, config.capture_fps);
+            config.capture_fps = parse_int_value(capture_fps);
         }
     }
     if (const char* enabled = std::getenv("VISION_GPU_SERVICE_ENABLED")) {
         if (enabled[0] != '\0') {
             config.gpu_service_enabled =
-                parse_bool_value(enabled, config.gpu_service_enabled);
+                parse_bool_value(enabled);
         }
     }
     // fusion channel env overrides
     if (const char* fusion_enabled = std::getenv("FUSION_ENABLED")) {
         if (fusion_enabled[0] != '\0') {
             config.fusion_enabled =
-                parse_bool_value(fusion_enabled, config.fusion_enabled);
+                parse_bool_value(fusion_enabled);
         }
     }
     if (const char* fusion_off = std::getenv("FUSION_FORCE_OFF")) {
         if (fusion_off[0] != '\0') {
-            if (parse_bool_value(fusion_off, false)) {
+            if (parse_bool_value(fusion_off)) {
                 config.fusion_enabled = false;
             }
         }
@@ -549,7 +541,7 @@ void apply_vision_environment_overrides(VisionRuntimeConfig& config) {
     if (const char* fusion_show = std::getenv("FUSION_SHOW_ALL_DETECTIONS")) {
         if (fusion_show[0] != '\0') {
             config.fusion_show_all_detections =
-                parse_bool_value(fusion_show, config.fusion_show_all_detections);
+                parse_bool_value(fusion_show);
         }
     }
 }
@@ -557,7 +549,7 @@ void apply_vision_environment_overrides(VisionRuntimeConfig& config) {
 void apply_telemetry_environment_overrides(RuntimeTelemetryConfig& config) {
     if (const char* enabled = std::getenv("RUNTIME_TELEMETRY_ENABLED")) {
         if (enabled[0] != '\0') {
-            config.enabled = parse_bool_value(enabled, config.enabled);
+            config.enabled = parse_bool_value(enabled);
         }
     }
     if (const char* directory = std::getenv("RUNTIME_TELEMETRY_DIRECTORY")) {
@@ -614,78 +606,71 @@ void apply_value(
         apply_runtime_vision_value(config.vision, key, value);
     } else if (section == "runtime.telemetry") {
         if (key == "enabled") {
-            config.telemetry.enabled = parse_bool_value(value, config.telemetry.enabled);
+            config.telemetry.enabled = parse_bool_value(value);
         } else if (key == "directory") {
             config.telemetry.directory = parse_string_value(value);
         } else if (key == "manual_controller_hz") {
-            config.telemetry.manual_controller_hz = parse_int_value(value, config.telemetry.manual_controller_hz);
+            config.telemetry.manual_controller_hz = parse_int_value(value);
         } else if (key == "queue_capacity") {
-            config.telemetry.queue_capacity = parse_uint_value(value, config.telemetry.queue_capacity);
+            config.telemetry.queue_capacity = parse_uint_value(value);
         } else if (key == "rotate_size_mb") {
-            config.telemetry.rotate_size_mb = parse_uint_value(value, config.telemetry.rotate_size_mb);
+            config.telemetry.rotate_size_mb = parse_uint_value(value);
         } else if (key == "max_files") {
-            config.telemetry.max_files = parse_uint_value(value, config.telemetry.max_files);
+            config.telemetry.max_files = parse_uint_value(value);
         }
     } else if (section == "runtime.performance") {
         if (key == "enabled") {
-            config.performance.enabled = parse_bool_value(value, config.performance.enabled);
+            config.performance.enabled = parse_bool_value(value);
         } else if (key == "interval_ms") {
-            config.performance.interval_ms = parse_uint_value(
-                value, config.performance.interval_ms);
+            config.performance.interval_ms = parse_uint_value(value);
         } else if (key == "directory") {
             config.performance.directory = parse_string_value(value);
         } else if (key == "stdout_enabled") {
-            config.performance.stdout_enabled = parse_bool_value(
-                value, config.performance.stdout_enabled);
+            config.performance.stdout_enabled = parse_bool_value(value);
         }
     } else if (section == "runtime.scheduler") {
         if (key == "controller_tick_hz") {
             config.scheduler.controller_tick_hz =
-                parse_int_value(value, config.scheduler.controller_tick_hz);
+                parse_int_value(value);
         } else if (key == "mode") {
             config.scheduler.mode = parse_string_value(value);
         } else if (key == "spin_tail_us") {
-            config.scheduler.spin_tail_us = parse_uint_value(value, config.scheduler.spin_tail_us);
+            config.scheduler.spin_tail_us = parse_uint_value(value);
         } else if (key == "efficiency_core_affinity") {
             config.scheduler.efficiency_core_affinity =
-                parse_bool_value(value, config.scheduler.efficiency_core_affinity);
+                parse_bool_value(value);
         } else if (key == "efficiency_core_count") {
-            config.scheduler.efficiency_core_count = parse_uint_value(
-                value, config.scheduler.efficiency_core_count);
+            config.scheduler.efficiency_core_count = parse_uint_value(value);
         }
     } else if (section == "runtime.input") {
         if (key == "auto_detect") {
-            config.gamepad.xinput_auto_detect = parse_bool_value(value, config.gamepad.xinput_auto_detect);
+            config.gamepad.xinput_auto_detect = parse_bool_value(value);
         } else if (key == "controller_index") {
-            config.gamepad.xinput_user_index = parse_uint_value(value, config.gamepad.xinput_user_index);
+            config.gamepad.xinput_user_index = parse_uint_value(value);
         } else if (key == "rb_counts_as_aiming") {
-            config.gamepad.rb_counts_as_aiming = parse_bool_value(value, config.gamepad.rb_counts_as_aiming);
+            config.gamepad.rb_counts_as_aiming = parse_bool_value(value);
         }
     } else if (section == "runtime.output") {
-        if (key == "enabled") config.output.enabled = parse_bool_value(value, config.output.enabled);
+        if (key == "enabled") config.output.enabled = parse_bool_value(value);
         else if (key == "validation_mode") config.output.validation_mode = parse_string_value(value);
     } else if (section == "gamepad.tracker") {
         if (key == "aim_height_ratio") {
             config.gamepad.tracker.aim_height_ratio = std::clamp(
-                parse_float_value(
-                    value,
-                    config.gamepad.tracker.aim_height_ratio),
+                parse_float_value(value),
                 0.0f,
                 1.0f);
         } else if (key == "max_observation_age_ms") {
             config.gamepad.tracker.max_observation_age_ms = std::clamp(
-                parse_float_value(
-                    value,
-                    config.gamepad.tracker.max_observation_age_ms),
+                parse_float_value(value),
                 1.0f,
                 250.0f);
         }
     } else if (section == "gamepad.output_transfer") {
         auto& transfer = config.gamepad.output_transfer;
-        if (key == "enabled") transfer.enabled = parse_bool_value(value, transfer.enabled);
-        else if (key == "axial") transfer.axial = parse_bool_value(value, transfer.axial);
-        else if (key == "deadzone") transfer.deadzone = parse_float_value(value, transfer.deadzone);
-        else if (key == "game_exponent") transfer.game_exponent = parse_float_value(value, transfer.game_exponent);
+        if (key == "enabled") transfer.enabled = parse_bool_value(value);
+        else if (key == "axial") transfer.axial = parse_bool_value(value);
+        else if (key == "deadzone") transfer.deadzone = parse_float_value(value);
+        else if (key == "game_exponent") transfer.game_exponent = parse_float_value(value);
     } else if (section == "gamepad.aim_response_curve") {
         apply_gamepad_aim_response_curve_value(
             config.gamepad.aim_response_curve, key, value);
@@ -694,61 +679,58 @@ void apply_value(
     } else if (section == "gamepad.ads") {
         auto& ads = config.gamepad.ai_aim;
         if (key == "strength_scale") {
-            const float scale = parse_float_value(value, 1.0f);
+            const float scale = parse_float_value(value);
             config.ads.strength_scale = scale;
             ads.ads_snap_max_ai_force *= scale;
         } else if (key == "vertical_strength_scale") {
-            const float scale = parse_float_value(value, 1.0f);
+            const float scale = parse_float_value(value);
             config.ads.vertical_strength_scale = scale;
             ads.ads_snap_max_ai_force_y *= scale;
         } else if (key == "activation_radius_px") {
             ads.ads_activation_radius_px =
-                parse_float_value(value, ads.ads_activation_radius_px);
+                parse_float_value(value);
         } else if (key == "pickup_base_radius_px") {
             ads.ads_pickup_base_radius_px =
-                parse_float_value(value, ads.ads_pickup_base_radius_px);
+                parse_float_value(value);
         } else if (key == "scope_ready_trigger") {
             ads.ads_scope_ready_trigger =
-                parse_float_value(value, ads.ads_scope_ready_trigger);
+                parse_float_value(value);
         } else if (key == "snap_duration_ms") {
-            ads.ads_snap_window_ms = parse_int_value(value, ads.ads_snap_window_ms);
+            ads.ads_snap_window_ms = parse_int_value(value);
         } else if (key == "completion_radius_px") {
-            ads.ads_completion_radius_px = parse_float_value(value, ads.ads_completion_radius_px);
+            ads.ads_completion_radius_px = parse_float_value(value);
             config.ads.completion_radius_px = ads.ads_completion_radius_px;
         } else if (key == "completion_fresh_frames") {
-            ads.ads_completion_fresh_frames = parse_int_value(value, ads.ads_completion_fresh_frames);
+            ads.ads_completion_fresh_frames = parse_int_value(value);
             config.ads.completion_fresh_frames = ads.ads_completion_fresh_frames;
         } else if (key == "target_wait_ms") {
-            ads.ads_target_wait_ms = parse_float_value(
-                value, ads.ads_target_wait_ms);
+            ads.ads_target_wait_ms = parse_float_value(value);
             config.ads.target_wait_ms = ads.ads_target_wait_ms;
         } else if (
             key == "extension_budget_ms" ||
             key == "max_acquisition_ms") {
-            ads.ads_extension_budget_ms = parse_float_value(value, ads.ads_extension_budget_ms);
+            ads.ads_extension_budget_ms = parse_float_value(value);
             config.ads.extension_budget_ms = ads.ads_extension_budget_ms;
         }
     } else if (section == "gamepad.bodylock") {
         auto& body = config.gamepad.ai_aim;
         if (key == "strength") {
-            body.body_lock_max_ai_force = parse_float_value(value, body.body_lock_max_ai_force);
+            body.body_lock_max_ai_force = parse_float_value(value);
         } else if (key == "vertical_strength") {
-            body.body_lock_max_ai_force_y = parse_float_value(value, body.body_lock_max_ai_force_y);
+            body.body_lock_max_ai_force_y = parse_float_value(value);
         } else if (key == "activation_range_px") {
-            body.body_lock_activation_box_px = parse_float_value(value, body.body_lock_activation_box_px);
+            body.body_lock_activation_box_px = parse_float_value(value);
         } else if (key == "tolerance_px") {
-            body.body_lock_box_tolerance_px = parse_float_value(value, body.body_lock_box_tolerance_px);
+            body.body_lock_box_tolerance_px = parse_float_value(value);
         }
     } else if (section == "gamepad.enemy_mark") {
         if (key == "enabled") {
             config.gamepad.enemy_mark.enabled =
-                parse_bool_value(value, config.gamepad.enemy_mark.enabled);
+                parse_bool_value(value);
         } else if (key == "l3_cooldown_ms") {
-            config.gamepad.enemy_mark.l3_cooldown_ms = parse_uint_value(
-                value, config.gamepad.enemy_mark.l3_cooldown_ms);
+            config.gamepad.enemy_mark.l3_cooldown_ms = parse_uint_value(value);
         } else if (key == "lt_cooldown_ms") {
-            config.gamepad.enemy_mark.lt_cooldown_ms = parse_uint_value(
-                value, config.gamepad.enemy_mark.lt_cooldown_ms);
+            config.gamepad.enemy_mark.lt_cooldown_ms = parse_uint_value(value);
         }
     } else if (section == "gamepad.auto_fire") {
         apply_gamepad_auto_fire_value(config.gamepad.auto_fire, key, value);
@@ -1023,13 +1005,19 @@ RuntimeConfig load_runtime_config(
     std::unordered_set<std::string> games;
     std::string section;
     std::string line;
+    std::size_t line_number = 0;
     while (std::getline(input, line)) {
+        ++line_number;
+        if (line_number == 1 && line.compare(0, 3, "\xef\xbb\xbf") == 0) line.erase(0, 3);
         line = trim(strip_comment(line));
         if (line.empty()) {
             continue;
         }
-        if (line.front() == '[' && line.back() == ']') {
+        if (line.front() == '[') {
+            if (line.back() != ']' || line.size() < 3)
+                throw std::runtime_error("invalid config section at line " + std::to_string(line_number));
             section = trim(line.substr(1, line.size() - 2));
+            if (section.empty()) throw std::runtime_error("empty config section");
             if (section.rfind("games.", 0) == 0) {
                 const auto end = section.find('.', 6);
                 games.insert(section.substr(6, end == std::string::npos ? end : end - 6));
@@ -1039,10 +1027,12 @@ RuntimeConfig load_runtime_config(
 
         const std::size_t equals = line.find('=');
         if (equals == std::string::npos) {
-            continue;
+            throw std::runtime_error("missing '=' at config line " + std::to_string(line_number));
         }
         const std::string key = trim(line.substr(0, equals));
         const std::string value = trim(line.substr(equals + 1));
+        if (key.empty() || value.empty())
+            throw std::runtime_error("empty config key/value at line " + std::to_string(line_number));
         entries.push_back(Entry{section, key, value});
     }
 
@@ -1101,7 +1091,11 @@ RuntimeConfig load_runtime_config(
             continue;
         }
         const std::string full_key = entry.section + "." + entry.key;
-        apply_value(config, entry.section, entry.key, entry.value);
+        try {
+            apply_value(config, entry.section, entry.key, entry.value);
+        } catch (const std::exception& error) {
+            throw std::runtime_error("invalid config value for " + full_key + ": " + error.what());
+        }
         config.effective_sources[full_key] = entry.source;
     }
 

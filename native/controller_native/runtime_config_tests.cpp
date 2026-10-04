@@ -1,3 +1,4 @@
+#include "../runtime_app/runtime_reload_policy.h"
 #include "runtime_config.h"
 #include "test_support/native_test_registry.h"
 #include "../runtime_app/runtime_stop_signal.h"
@@ -44,6 +45,19 @@ bool has_diagnostic(
         if (diagnostic.find(needle) != std::string::npos) return true;
     }
     return false;
+}
+
+void test_config_rejects_malformed_lines() {
+    for (const std::string text : {
+        "[runtime.output\nenabled=false\n", "[runtime.output]\nenabled false\n",
+        "[runtime.output]\n=false\n", "[runtime.output]\nenabled=\n",
+        "[runtime.vision]\nmodel_path=\"unfinished\n"}) {
+        TempConfig config("native-config-malformed-lines.toml", text);
+        bool rejected = false;
+        try { (void)controller_native::load_runtime_config(config.path()); }
+        catch (const std::runtime_error&) { rejected = true; }
+        require(rejected, "malformed configuration line must fail before desktop save or runtime startup");
+    }
 }
 
 void test_vision_selection_config() {
@@ -653,7 +667,44 @@ void test_custom_curve_config_and_roundtrip() {
     }
 }
 
+void test_scalar_config_rejects_invalid_tokens() {
+    const std::pair<const char*, const char*> fields[] = {
+        {"gamepad.ads", "strength_scale"},
+        {"runtime.scheduler", "controller_tick_hz"},
+        {"runtime.input", "controller_index"},
+        {"runtime.output", "enabled"},
+    };
+    const char* invalid[][6] = {
+        {"\"wrong\"", "0.5junk", "nan", "inf", "1e100", ""},
+        {"\"1000\"", "1000junk", "nan", "inf", "9999999999999999", ""},
+        {"\"0\"", "0junk", "-1", "inf", "9999999999999999", ""},
+        {"\"false\"", "falsejunk", "unknown", "nan", "2", ""},
+    };
+    for (int field = 0; field < 4; ++field) {
+        for (const auto* value : invalid[field]) {
+            const std::string text = std::string("[") + fields[field].first + "]\n" +
+                fields[field].second + "=" + value + "\n";
+            TempConfig file("cod_scalar_invalid.toml", text);
+            bool rejected = false;
+            try { (void)controller_native::load_runtime_config(file.path()); }
+            catch (const std::exception&) { rejected = true; }
+            require(rejected, "explicit invalid scalar must fail, not silently keep a default or parse a prefix");
+        }
+    }
+    TempConfig valid("cod_scalar_valid.toml",
+        "[gamepad.ads]\nstrength_scale=0.5\n"
+        "[runtime.scheduler]\ncontroller_tick_hz=1000\n"
+        "[runtime.input]\ncontroller_index=0\n"
+        "[runtime.output]\nenabled=false\n");
+    const auto config = controller_native::load_runtime_config(valid.path());
+    require(config.ads.strength_scale == .5f && config.scheduler.controller_tick_hz == 1000 &&
+            config.gamepad.xinput_user_index == 0 && !config.output.enabled,
+            "valid scalar configuration keeps its existing meaning");
+}
+
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "config_rejects_malformed_lines", test_config_rejects_malformed_lines);
+    registry.add_case("BaseContracts", "scalar_config_rejects_invalid_tokens", test_scalar_config_rejects_invalid_tokens);
     registry.add_case("BaseContracts", "custom_curve_config_and_randomized_roundtrip", test_custom_curve_config_and_roundtrip);
     registry.add_case("BaseContracts", "hipfire_ai_and_response_learning_config", test_hipfire_ai_and_response_learning_config);
     registry.add_case("BaseContracts", "region_prior_config_boundaries", test_region_prior_config_boundaries);

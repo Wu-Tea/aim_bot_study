@@ -1,152 +1,46 @@
 # yolo-study-001
 
-Windows 上的 YOLO + TensorRT 手柄辅助瞄准研究项目。当前默认实战路径是
-完整的原生 C++ runtime；Python 主要保留为 fallback、训练导出和调试工具。
+Windows 上的 C++ 原生视觉辅助控制项目。手柄、鼠标、Vision、Fusion 和离线仿真由原生代码执行。按用户最新合并要求，桌面 GUI 沿用 dev 的 Python/Tk 配置工作室；Python 仅保留 GUI 及其配置、曲线、进程管理、IPC 和界面检查，不恢复 Python 控制器、视觉 fallback、训练或分析工具。
 
-## 目录分工
+## 启动与配置
 
-```text
-native/                 C++ runtime 及其模块
-  CMakeLists.txt        完整原生项目的构建入口
-  build/Release/        当前构建的可执行文件、DLL 和 Python 原生扩展
-  vision_native/        捕获、推理与目标选择模块
-  controller_native/    控制器和输出逻辑
-  runtime_app/          程序入口与运行调度
-  cmake/                产品测试和离线 benchmark 的构建清单
-python/                 全部项目 Python 代码、工具与测试
-  desktop_app/          日常使用的设置和启停 GUI
-  main.py               Python fallback 入口
-  config/               Python 配置读取代码
-  controllers/          Python 控制器
-  vision/               Python Vision 与原生扩展桥接
-  runtime/              Python recoil sidecar
-  recoil_app/           Python 压枪工具
-  training/             数据集准备与训练支持代码
-  tools/                分析、训练、benchmark 和验证工具
-  tests/                Python 测试与 fixtures
-scripts/                Windows 启动、验证、训练和发布入口
-tools/                  Windows 原生构建、smoke 工具及独立静态工具
-models/                 本机模型和导出文件
-training_data/          本机数据集
-runs/                   运行会话和实验结果
-artifacts/              本机实验资料及配置引用的运行资产
-docs/                   当前参考文档与历史证据
-```
+双击根目录 `启动助手.vbs` 打开现有配置工作室。创建或导入独立配置，选择 TensorRT engine，调整参数与响应曲线后保存并启动。新配置默认不指定模型，需要主动选择可用 engine。切换编辑配置不等于切换实际运行实例。
 
-`config.toml` 继续位于根目录。Python 的导入根是 `python/`，配置、模型与
-日志的资源根仍是项目根目录，具体用法见 [Python 入口](python/README.md) 和
-[原生构建入口](native/README.md)。历史文档中的旧路径用于追溯当时状态。
+GUI 使用现有 `D:\env\python\pythonw.exe`，只依赖 Python 3.11+ 标准库和 Tk，无需安装旧 requirements 中的视觉/控制器包。构建好的 runtime 位于 `native/build/Release/cod_native_runtime.exe`。关闭 GUI 保留运行中的 runtime。
 
-## 快速启动
+完整操作见 [桌面助手](docs/project/DESKTOP_ASSISTANT.md)。个人 config.toml、profiles、模型、数据及运行记录保留。
 
-双击根目录的 **`启动助手.vbs`** 打开配置工作室：新建或导入独立配置，在参数、曲线、设备与运行、运行反馈四个工作区调校后启动。Apex 默认线性，手动曲线支持拖点与逐点精调。
-同一个窗口可以保存配置、切换游戏、热重载、查看学习参数和正常停止；Fusion 使用单独的启停按钮。GUI、主程序和 Fusion 各自运行，关闭窗口后后台继续工作，再打开会接管已有实例。
-详细说明见 [手柄助手 GUI](docs/project/DESKTOP_ASSISTANT.md)。
+## 原生构建与验证
 
-所有游戏共用 `config.toml` 和原来的原生程序；游戏差异放在 `[games.apex.*]`、`[games.bo3.*]` 分块中。
-GUI 保存前校验配置并备份原文件；力度、压枪、fire 按键、友方过滤与目标点支持热重载，成功后清理响应学习。模型、帧率等参数会提示重启。旧后台脚本作为兼容入口保留，也使用同一套启停管理。
-
-以下前台入口用于开发与排障：
-
-前台启动：
+依赖 Windows、Visual Studio 2022 C++、CUDA、TensorRT 和原生设备 DLL，准备方式见 [runtime_deps](runtime_deps/README.md)。原生构建不依赖 Python 或 pybind11。
 
 ```powershell
-.\scripts\launch\gamepad_start.bat
-```
-
-直接启动原生 runtime：
-
-```powershell
-.\scripts\launch\gamepad_native_cpp_start.bat
-```
-
-双击后台启动和停止：
-
-```text
-scripts\launch\gamepad_native_background_start.vbs
-scripts\launch\gamepad_native_background_stop.vbs
-```
-
-后台脚本只隐藏控制台窗口，不会隐藏 Windows 进程。
-
-本机调参使用根目录下被 Git 忽略的 `config.toml`。没有该文件时使用代码默认值；
-可从 `config.native.example.toml` 复制一份作为起点。
-
-## 当前运行契约
-
-- 默认 runtime：`native/build/Release/cod_native_runtime.exe`
-- 本机共用捕获尺寸：`640x512`，模型输入：`480x384`（以 `config.toml` 为准）
-- 共用 TensorRT engine：`models/best_480x384.engine`；Apex 使用游戏分块指定的专属 engine
-- 原生入口：`native/runtime_app/main.cpp`
-- Vision：`native/vision_native/`
-- tracker/controller/output：`native/controller_native/`
-- Python fallback：`python/main.py`
-
-捕获尺寸与模型输入须遵守配置中的缩放约束。修改模型输入尺寸前必须准备对应 engine，
-并重新跑启动和 Vision smoke test。
-
-## 本地结构化日志
-
-需要保存可分析的本地运行数据时，在 `config.toml` 中启用：
-
-```toml
-[runtime.telemetry]
-enabled = true
-mode = "profile"
-manual_controller_hz = 100
-vision_on_new_frame = true
-candidate_details = "on_event"
-queue_capacity = 8192
-rotate_size_mb = 256
-max_files = 10
-```
-
-日志写入 `runs/native_perf/<session>/`。`--perf-log` 是控制台性能诊断开关，
-不能替代结构化 telemetry。更多说明见
-[Native Debug Log Sessions](docs/project/NATIVE_LOG_SESSIONS.md) 和
-[Native runtime telemetry](docs/benchmarks/native-runtime-telemetry.md)。
-
-## 构建与验证
-
-原生构建依赖 Windows、Visual Studio 2022 C++、CUDA、TensorRT 和 pybind11。
-
-```powershell
-.\tools\build_native_runtime.ps1
-python -B -m pytest -q
+.\tools\build_native_runtime.ps1 -CudaArchitectures 75 -OfflineBenchmarks
 ctest --test-dir native/build -C Release --output-on-failure
+$env:PYTHONPATH = "$PWD\python"
+D:\env\python\python.exe -m unittest discover -s python/tests -p 'test_desktop*.py'
 ```
 
-更完整的构建、fallback 和 smoke test 说明见
-[Native C++ Runtime](docs/project/NATIVE_CPP_RUNTIME.md) 与
-[Native Vision](docs/project/NATIVE_VISION.md)。
+CUDA 架构应匹配 GPU；SDK 和 DLL 路径可由脚本参数指定。OfflineBenchmarks 是可选数值仿真，无 SHA256 清单、比较门禁或发布裁决。
 
-## 当前架构
+已有 ONNX 可使用 SDK 原生工具构建新 engine：
 
-```text
-Vision evidence + physical intent
-  -> selector
-  -> TargetCoordinator / tracker-owned TargetPlan
-  -> ADS acquisition or BodyLock follow
-  -> one dynamics shaper
-  -> one vector intent fusion path
-  -> ADS-only brake
-  -> recoil feed-forward
-  -> ViGEm virtual DualShock 4 (native C++ gamepad output)
+```powershell
+.\tools\build_engine.ps1 -OnnxPath models/model.onnx -EnginePath models/candidate.engine
+.\tools\run_native_vision_smoke.ps1 -EnginePath models/candidate.engine
 ```
 
-详细现状、已验证边界和正在进行的方向见
-[Current State](docs/project/CURRENT_STATE.md)。
+动态模型可通过 InputShape 指定实际输入名称/形状。旧训练、采集研究和分析脚本已退役，资产没有随工具删除。
 
-原生 gamepad 已直接转写为有线 DS4，沿用原启动器，无需增加配置项。
-映射、验证与兼容性边界见 [DS4 输出切换](docs/project/DS4_OUTPUT_20260919.md)。
+## 代码责任
 
-## 文档入口
+| 位置 | 责任 |
+| --- | --- |
+| [native](native/README.md) | 统一 CMake、runtime、控制器、Vision、鼠标及 Fusion |
+| python/desktop_app、python/project_paths.py | 保留的 dev GUI、独立配置工作室、曲线、进程和 IPC |
+| python/tests/test_desktop*.py | 保留 GUI 功能与原生配置衔接检查 |
+| scripts/launch | 手柄、鼠标、Fusion 的启停入口 |
+| tools | 原生构建、engine 构建和 Vision 检查 |
+| runtime_deps | 本机原生设备 DLL 输入 |
 
-- [完整文档地图](docs/README.md)
-- [当前项目状态](docs/project/CURRENT_STATE.md)
-- [项目参考文档](docs/project/README.md)
-- [Benchmark 入口](docs/benchmarks/README.md)
-- [历史归档](docs/archive/README.md)
-- [跨项目实时控制优化方法](docs/methods/REALTIME_CONTROL_OPTIMIZATION_START_HERE.md)
-
-历史计划、旧基线和阶段验收不代表当前 runtime 行为；需要追溯原因时从归档入口进入。
+职责、生命周期和验证边界见 [当前项目模型](docs/project/CURRENT_STATE.md)。原始手动零死区、15%–30% intent、身份/交接及同 tick 控制链保持；仿真通过不等于现场游戏验收。

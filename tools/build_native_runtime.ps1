@@ -3,8 +3,8 @@ param(
     [string]$CudaPath = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1",
     [string]$BuildDir = "native\build",
     [string]$Configuration = "Release",
-    [string]$PythonExe = "D:\env\python\python.exe",
-    [string]$Pybind11CMakeDir = "",
+    [string]$ViGEmClientDll = "",
+    [string]$SDL2Dll = "",
     [string]$CudaArchitectures = "",
     [bool]$EnableViGEm = $true,
     [switch]$OfflineBenchmarks
@@ -30,18 +30,6 @@ if (-not (Test-Path (Join-Path $TensorRTRoot "include\NvInfer.h"))) {
 if (-not (Test-Path (Join-Path $CudaPath "include\cuda.h"))) {
     throw "CUDA Toolkit not found or incomplete: $CudaPath"
 }
-if (-not (Test-Path $PythonExe)) {
-    throw "Python executable not found: $PythonExe"
-}
-
-if ([string]::IsNullOrWhiteSpace($Pybind11CMakeDir)) {
-    $Pybind11CMakeDir = & $PythonExe -m pybind11 --cmakedir
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($Pybind11CMakeDir)) {
-        throw "Failed to locate pybind11 CMake directory with: $PythonExe -m pybind11 --cmakedir"
-    }
-    $Pybind11CMakeDir = $Pybind11CMakeDir.Trim()
-}
-
 $env:CUDA_PATH = $CudaPath
 $env:CudaToolkitDir = $CudaPath
 $env:TensorRT_ROOT = $TensorRTRoot
@@ -55,11 +43,16 @@ $ConfigureArgs = @(
     "-G", "Visual Studio 17 2022",
     "-A", "x64",
     "-DTensorRT_ROOT=$TensorRTRoot",
-    "-DCUDAToolkit_ROOT=$CudaPath",
-    "-Dpybind11_DIR=$Pybind11CMakeDir",
-    "-DPython_EXECUTABLE=$PythonExe",
-    "-DPython3_EXECUTABLE=$PythonExe"
+    "-DCUDAToolkit_ROOT=$CudaPath"
 )
+if ([string]::IsNullOrWhiteSpace($ViGEmClientDll)) {
+    $ViGEmClientDll = Join-Path $ProjectRoot "runtime_deps\windows-x64\ViGEmClient.dll"
+}
+if ([string]::IsNullOrWhiteSpace($SDL2Dll)) {
+    $SDL2Dll = Join-Path $ProjectRoot "runtime_deps\windows-x64\SDL2.dll"
+}
+$ConfigureArgs += "-DViGEmClient_DLL=$ViGEmClientDll"
+$ConfigureArgs += "-DSDL2_DLL=$SDL2Dll"
 $ConfigureArgs += "-DNATIVE_ENABLE_VIGEM=$($EnableViGEm.ToString().ToUpperInvariant())"
 $ConfigureArgs += "-DNATIVE_TEST_ENABLE_OFFLINE_BENCHMARKS=$($OfflineBenchmarks.IsPresent.ToString().ToUpperInvariant())"
 if (-not [string]::IsNullOrWhiteSpace($CudaArchitectures)) {

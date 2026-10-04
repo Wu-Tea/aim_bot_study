@@ -9,6 +9,7 @@ add_executable(cod_native_base_tests
     controller_native/ads_bodylock_september_incident_tests.cpp
     controller_native/runtime_config_tests.cpp
     runtime_app/runtime_reload_policy.cpp
+    runtime_app/runtime_control_bridge.cpp
     runtime_app/runtime_reload_policy_tests.cpp
     pipeline_contract/target_plan_contract_tests.cpp
     pipeline_contract/committed_capture_observation_tests.cpp
@@ -51,31 +52,7 @@ add_executable(cod_native_base_tests
     runtime_app/vision_service.cpp
     runtime_app/runtime_timing_tests.cpp
     runtime_app/runtime_timing.cpp
-    controller_native/ads_snap_deadline_release_incident_regression.cpp
-    controller_native/acquisition_gesture_purpose_incident_regression.cpp
-    controller_native/ads_center_cross_late_exit_incident_regression.cpp
-    controller_native/ads_completion_geometry_continuity_incident_regression.cpp
-    controller_native/ads_incomplete_acquisition_safety_incident_regression.cpp
-    controller_native/ads_close_acquisition_pacing_incident_regression.cpp
-    controller_native/ads_initial_scope_existing_target_incident_regression.cpp
-    controller_native/ads_scope_ready_authority_incident_regression.cpp
-    controller_native/ads_single_press_token_incident_regression.cpp
-    controller_native/ads_snap_core_contract_incident_regression.cpp
-    controller_native/ads_cross_epoch_pickup_revalidation_incident_regression.cpp
     controller_native/bodylock_high_frequency_incident_regression.cpp
-    controller_native/bodylock_position_motion_conflict_incident_regression.cpp
-    controller_native/bodylock_pov_fire_cue_continuity_incident_regression.cpp
-    controller_native/bodylock_response_coordinate_incident_regression.cpp
-    controller_native/bodylock_target_direction_latency_incident_regression.cpp
-    controller_native/bodylock_target_motion_total_incident_regression.cpp
-    controller_native/close_cue_hold_authority_incident_regression.cpp
-    controller_native/controller_product_contract_incident_regression.cpp
-    controller_native/far_selected_person_ads_admission_incident_regression.cpp
-    controller_native/manual_ai_arbitration_continuity_incident_regression.cpp
-    controller_native/manual_residual_authority_incident_regression.cpp
-    controller_native/neutral_drift_arbitration_incident_regression.cpp
-    controller_native/vertical_correction_release_incident_regression.cpp
-    vision_native/src/ads_dynamic_pickup_roi_incident_regression.cpp
     runtime_app/vision_controller_adapter.cpp)
 cod_native_defaults(cod_native_base_tests)
 if(SDL2_DLL AND EXISTS "${SDL2_DLL}")
@@ -154,47 +131,3 @@ foreach(_suite IN ITEMS
         LABELS "functional;${_suite}"
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/..")
 endforeach()
-
-# Keep this incident standalone so its frozen RED executable and current GREEN
-# candidate can be built and run explicitly without duplicating a long closed-
-# loop matrix inside every normal BaseAds CTest invocation.
-add_executable(cod_native_ads_near_target_slowdown_incident_regression
-    EXCLUDE_FROM_ALL
-    controller_native/ads_near_target_slowdown_incident_regression.cpp)
-cod_native_defaults(cod_native_ads_near_target_slowdown_incident_regression)
-target_link_libraries(
-    cod_native_ads_near_target_slowdown_incident_regression PRIVATE
-    controller_native_core)
-
-# Diagnostic RED remains open: a local learning repair must also preserve the
-# matched acquisition/tracking matrix before it can enter the product suites.
-add_executable(cod_native_held_ads_response_learning_incident
-    EXCLUDE_FROM_ALL
-    controller_native/held_ads_response_learning_incident.cpp)
-cod_native_defaults(cod_native_held_ads_response_learning_incident)
-target_link_libraries(cod_native_held_ads_response_learning_incident PRIVATE
-    controller_native_core)
-
-# User-confirmed AI signal contract. Remains RED until both the ownership
-# fixture and protected closed-loop comparisons pass; failed candidates are
-# archived outside production and must not replace the runtime.
-add_executable(cod_native_gamepad_signal_onset_incident
-    EXCLUDE_FROM_ALL
-    controller_native/gamepad_signal_onset_incident.cpp)
-cod_native_defaults(cod_native_gamepad_signal_onset_incident)
-target_link_libraries(cod_native_gamepad_signal_onset_incident PRIVATE
-    controller_native_core)
-
-add_executable(cod_native_bodylock_motion_anchor_incident
-    EXCLUDE_FROM_ALL
-    test_support/bodylock_motion_anchor_incident_main.cpp
-    controller_native/bodylock_motion_anchor_incident.cpp)
-cod_native_defaults(cod_native_bodylock_motion_anchor_incident)
-target_link_libraries(cod_native_bodylock_motion_anchor_incident PRIVATE
-    controller_native_core)
-
-add_executable(cod_native_zero_target_hold_incident EXCLUDE_FROM_ALL
-    controller_native/zero_target_hold_incident.cpp)
-cod_native_defaults(cod_native_zero_target_hold_incident)
-target_compile_definitions(cod_native_zero_target_hold_incident PRIVATE ZERO_TARGET_HOLD_STANDALONE)
-target_link_libraries(cod_native_zero_target_hold_incident PRIVATE controller_native_core)

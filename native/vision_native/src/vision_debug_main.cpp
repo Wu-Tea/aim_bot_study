@@ -22,10 +22,13 @@ int main(int argc, char** argv) {
     int frames = 8;
     int timeout_ms = 10;
     bool aim = true;
+    std::string engine_path;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--width" && (i + 1) < argc) {
+        if (arg == "--engine" && (i + 1) < argc) {
+            engine_path = argv[++i];
+        } else if (arg == "--width" && (i + 1) < argc) {
             width = parse_int_arg(argv[++i], "--width");
         } else if (arg == "--height" && (i + 1) < argc) {
             height = parse_int_arg(argv[++i], "--height");
@@ -38,13 +41,13 @@ int main(int argc, char** argv) {
         } else if (arg == "--no-aim") {
             aim = false;
         } else {
-            std::cerr << "usage: vision_native_debug.exe [--width N] [--height N] [--frames N] [--timeout-ms N] [--aim|--no-aim]\n";
+            std::cerr << "usage: vision_native_debug.exe [--engine PATH] [--width N] [--height N] [--frames N] [--timeout-ms N] [--aim|--no-aim]\n";
             return 2;
         }
     }
 
     try {
-        vision_native::VisionEngine engine(width, height, 0, -1, timeout_ms);
+        vision_native::VisionEngine engine(width, height, 0, -1, timeout_ms, engine_path);
         engine.set_request(aim ? pipeline_contract::VisionRequest::AssistSearch : pipeline_contract::VisionRequest::Idle);
 
         std::cout << "vision_native_debug start"

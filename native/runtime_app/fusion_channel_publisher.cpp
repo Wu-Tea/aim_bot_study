@@ -1,4 +1,5 @@
 #include "fusion_channel_publisher.h"
+#include "vision_native/types.h"
 
 #include <Windows.h>
 
@@ -9,6 +10,72 @@
 namespace runtime_app {
 
 namespace {
+
+void populate_fusion_target(
+    const vision_native::VisionResult& src,
+    int frame_width,
+    int frame_height,
+    shared_fusion::FusionTarget& dst) {
+    dst.has_target = src.has_target;
+    dst.auto_fire  = src.auto_fire;
+    dst.confidence = src.target_confidence;
+    dst.has_body_box = src.has_body_box;
+    dst.direct_observation =
+        src.frame_updated && src.has_selected_detection && src.has_body_box;
+    dst.enemy_identity_confirmed = src.enemy_identity_confirmed;
+    dst.selector_target_generation = src.selector_target_generation;
+
+    if (frame_width > 0 && frame_height > 0) {
+        const float iw = 1.0f / static_cast<float>(frame_width);
+        const float ih = 1.0f / static_cast<float>(frame_height);
+        dst.target_x = src.target_x * iw;
+        dst.target_y = src.target_y * ih;
+        dst.dx = src.dx * iw;
+        dst.dy = src.dy * ih;
+        if (src.has_body_box) {
+            dst.body_x1 = src.body_x1 * iw;
+            dst.body_y1 = src.body_y1 * ih;
+            dst.body_x2 = src.body_x2 * iw;
+            dst.body_y2 = src.body_y2 * ih;
+        }
+    }
+}
+
+void populate_fusion_detections(
+    const vision_native::VisionResult& src,
+    int frame_width,
+    int frame_height,
+    shared_fusion::FusionDetection* dst,
+    std::uint32_t& count) {
+    count = 0;
+    const std::size_t src_count = src.detections.size();
+    if (src_count == 0 || dst == nullptr) {
+        return;
+    }
+
+    const float iw = (frame_width > 0)
+        ? 1.0f / static_cast<float>(frame_width) : 0.0f;
+    const float ih = (frame_height > 0)
+        ? 1.0f / static_cast<float>(frame_height) : 0.0f;
+
+    const std::uint32_t limit = std::min(
+        static_cast<std::uint32_t>(src_count),
+        shared_fusion::FUSION_CHANNEL_MAX_DETECTIONS);
+
+    for (std::uint32_t i = 0; i < limit; ++i) {
+        const auto& d = src.detections[i];
+        dst[i].x1          = d.x1 * iw;
+        dst[i].y1          = d.y1 * ih;
+        dst[i].x2          = d.x2 * iw;
+        dst[i].y2          = d.y2 * ih;
+        dst[i].conf        = d.conf;
+        dst[i].class_id    = d.class_id;
+        dst[i].color_bonus = d.color_bonus;
+        dst[i].is_friendly = d.is_friendly;
+    }
+    count = limit;
+}
+
 
 constexpr int kMaxConsecutiveFailures = 5;
 
@@ -179,6 +246,20 @@ bool FusionChannelPublisher::open(const char* session, bool show_all_detections)
     enabled_ = true;
     consecutive_failures_ = 0;
     return true;
+}
+
+void FusionChannelPublisher::publish_vision_result(
+    const vision_native::VisionResult& result, int frame_width, int frame_height) {
+    shared_fusion::FusionTarget target{};
+    populate_fusion_target(result, frame_width, frame_height, target);
+    const shared_fusion::FusionFrameGeometry geometry{
+        result.capture_output_left, result.capture_output_top,
+        result.capture_output_width, result.capture_output_height,
+        result.capture_roi_left, result.capture_roi_top};
+    shared_fusion::FusionDetection detections[shared_fusion::FUSION_CHANNEL_MAX_DETECTIONS];
+    std::uint32_t count = 0;
+    populate_fusion_detections(result, frame_width, frame_height, detections, count);
+    publish(result.frame_id, frame_width, frame_height, geometry, target, detections, count);
 }
 
 void FusionChannelPublisher::publish(

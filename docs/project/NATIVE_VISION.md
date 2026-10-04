@@ -1,3 +1,5 @@
+> 当前 dev 合并约定：runtime、Vision 和构建走 C++；GUI 沿用 dev 的 Python/Tk 配置工作室。新 C++ GUI 未合入。本文原生助手相关旧检查不作为当前要求，界面操作见 [桌面助手](DESKTOP_ASSISTANT.md)。
+
 # Native Vision
 
 This document describes the native Vision implementation used by the default
@@ -101,14 +103,7 @@ cod_native_runtime.exe
   -> NativeGamepadController
 ```
 
-The optional Python-hosted native debug/fallback path loads
-`vision_native_cpp` through `python/vision/native_runner.py` and maps the same compact
-result into `ControllerTarget`. Its fallback authority logic uses an explicit
-allowlist and does not revive projected source labels.
-
-The pure Python Vision backend still contains older occlusion and
-`AimEnhancementPipeline` behavior for fallback-specific use. That is a separate
-runtime contract and must not be cited as behavior of native production.
+The retained Python/Tk desktop workspace launches the native process directly. Python-hosted Vision bridges and fallback vision paths are retired; no interpreter is used inside the native Vision/control chain.
 
 ## Configuration
 
@@ -148,7 +143,7 @@ Useful binaries are emitted under
 `native\build\Release`, including:
 
 - `cod_native_runtime.exe`;
-- `vision_native_cpp.cp311-win_amd64.pyd`;
+- GUI 仍由 `启动助手.vbs` 启动 Python/Tk 配置工作室；
 - `vision_native_debug.exe`;
 - native selector, service, resize and integration test executables.
 
@@ -161,7 +156,7 @@ Current acceptance requires:
 - result source/frame identity survives the adapter unchanged;
 - fire remains direct-observed only;
 - Release build and all native CTest entries pass;
-- focused Python native-runner/performance mapping tests pass;
+- retained dev GUI configuration/workspace/IPC checks pass;
 - active live throughput is measured with logging conditions held constant.
 
 See [Current State](CURRENT_STATE.md),

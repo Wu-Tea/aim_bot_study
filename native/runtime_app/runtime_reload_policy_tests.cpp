@@ -1,3 +1,4 @@
+#include "runtime_reload_policy.h"
 #include "runtime_control_bridge.h"
 #include "test_support/native_test_registry.h"
 

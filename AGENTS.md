@@ -34,3 +34,12 @@ manual authority, and production control algorithm during tooling maintenance.
 The accepted runtime keeps the complete controller chain in lockstep. Retired
 `ai_proposal_mode`, `ai_proposal_hz`, and `ai_proposal_update_stage` knobs remain
 unknown/inert; deleting validation tooling does not authorize reintroducing them.
+
+## Native runtime and retained dev GUI
+
+User-confirmed on 2026-10-04: merge the native refactor into dev, exclude the
+new C++ GUI and keep dev's Python/Tk desktop workspace and launch entry.
+Python is retained only for that GUI, configuration/curves, process management,
+IPC and GUI checks. Native build/control/Vision stay Python-free; retired
+Python fallback, training and analysis paths must not be restored from history.
+Preserve user models, datasets, profiles and configuration.

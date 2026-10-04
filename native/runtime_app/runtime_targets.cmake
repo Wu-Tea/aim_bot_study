@@ -13,7 +13,9 @@ endif()
 add_executable(cod_native_runtime
     runtime_app/main.cpp
     runtime_app/runtime_loop.cpp
+    runtime_app/runtime_loop_diagnostics.cpp
     runtime_app/runtime_reload_policy.cpp
+    runtime_app/runtime_control_bridge.cpp
     runtime_app/runtime_timing.cpp
     runtime_app/vision_service.cpp
     runtime_app/viewport_controller.cpp
