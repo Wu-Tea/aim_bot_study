@@ -6,7 +6,7 @@ baselines, completed acceptance stages and paused research through
 
 ## Read First
 
-1. [Current State](CURRENT_STATE.md) — source-backed project model, capability boundaries, lifecycle, current refactor progress and unknowns.
+1. [Current State](CURRENT_STATE.md) — source-backed project model, ownership, lifecycle and completed isolated C++ refactor; includes verification and live-device gaps.
 2. [Aim Control Product Contract V1](AIM_CONTROL_PRODUCT_CONTRACT_V1_20260811.md) — product intent and ownership; apply current AGENTS.md and later confirmed decisions where older thresholds differ.
 3. [Desktop Assistant](DESKTOP_ASSISTANT.md) — the Python configuration and process-control entry used with the native runtime.
 

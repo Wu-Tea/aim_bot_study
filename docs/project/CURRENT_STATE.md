@@ -1,8 +1,8 @@
 # 当前项目模型与重构进度
 
-更新：2026-10-04。范围：当前工作区源码，以 C++ 原生运行链路为主。
+更新：2026-10-04。范围：`codex/cognition-refactor-20261004` 隔离 worktree，以 C++ 原生运行链路为主。
 
-本文帮助定位能力、状态和修改影响。**事实**来自下列源码；**判断/提案**在末尾单列。已有大量未提交修改，因此本文描述工作区，不代表某个已发布版本。旧 handoff 与历史测量只解释当时的决定，不能覆盖现行源码和本次退役决定。
+本文帮助定位能力、状态和修改影响。**事实**来自下列源码；**判断/提案**在末尾单列。原工作区的未提交修改已在隔离 worktree 中形成继承基线 `1251273`；本轮改动在其后单独提交。本文描述该重构分支，不代表已发布版本。旧 handoff 与历史测量只解释当时的决定，不能覆盖现行源码和本次退役决定。
 
 ## 项目与业务组成
 
@@ -11,14 +11,14 @@
 | 业务组成 / 能力 | 入口、用途与输入输出 | 状态所有者及依赖 | 验证与调查边界 |
 |---|---|---|---|
 | 启动与配置 | [手柄启动](../../scripts/launch/gamepad_start.bat) → [main.cpp](../../native/runtime_app/main.cpp)；TOML、profile、game、环境与 CLI → RuntimeConfig → RuntimeLoop | [runtime_config.cpp](../../native/controller_native/runtime_config.cpp) 负责解析/派生；main 负责 CLI 覆盖；Loop 保留生效配置。依赖模型、设备 DLL、Windows 与 SDK | BaseContracts；具体速率/尺寸取当前有效配置，示例值不等于本机生效值 |
-| 屏幕感知 | [VisionEngine](../../native/vision_native/src/vision_engine.cpp)：DXGI 画面 → CUDA 预处理/resize → TensorRT → selector → VisionResult | Engine 拥有捕获/推理/selector；[VisionService](../../native/runtime_app/vision_service.cpp) 拥有线程和 latest-only mailbox；共享 [Adapter](../../native/runtime_app/vision_engine_service_poller.h) 唯一持有 Engine | BaseVisionSelection、BaseRuntimeFreshness；真实 GPU/桌面行为需要设备验证 |
+| 屏幕感知 | [VisionEngine](../../native/vision_native/src/vision_engine.cpp)：DXGI 画面 → CUDA 预处理/resize → TensorRT → selector → VisionResult | Engine 拥有捕获/推理/selector；[VisionService](../../native/runtime_app/vision_service.cpp) 拥有线程和 latest-only mailbox；共享 [Adapter](../../native/runtime_app/vision_engine_service_poller.h) 唯一持有 Engine | BaseVisionSelection、BaseRuntimeFreshness；本次真实 GPU/桌面捕获及 policy 热更通过，游戏目标表现未验证 |
 | 物理手柄输入 | [RuntimeLoop](../../native/runtime_app/runtime_loop.cpp) 读取 SDL 或 XInput → PhysicalGamepadState → begin_tick | Loop 拥有输入 reader、选择的设备和重连策略；[IO recovery](../../native/controller_native/io_recovery_policy.cpp) 处理真实设备故障 | 输入协议/reader 功能测试；设备插拔和排除虚拟设备的现场结果未在本次重测 |
 | 目标与控制 | [NativeGamepadController](../../native/controller_native/native_gamepad_controller.cpp)：物理输入 + 视觉快照 → ControlFrame / TargetPlan / learning snapshot | 输入 reducers → TargetCoordinator → ADS 或 BodyLock → dynamics → authority → AutoFire/recoil；各状态所有者见下节 | BaseAds、BaseBodyLock、BaseEndToEnd；数值仿真有独立工具，不能替代真实使用 |
 | 手柄输出 | [OutputComposer](../../native/controller_native/output_composer.cpp) 将已归属的 ControlFrame 合成一次；[VirtualGamepad](../../native/controller_native/virtual_gamepad.cpp) → ViGEm DS4 | Composer 拥有合成结果；设备适配器拥有实际输出资源；成功交付再回传学习/诊断信息 | FeatureAutoFireAndMarker、输出协议测试；真实接收端未在本次检查 |
-| 配置变更与学习展示 | [Python control](../../python/desktop_app/control.py) → 命名事件/共享内存 → [RuntimeControlBridge](../../native/runtime_app/runtime_control_bridge.h) → tick 提交 | Bridge 后台负责读文件、不可变候选与 GUI 状态；[reload policy](../../native/runtime_app/runtime_reload_policy.cpp) 决定可热更范围/学习保留；Loop 是生效边界 | BaseContracts 的 IPC/配置测试与 desktop_app 测试；ABI protocol=1、snapshot=640 bytes、offset=16 |
+| 配置变更与学习展示 | [Python control](../../python/desktop_app/control.py) → 命名事件/共享内存 → [RuntimeControlBridge](../../native/runtime_app/runtime_control_bridge.cpp) → tick 提交 | Bridge 后台负责读文件、不可变候选与 GUI 状态；[reload policy](../../native/runtime_app/runtime_reload_policy.cpp) 决定可热更范围/学习保留；Loop 是生效边界 | BaseContracts 的 IPC/配置测试与 desktop_app 测试；ABI protocol=1、snapshot=640 bytes、offset=16 |
 | 鼠标辅助 | [mouse_start.bat](../../scripts/launch/mouse_start.bat) → [mouse_runtime_main.cpp](../../native/runtime_app/mouse_runtime_main.cpp)；捕获 counts/buttons/wheel → 共享控制器/鼠标转换 → 一次最终输出 | [MouseControllerSession](../../native/mouse_native/mouse_controller_session.cpp) 拥有 transport、校准和按钮释放；[Supervisor](../../native/mouse_native/mouse_runtime_supervisor.cpp) 负责 worker 停顿/退出恢复。共用 VisionService、Engine Adapter 与控制算法 | Mouse 系列功能测试；VirtualHid、Interception、KMDF、Win32 debug 都仍有代码/入口，具体设备安装情况未知 |
 | 桌面操作 | [desktop_app GUI](../../python/desktop_app/gui.py) 提供编辑、保存、启动、停止、热更；[settings](../../python/desktop_app/settings.py) 负责配置保存冲突 | Python RuntimeManager 管进程身份/状态，ConfigStore 管文件；原生运行不依赖 Python 控制算法；GUI 的实际依赖必须保留 | Python desktop/startup 测试；本次不重写正在修改的 UI/配置曲线代码 |
-| 可视化与诊断 | [Fusion publisher](../../native/runtime_app/fusion_channel_publisher.cpp) → [shared channel](../../native/shared_fusion/fusion_channel.cpp) → [fusion_canvas](../../native/overlay_canvas/fusion_canvas.cpp)；日志收集 → 有界流/会话文件 | overlay 只展示；Loop 组织日志、PerfLogger/Telemetry/LogSessionManager 管各自线程或资源，不取得目标/输出控制权 | Fusion、FeatureTelemetryAndDiagnostics；实际窗口/捕获隔离需设备验证 |
+| 可视化与诊断 | [Fusion publisher](../../native/runtime_app/fusion_channel_publisher.cpp) → [shared channel](../../native/shared_fusion/fusion_channel.cpp) → [fusion_canvas](../../native/overlay_canvas/fusion_canvas.cpp)；日志收集 → 有界流/会话文件 | overlay 只展示；Loop 组织日志、PerfLogger/Telemetry/LogSessionManager 管各自线程或资源，不取得目标/输出控制权 | Fusion、FeatureTelemetryAndDiagnostics；真实 publisher→共享内存已检查，实际窗口/捕获隔离未验证 |
 | Python 替代运行与桥接 | [python/main.py](../../python/main.py)、controllers/vision；`GAMEPAD_RUNTIME=python` 显式选择；vision_native_cpp 为 pybind 模块 | Python 包与原生扩展仍真实存在；不是默认 C++ 控制器的依赖。桌面/构建/工具依赖需逐项区分 | Python 旧 gameplay 测试占全量较大部分；本次不据数量整批删除 |
 | recoil 独立工具、训练与研究 | python/recoil_app、runtime/recoil_sidecar、training、tools/training；数据 → 训练/导出模型 → 原生 Engine 加载 | 工具拥有各自状态与产物；不是每 tick 执行依赖。原生 recoil 是共享控制器内的独立阶段 | FeatureRecoilAndWeapon；训练效果与当前模型准确率未重测 |
 | 数值仿真与离线分析 | [OfflineBenchmarks.cmake](../../native/cmake/OfflineBenchmarks.cmake)、scripts/verify 的矩阵入口：场景/seed → 数值结果 | 仿真拥有 plant/场景/计时；复用生产控制器，另有合成输入；不持有生产设备 | 保留普通功能测试和数值仿真；旧 SHA256 溯源、比较门禁、发布裁决已退役 |
@@ -49,7 +49,7 @@ VisionDeliveryGate → adapt_vision_result → controller vision snapshot
 
 ## 初始化、正常运行、变更和退出
 
-**初始化。** main 解析选项、加载配置并施加覆盖；dump/probe 提前返回。创建停止信号，再创建 Loop；Loop 准备会话/日志、输入设备、虚拟输出和 Vision。启用 GPU service 时 Engine 所有权转给 Adapter/Service，否则 Loop 直接 poll Engine。随后建立 control bridge、绑定 Loop，启动停止 listener；listener 的局部 RAII scope 保证在 Loop 销毁前 join。
+**初始化。** main 解析选项、加载配置并施加覆盖；显式无效标量在 parser 报错，缺省项仍使用默认值；dump/probe 提前返回。创建停止信号，再创建 Loop；Loop 准备会话/日志、输入设备和 Vision；仅 `output.enabled=true` 时创建虚拟输出。关闭输出不打开 ViGEm。启用 GPU service 时 Engine 所有权转给 Adapter/Service，否则 Loop 直接 poll Engine。随后建立 control bridge、绑定 Loop，启动停止 listener；listener 的局部 RAII scope 保证在 Loop 销毁前 join。
 
 **正常运行。** Loop 按绝对 deadline 调度。读取物理状态、begin_tick，再更新视觉请求/intent；消费 mailbox 时匹配 request transition 与 policy revision，接受 capture 后提交视觉输入。随后 resolve、compose、设备 update，记录交付反馈与诊断。Fusion 发布是展示支路。鼠标使用相同视觉服务但有独立的 counts 转换、报告交付和 physical-path 恢复链路。
 
@@ -65,22 +65,25 @@ VisionDeliveryGate → adapt_vision_result → controller vision snapshot
 
 ## 结构判断与实施顺序
 
-**事实：** 主要控制状态已有各自所有者。runtime 编排混合输入、视觉交付、热更、Fusion 与诊断；过去 IPC header 同时包含纯配置规则和整套 controller header，两入口复制了 Engine Adapter。通用配置 parser 仍有 fallback，热更新严格检查有真实作用。
+**判断：** 共享控制器已经以输入 reducers、TargetCoordinator、ADS/BodyLock、Dynamics、控制权状态机和输出合成为主要职责边界。其身份、权限和交付状态有不同语义，本次保留这些边界。主要结构问题在 runtime 编排与诊断混合、重复 Engine Adapter、IPC 实现和配置规则放在 header、遥测并行字段清单，以及通用 parser 的静默默认值。
 
-**已实施：**
+实施顺序是先集中配置/IPC/视觉边界，再拆开控制调度与诊断、消除重复数据形状，最后检查资源创建和真实初始化—热更—停止链路。第一批已继承；本次完成剩余已确认必做项：
 
-1. 配置规则集中到 runtime_reload_policy.{h,cpp}，由 bridge 和 tick 使用；两处差异规则共用对有序 effective map 的 merge walk，覆盖新增/删除/改变，避免重复建立 key union。
-2. 两入口使用同一 VisionEngineServicePoller。Adapter 隔离 Engine API 与异步 Service；已有 unique_ptr 链就是 RAII，不另增抽象接口。鼠标未调用检测 policy 热更，当前路径保持原样。
-3. Bridge 的 mapping、events、mapped view 用 unique_ptr custom deleter 明确所有权。构造失败自动释放已取得资源；退出先 join 再释放。没有新增全局资源框架或兼容开关。
-4. Loop 的 submit_vision_result 集中异步/直接 poll 两条路径的已提交视觉状态和诊断时间戳，保留各路径的 epoch、policy、capture gate；没有增加新的状态对象或控制分支。
+1. 热更新规则集中于 [runtime_reload_policy](../../native/runtime_app/runtime_reload_policy.cpp)，Bridge 与 Loop 共用有序差异遍历。Bridge 的实现迁到 [cpp](../../native/runtime_app/runtime_control_bridge.cpp)，header 只保留通道协议、接口和资源成员；状态枚举明确 idle/pending/applied/restart/rejected，仍为 protocol=1、640-byte snapshot，Python 无 ABI 迁移。
+2. 两入口共用 [VisionEngineServicePoller](../../native/runtime_app/vision_engine_service_poller.h)。Adapter 隔离 Engine 与异步 Service；unique_ptr 链唯一持有 Engine。Bridge 的 mapping/events/view 用 RAII 自动释放，析构先 join worker。没有新的资源框架。
+3. [Loop](../../native/runtime_app/runtime_loop.cpp) 明确按输入、视觉请求/交付、控制、输出、诊断执行；[runtime_loop_diagnostics](../../native/runtime_app/runtime_loop_diagnostics.cpp) 仍是同一 Loop 的私有实现。合并新视觉标志、派生时间/发布时间可用性，移除重复 Fusion enabled 状态；一次 committed observation 同时给 viewport 与 telemetry 使用。视觉 epoch/policy/source age 边界保留。
+4. [TelemetryTickInput](../../native/runtime_app/telemetry_collectors.h) 组合现有 ControllerSamplePayload，消除 93 项标量的第二套定义和逐项转抄；字符串仍延后到采样时复制。AcquisitionTraceInput 直接使用既有 payload，删除重复定义/映射。schema=19 与已有 JSON 名称、单位、采样节奏保持。诊断边界只负责从控制观测和实际 delivery receipt 转成记录，Collectors 拥有事件采样/目标事件状态，writer 拥有序列化和文件。
+5. VisionResult 的显示坐标/检测框转换集中于 [Fusion publisher](../../native/runtime_app/fusion_channel_publisher.cpp)，Loop 仅发布结果，publisher 自己维护通道可用性。展示不取得控制权。
+6. [配置 parser](../../native/controller_native/runtime_config.cpp) 修复显式无效值被接受：原程序对无效 bool、带尾缀数字和 NaN 均返回成功。回归先失败，改为完整 token、有限数及 unsigned 非负检查，并删除 117 个 fallback 参数。缺省默认值及已支持 bool 别名保留。任意 loader 回调的热更边界仍需独立检查，不因默认 loader 严格就删除。
+7. 输出禁用的资源归属缺陷另行修复：原程序即使 `output.enabled=false` 仍创建 ViGEm。启动回归先失败；Loop 现在按启动配置用 unique_ptr 创建输出资源，关闭输出时根本不创建。此配置热更仍要求重启，指针有效性由资源所有者保证，无新增补丁开关。
 
-**后续提案，尚未实施：** 继续梳理 Loop 中较大的诊断映射与输入编排，再核对配置解析/派生/CLI/effective-values 的单一语义来源，建立失败证据再消除 fallback。之后才决定 Python fallback 的功能是否退役及对应测试删除范围。不要直接把 pipeline 状态搬成更多接口或目录。
+**保留理由：** NativeGamepadController 的阶段与已有控制权状态机具有独立不变量；VisionService 的线程/mailbox 与 DeliveryGate 的身份/年龄检查保护不同边界；鼠标 session/supervisor 保证物理路径、按钮释放和故障恢复，不能合并成普通手柄输出。GUI/ConfigStore/RuntimeManager 分别拥有用户配置、文件冲突和进程身份；Python fallback、训练与声音研究包没有获准功能退役。本次不改控制算法、不删除这些功能、不扩大为桌面 UI 重写。有效范围/派生配置与 CLI 覆盖有不同输入边界，未证明冗余的设备检查及跨线程处理保留。
 
-这轮没有算法修正或新功能删除；前一轮 SHA256/验收框架删除是独立变更。未证明的防护冗余保留，特别是设备释放、输入验证、跨线程/跨进程一致性。
+本次结构改动与两个有 RED→GREEN 证据的边界缺陷修复分别记录；SHA256 校验/benchmark 验收框架删除属于继承基线，不能计作本次结构简化收益。普通功能测试与数值仿真继续保留。
 
 ## 本轮重构怎样验收
 
-用户要求先制定验收标准，再持续推进重构。以下标准由协调会话于 2026-10-04 制定；**已经写入本文，尚未确认指定执行会话读取。** 标准属于本次结构重构的完成条件，不恢复已退役的 SHA256 溯源、benchmark 比较门禁或发布裁决框架。
+用户要求先制定验收标准，再持续推进重构。以下标准由协调会话于 2026-10-04 制定；**执行会话已读取并据此完成源码/影响自查。** 标准属于本次结构重构的完成条件，不恢复已退役的 SHA256 溯源、benchmark 比较门禁或发布裁决框架。
 
 **AI 友好型结构应使不了解本轮实施过程的 Agent，能够从仓库入口找到能力和源码，解释输入到实际结果的链路，判断状态归属、修改位置及受影响的使用方，并找到验证方法。** 文件变少、文件变短、目录变整齐或采用更多设计模式，都不能单独证明达到这一目标。
 
@@ -117,15 +120,15 @@ VisionDeliveryGate → adapt_vision_result → controller vision snapshot
 
 只有主要能力均已检查，本轮确认必须处理的结构问题已经解决或经用户明确调整范围，五项代表性任务没有未解决的关键遗漏，必要构建与行为核验通过，知识与代码一致，才可判断本轮约定范围完成。保留合理原结构的部分需要有依据，不能因未改动而自动视为遗漏。未触及的历史现场验证缺口不无限扩大本轮范围；改动触及而未验证的关键设备、GPU 或时序行为，仍须标为尚未验证，不能由离线结果代替。
 
-当前第一批已报告完成模型、热更新规则、IPC 资源所有权、共享视觉适配与结果提交；主循环职责和配置语义仍待按上述标准审查。整体重构未完成，验收标准也尚未完成逐项核验。下一步是执行会话读取本节，固定剩余必做范围与现状依据，再推进收益最明确的一批结构改进。
+当前约定范围已完成执行者自查与本地构建/功能/必要集成验证，结果见末节。下述协调方记录是第一批的历史复核；协调方对新 worktree 的独立复核、真实设备与用户体验确认并未发生。完成判断限于本次结构与边界修复，不能扩大为现场验收。
 
-## 本次任务进度与验证
+## 第一批历史进度与验证
 
 范围已确认：C++ 主线的整体理解与逐链路重构；避开工作区正在修改的桌面 UI、曲线和训练实现；没有向方法仓库写目标项目资料。
 
 第一批完成了模型、配置热更新规则与控制通道资源、双入口视觉适配、统一视觉结果提交。重构前 Base/Feature 10 组通过。Release 构建通过：cod_native_runtime、cod_native_mouse_runtime、cod_native_base_tests、cod_native_functional_tests。CTest Base/Feature/Mouse/Fusion 35/35 组通过（含两项新增事务/退出功能检查）；Python desktop_app/startup/repository_layout 72/72 通过。两个 runtime 的非设备配置检查返回 0；最终头文件整理后 BaseContracts 再测通过。文档源码链接已检查，git diff --check 通过。原生设备运行、实时停止、GPU 策略切换和游戏手感尚未验证。整体重构仍有上述后续提案，不能把第一批完成写成全部完成。
 
-### 协调方独立复核：2026-10-04
+### 协调方独立复核：2026-10-04（第一批，以下为历史状态）
 
 协调方重新构建当前工作区的 `cod_native_runtime`、`cod_native_mouse_runtime`、`cod_native_base_tests`、`cod_native_functional_tests`，Release 均通过。随后执行 `ctest --test-dir native/build -C Release -R '^(Base|Feature|Mouse|Fusion)' --output-on-failure`，35/35 组通过；`python -B -m pytest -q python/tests/test_desktop_app.py python/tests/test_startup_scripts.py python/tests/test_repository_layout.py`，72/72 通过。未启动生产设备或游戏。README、native/README、docs/README 和本文的 Markdown 本地文件链接未发现失效项；这不证明正文中的所有历史说法均有效。
 
@@ -144,3 +147,26 @@ VisionDeliveryGate → adapt_vision_result → controller vision snapshot
 首批结构简化有源码依据，构建与现有功能测试已独立复现；整体结构覆盖、生产编排的关键集成行为和接续入口仍有未完成项。协调方未声称完成隔离的新会话对照，也未测得阅读成本下降比例。跨会话通信接口当前不可用，以上标准及下一批建议已存入本文，执行会话是否读取仍未确认。
 
 长期有效信息留在本文；.agent-context/handoff.md 仍是历史上下文。建议确认后简短更新 handoff：当前 C++ 主线、已退役验证框架、本文入口、第一批结果和下一条链路，不恢复旧 manifest 或比较门禁。
+
+
+## 隔离 worktree 完成记录：2026-10-04
+
+**范围与身份。** 工作路径为 `yolo-study-001-refactor`，分支 `codex/cognition-refactor-20261004`，继承基线 `1251273` 保存原工作区现行 tracked 修改及未跟踪源码/文档；未复制 output 媒体，不修改原工作区，也不将项目资料写回 project-cognition。本次 diff 单独可审查，不能把继承 UI/曲线等工作归作本轮新增实现。
+
+**五项代表性任务自查。**
+
+| 任务 | 当前源码依据与实证 | 状态 |
+| --- | --- | --- |
+| 默认入口/构建 | gamepad_start → main → runtime_targets；mouse_start → mouse main/session；当前 native 默认及显式 Python fallback 的脚本用例通过，fresh CMake Release 全目标构建通过 | 满足 |
+| 保存到实际生效 | ConfigStore → ControlChannel → Bridge accept_reload_request → Loop apply_pending_config → Bridge complete/acknowledge_commit；真实进程从 revision 0→1，纯控制项保留学习，视觉策略变化清空学习且在 fresh policy 边界提交 | 满足；未重测完整 GUI 人工操作 |
+| Vision 请求/消费 | Engine → Adapter/Service → epoch/policy → DeliveryGate → submit_vision_result → controller；真实 TensorRT/CUDA/桌面捕获执行并完成 policy 热更，落盘有 committed capture，既有无新帧/无目标/in-flight policy 测试通过 | 满足；现场目标/设备输入未验证 |
+| 释放/退出 | Controller reset → enabled 输出 neutral → Vision stop → collectors/writer/session close；真实命名停止事件使进程返回 0；禁用输出不创建 ViGEm 的回归由失败转为通过；鼠标释放与故障 tests 通过 | 满足；真实接收端 neutral 与设备插拔未验证 |
+| 诊断字段/记录 | Loop diagnostics 生产现有 payload → Collectors 采样/事件 → runtime_telemetry serialize；常规标量只定义/映射一次，新增 schema 字段需生产者及 serializer/reader 适配。Acquisition 已无第二套字段清单。失败 delivery、符号/幅值和 ns 单位有落盘断言 | 满足 |
+
+**验证。** `cmake --build native/build --config Release -j 6` 全目标通过。`ctest --test-dir native/build -C Release --output-on-failure` 为 50/50 组通过，包含功能契约和保留的数值仿真测试，不构成 benchmark 发布裁决。受影响的 desktop_app、startup_scripts、repository_layout、desktop_profiles_curves、native_vision_runner、native_vision_targeting_bridge、native_vision_image_ops_bridge 共 134/134 Python 用例通过，未运行全量 978。一个过时 selector 桥接用例改为验证当前“扁平人物仍可瞄准且保持身份”契约，生产 selector 未改；native marker-loss 用例是该契约的依据。
+
+**集成实测。** 输出关闭、无物理手柄，真实引擎 `640x512 → 480x384`：一次控制项热更确认 applied/保留学习，一次 friendly_filter policy 热更确认 applied/清空学习，均以命名停止事件正常退出。第二次开启临时 telemetry 得到 session metadata 1、delivered control 340、acquisition trace 52、controller sample 136、target event 2、committed capture 1，临时输出随检查结束清理；另一次实际 Fusion publisher→共享通道检查读到 frame=3、640x512、protocol=2，并正常停止；未打开 Canvas。以上是记录与链路检查，不是目标成功率。`delivered` 记录在输出关闭时标识 output_disabled，不能视为真实设备交付。
+
+**保留限制。** 未测真实手柄/鼠标接收端、Fusion 真实窗口排除捕获、实时游戏表现、训练效果、独立协调复核或冷启动阅读效率。无 matched live A/B，不能推断帧率、延迟或手感改善。本次没有新算法候选或新的验收平台。
+
+**接续。** 本文是长期能力/关系入口；handoff 只保留当前约定、完成状态和未验证边界，session-log 保留任务里程碑。后续新增同类配置先查 parser/派生/CLI/reload policy 的各自输入责任；新增诊断标量从现有 payload 与生产者开始，避免重新建立平行 DTO 或校验框架。

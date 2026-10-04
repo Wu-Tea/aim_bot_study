@@ -1,36 +1,31 @@
 # Agent Handoff
 
-Last updated: 2026-09-26
-Active scope: commit the tested gamepad controller checkpoint and preserve its limitations.
+Last updated: 2026-10-04
+Active scope: completed isolated C++ runtime refactor; use the current project model for continuation.
 
 ## Current State
 
-- **User-confirmed:** after the new build, ordinary multiplayer with normal aim assist felt free of the previously noticed jitter/oscillation. User requested latest-log review, documentation, generated-file cleanup and a scoped commit.
-- **Repository evidence:** retained fixes cover the 15–30% continuous per-axis intent curve, raw zero-deadzone passthrough, acknowledged DS4 camera-command coordinates/time, confidence units and high-rate source-window starvation. No rejected predictive/adaptive model experiment remains in production.
-- Tested gameplay binary SHA-256: `14b5bdb4435f8d20c8fe3a766a724a82e26e3e4da335df813f8dd4d801fd58e8`. It was built from the pre-commit working tree, not solely the embedded old commit identity.
-- **Offline evidence:** 410 product cases passed; 56 high-rate subcases prove observation/learning repair; 16 matrix packs (864 opportunities) have no new protected regressions against the preceding continuous-intent worktree; 1,944 development scan cases unchanged. This does not reverse prior rejected candidate results.
-- **Log evidence:** two intact rotations cover about 658 seconds, 61,766 unique controller samples and 142,981 delivery records; no recorded delivery errors, nonfinite axes or output range violations. Final rotation has a truncated last line and remains excluded and untouched.
-- **Open observations:** one short firing-related error/output reversal segment and one ADS-to-extension authority jump remain screening findings, not proven causes. No matched live A/B, independent camera truth or complete game/hardware covariates.
-- Audit status is **INSUFFICIENT_EVIDENCE** for full acceptance. User feel confirmation is limited to normal multiplayer. Strong-AA Warzone/Zombie and the frozen synthetic response/delay mismatch RED remain open; do not label the entire system LIVE-ACCEPTED.
+- User authorized one-pass work in a new worktree without repeated coordination. `codex/cognition-refactor-20261004` inherits current source/doc changes at `1251273`; original workspace is untouched. The subsequent scoped refactor commit is the review unit.
+- Default product path is C++. Python GUI/config/process control and native bridges remain dependencies; explicit Python gameplay fallback is retained. Default C++ does not authorize removal of all Python.
+- SHA256 validation/provenance and benchmark acceptance/comparison/release tooling are retired. Keep ordinary functional tests and numerical simulations; do not restore historical manifests or gate requirements from older context.
+- Long-term model and source links: [Current State](../docs/project/CURRENT_STATE.md). It covers capabilities, owners, initialization, operation, configuration commit and shutdown; implementation remains the source of truth.
+- Shared Engine Adapter, reload policy and Bridge RAII from the inherited first batch are retained. Current work separates Loop diagnostics, moves IPC implementation out of its header, consolidates telemetry payloads and Fusion conversion, and removes redundant derived state. No controller algorithm change.
+- Confirmed boundary defects fixed with failing-before/passing-after regressions: explicit malformed configuration values silently defaulted/parsed by prefix; disabled output still constructed a ViGEm device. Strict scalar parsing and conditional owned output construction correct these at their owners.
 
-## Next Action
+## Verification and Limits
 
-- Preserve this checkpoint. If a new symptom is reported, compare against its exact binary/config identity and convert a confirmed episode into a RED before changing behavior.
-- Prioritize the two saved screening episodes if they recur; do not attribute all improvement to the high-rate fix, since stable 160 Hz did not trigger starvation.
-- Raw logs and build backups stay local. Telemetry was enabled for this capture; its overhead precludes comparison with no-log timing.
+- Fresh Release all-target build and CTest 50/50 groups pass, including retained numerical simulations. Affected Python GUI/config/startup/native bridge tests: 134/134 pass; full 978 collection was not run.
+- Real C++/TensorRT/desktop-capture process, output disabled: control-value and vision-policy hot reload both reach applied revision 1 through Python IPC and production Loop; named stop event exits with code 0. Temporary telemetry contains current controller/delivery/acquisition/capture records. Real Fusion publisher-to-shared-channel geometry/version delivery and stop also pass; Canvas was not opened. No ViGEm construction or physical output occurred.
+- Real receiver neutral output, physical device reconnect, Fusion window capture exclusion and gameplay feel were not retested. Offline and output-disabled integration results do not prove gameplay acceptance or speed improvement. Independent coordinating-chat review of this worktree has not happened.
+- Original user feel confirmation from September applied only to ordinary multiplayer at that historical checkpoint. Old audit/hash/gate records cannot re-establish current acceptance requirements.
 
-## Relevant Records
+## Continuation Boundaries
 
-- `docs/benchmarks/CONTROLLER_MULTIPLAYER_CHECKPOINT_20260926.md`
-- `docs/benchmarks/CONTROLLER_OFFLINE_REPAIR_20260926.md`
-- `docs/benchmarks/CONTROLLER_CHAIN_REFACTOR_20260926.md`
-- `docs/benchmarks/oscillation-20260926/high-rate-regression-manifest.json`
-- `docs/benchmarks/AIMLAB_OPTIMIZATION_CONTRACT_V1_20260827.md`
-- `decisions/DEC-2026-08-11-001-incident-first-gameplay-validation.md`
+- Keep raw zero-deadzone manual passthrough, continuous 15–30% authority, target acquisition/identity/handover, same-tick controller chain and resource/button release.
+- VisionService request/policy fences and DeliveryGate source identity/age protect different invariants. Keep boundary checks unless their ownership and redundancy are proved.
+- Diagnostics consume actual receipts; output-disabled records are not proof of delivery. Add scalar fields to the existing payload and producer/serializer/reader, not another parallel DTO.
+- No automatic merge into the original workspace, no Python/UI/training feature retirement, no algorithm optimization and no extra governance/service framework are part of this change.
 
-## Boundaries
+## Context Review
 
-- Native passthrough has zero software deadzone; AI manual weight rises smoothly over 15–30%. Keep the full controller chain in lockstep.
-- Do not exchange acquisition/identity/handover regressions for aggregate smoothness points.
-- Unrelated GPU contention, training, Flash tools and research work remain outside this commit and must not be cleaned up.
-- Previous Fusion handoff is preserved in `archive/handoff-2026-09-01-before-controller-checkpoint.md`; its live-display questions were not investigated in this task.
+SyncSet: replace this outdated active handoff and append one milestone to session-log, within this isolated worktree only. Reviewer disposition: accept_draft (self-review): authorization is the user's one-pass completion request; current facts, historic decisions and unverified device behavior are distinguished; no secrets, raw captures, logs or project data are written into project-cognition. No existing decision is rewritten.

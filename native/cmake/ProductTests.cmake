@@ -9,6 +9,7 @@ add_executable(cod_native_base_tests
     controller_native/ads_bodylock_september_incident_tests.cpp
     controller_native/runtime_config_tests.cpp
     runtime_app/runtime_reload_policy.cpp
+    runtime_app/runtime_control_bridge.cpp
     runtime_app/runtime_reload_policy_tests.cpp
     pipeline_contract/target_plan_contract_tests.cpp
     pipeline_contract/committed_capture_observation_tests.cpp

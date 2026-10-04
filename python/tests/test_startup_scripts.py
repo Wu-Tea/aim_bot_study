@@ -14,6 +14,26 @@ DEBUG_LAUNCH_DIR = LAUNCH_DIR / "debug"
 
 
 class StartupScriptTests(unittest.TestCase):
+    def test_disabled_gamepad_output_does_not_initialize_virtual_device(self):
+        executable = PROJECT_ROOT / "native/build/Release/cod_native_runtime.exe"
+        if not executable.exists():
+            self.skipTest("native runtime has not been built")
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "config.toml"
+            config.write_text(
+                '[runtime.output]\nenabled=false\n'
+                '[runtime.vision]\nmodel_path="missing-owner-probe.engine"\n',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [str(executable), "--config", str(config), "--max-ticks", "1"],
+                cwd=PROJECT_ROOT,
+                env={**os.environ, "GAMEPAD_INPUT_LOG": "1"},
+                capture_output=True, text=True, timeout=25,
+            )
+        self.assertNotEqual(result.returncode, 0)  # Missing model still fails.
+        self.assertNotIn("[NativeRuntime] ViGEm", result.stdout + result.stderr)
+
     def test_background_double_click_entries_are_zero_window_vbs_launchers(self):
         entries = {
             "gamepad_native_background_start.vbs":

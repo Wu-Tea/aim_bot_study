@@ -274,7 +274,7 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         self.assertTrue(fresh["has_target"])
         self.assertAlmostEqual(fresh["target_x"], 460.0, places=3)
 
-    def test_corpse_shape_does_not_authorize_challenger_replacement(self):
+    def test_flat_active_person_keeps_identity_against_challenger(self):
         if not hasattr(self.module, "NativeTargetSelector"):
             self.fail("NativeTargetSelector is missing")
 
@@ -294,8 +294,13 @@ class NativeVisionTargetingBridgeTests(unittest.TestCase):
         second_after_kill = selector.select_xyxy(corpse_and_challenger)
 
         self.assertTrue(locked["has_target"])
-        self.assertFalse(first_after_kill["has_target"])
-        self.assertFalse(second_after_kill["has_target"])
+        # Current native contract admits flat people for aim. Shape alone
+        # neither drops the active identity nor authorizes a challenger.
+        for current in (first_after_kill, second_after_kill):
+            self.assertTrue(current["has_target"])
+            self.assertAlmostEqual(current["target_x"], 320.0, places=3)
+            self.assertAlmostEqual(current["target_y"], 250.0 + 60.0 * WIDE_LOW_TARGET_RATIO, places=3)
+            self.assertEqual(current["selector_target_generation"], locked["selector_target_generation"])
         selector.reset()
         selector.select_xyxy(corpse_and_challenger)
         fresh = selector.select_xyxy(corpse_and_challenger)
