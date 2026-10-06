@@ -8,6 +8,8 @@ struct IntentFilterConfig {
     // Gamepad intent uses a 15%-30% smooth authority curve. False retains the
     // adaptive mouse/legacy policy. Neither policy modifies raw passthrough.
     bool gamepad_right_stick_curve = false;
+    float gamepad_intent_begin = 0.15f;
+    float gamepad_intent_full = 0.30f;
     float base_deadzone = 0.02f;
     float neutral_learning_limit = 0.03f;
     float bias_alpha = 0.04f;
@@ -31,6 +33,7 @@ public:
         float right_deadzone = 0.0f) noexcept;
 
     void reset() noexcept;
+    void reconfigure(IntentFilterConfig config) noexcept { config_ = config; }
 
 private:
     struct AxisState {

@@ -27,6 +27,7 @@ add_library(controller_native_core STATIC
     controller_native/ads_response_estimator.cpp
     controller_native/aim_dynamics_shaper.cpp)
 target_include_directories(controller_native_core PUBLIC
+    ${PROJECT_BINARY_DIR}/generated
     ${PROJECT_SOURCE_DIR}/vision_native/include
     ${PROJECT_SOURCE_DIR})
 target_compile_definitions(controller_native_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

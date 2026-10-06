@@ -73,6 +73,20 @@ void test_hipfire_recoil_is_half_without_changing_ads_or_manual() {
 }  // namespace
 
 void register_recoil_reducer_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureRecoilAndWeapon", "explicit_output_has_no_hidden_floor_or_ceiling", [] {
+        controller_native::GamepadRecoilConfig config;
+        config.feedback_amount=.2f;
+        config.hipfire_multiplier=.5f;
+        for (float value : {0.f,.01f,.14f,.2f,.34f,.8f,1.f}) {
+            config.output_amount=value;
+            controller_native::RecoilReducer reducer(config);
+            require(std::abs(reducer.reduce(true,true,0).stick_delta.y+value)<1e-6f,
+                "explicit recoil must mean its actual normalized output, including zero");
+            require(std::abs(reducer.reduce(true,false,0).stick_delta.y+value*.5f)<1e-6f,
+                "hipfire ratio must attenuate the exact explicit output");
+            require(reducer.reduce(false,true,0).stick_delta.y==0,"no fire means no recoil");
+        }
+    });
     registry.add_case("FeatureRecoilAndWeapon", "hipfire_recoil_half_keeps_ads_and_manual", test_hipfire_recoil_is_half_without_changing_ads_or_manual);
     registry.add_case("FeatureRecoilAndWeapon", "recoil_reducer_accepts_only_fire_weapon_context", test_recoil_reducer_accepts_only_fire_weapon_context);
 }

@@ -12,7 +12,8 @@ int select_sdl_reconnect_device(
     const std::vector<SdlJoystickDevice>& devices,
     const std::string& preferred_name,
     int minimum_axes,
-    int minimum_buttons);
+    int minimum_buttons,
+    const std::string& required_id = {});
 
 class IoReconnectThrottle {
 public:

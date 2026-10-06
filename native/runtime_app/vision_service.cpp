@@ -151,7 +151,7 @@ void VisionService::start() {
 
 void VisionService::stop() {
     running_.store(false);
-    wake_condition_.notify_all();
+    wake_deadline_.notify();
     if (worker_.joinable()) {
         worker_.join();
     }
@@ -178,7 +178,7 @@ std::uint64_t VisionService::set_request(
         }
         transition_sequence = aim_transition_sequence_;
     }
-    if (state_changed) wake_condition_.notify_one();
+    if (state_changed) wake_deadline_.notify();
     return transition_sequence;
 }
 
@@ -194,7 +194,7 @@ void VisionService::set_viewport(const ViewportRequest& request) {
 
 void VisionService::set_detection_policy(VisionDetectionPolicy policy) {
     { std::lock_guard<std::mutex> lock(mutex_); policy_ = policy; immediate_poll_requested_ = true; }
-    wake_condition_.notify_one();
+    wake_deadline_.notify();
 }
 
 VisionServiceSnapshot VisionService::latest_snapshot(std::uint64_t after_sequence) const {
@@ -337,10 +337,7 @@ void VisionService::run_loop() {
                 continue;
             }
             const auto due = next_poll_due(now);
-            std::unique_lock<std::mutex> lock(mutex_);
-            wake_condition_.wait_until(lock, due, [this] {
-                return !running_.load() || immediate_poll_requested_;
-            });
+            wake_deadline_.wait_until(due);
         }
     } catch (...) {
         // This is the thread boundary: revoke the mailbox and transfer the

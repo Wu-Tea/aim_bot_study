@@ -1,0 +1,211 @@
+# Native runtime normal template. Safety and controller policy remain profile-controlled.
+[runtime]
+profile = "balanced" # performance | balanced | low_latency | pascal_balanced
+
+[mouse]
+dpi = 1200.0 # Actual mouse DPI; does not change the hardware setting
+sensitivity = 5.0 # In-game mouse sensitivity
+fov = 104.0 # Horizontal FOV at 16:9, in degrees; 0 < fov < 180
+ads_multiplier = 1.0 # In-game ADS sensitivity multiplier
+speed = 2.0 # AI speed, 0.5..3; does not scale free manual motion
+breakaway = 4.0 # 1..8 and >= speed
+bodylock_deadzone = 0.5 # Per-axis normalized physical rate, 0..0.9; 0 disables
+# Continue assisting the selected target inside this size-scaled base range.
+bodylock_range_px = 180.0 # 16..2048 px; 0 inherits gamepad.bodylock.activation_range_px
+# Time from zero to maximum AI speed / maximum speed to zero, elapsed-time based.
+bodylock_accel_ms = 40.0 # 1..250 ms; 0 retains shared acceleration
+bodylock_decel_ms = 25.0 # 1..250 ms; 0 retains shared braking
+bodylock_point_tolerance_px = 3.0 # per-axis target-point tolerance; >0..16, 0 restores shared motion policy
+# Positive Y is down; enabled while firing, ADS required by default.
+recoil_enabled = true
+recoil_counts_per_second = 30.0 # 0..10000; fixed rate, independent of detector FPS
+recoil_require_ads = true # false also permits hipfire while firing
+# Async per-tick JSONL, a fresh directory per run; no old logs are deleted.
+log_enabled = true
+log_directory = "runs/mouse"
+log_max_mb = 2048 # Per-session tick budget; overflow/loss is reported
+
+[runtime.vision]
+# Green HUD marker filter; disable for games without friendly markers.
+friendly_filter_enabled = true
+target_height_ratio = 0.40 # 0 < ratio < 1, from visible body top
+target_wide_low_height_ratio = 0.65
+capture_width = 640
+capture_height = 512
+tensor_width = 480 # must match the selected TensorRT engine input
+tensor_height = 384
+require_isotropic_resize = true # rejects X/Y distortion from mismatched aspect ratios
+# The older 480x416 predictive viewport experiment remains opt-in and is not
+# compatible with this 480x384 production tensor until its tiers are migrated.
+dynamic_viewport_enabled = false
+capture_fps = 160
+idle_capture_fps = 60
+keepwarm_when_idle = true
+# Async Vision only: retain capture_fps after aim release, without aim/fire
+# authority. 0 restores immediate idle cadence; allowed range: 0..5000 ms.
+aim_release_hold_ms = 1000
+color_readback_mode = "pageable" # pinned remains opt-in until the A/B gate passes
+model_path = "models/best_480x384.engine"
+gpu_service_enabled = true
+
+# Historical static alternatives (change all size/path lines together):
+# near:     capture 640x440, tensor 512x352, model models/best_512x352.engine
+# latency:  capture 630x462, tensor 480x352, model models/best_480x352.engine
+
+[runtime.telemetry]
+enabled = false
+directory = "runs/native_perf"
+manual_controller_hz = 100
+queue_capacity = 8192
+rotate_size_mb = 256
+max_files = 10
+
+[runtime.performance]
+# Lightweight whole-runtime statistics; safe to leave on for normal play.
+enabled = false
+interval_ms = 5000
+directory = "runs/perf_summary"
+stdout_enabled = true
+
+[runtime.scheduler]
+controller_tick_hz = 1000
+mode = "legacy" # precision becomes default only after its measured gate passes
+spin_tail_us = 50
+# Pin the runtime to efficiency cores (E-cores) on hybrid CPUs so the game's
+# performance cores stay clear. No-op on uniform-core systems.
+efficiency_core_affinity = true
+# How many E-cores the runtime pins. GPU-bound runtime only needs a couple.
+efficiency_core_count = 3
+
+[runtime.input]
+auto_detect = true
+controller_index = 0
+rb_counts_as_aiming = false
+
+[runtime.output]
+enabled = true
+validation_mode = "strict"
+
+[gamepad.tracker]
+max_observation_age_ms = 50 # reject late detector results before they can steer
+# Upright/crouched body-box position measured from top (0=head, 1=feet).
+aim_height_ratio = 0.30
+
+[gamepad.aim_response_curve]
+# Pluggable inverse curve: linear | cod_dynamic_legacy_lut.
+# It reshapes target T before force limiting; it does not blend manual and AI.
+algorithm = "cod_dynamic_legacy_lut"
+# At this anchor, the nonlinear plugin preserves the locally learned
+# px/(stick*s) sensitivity of the previous linear solver.
+calibration_reference_stick = 0.50
+
+[gamepad.enemy_mark]
+# An L3/LT edge opens a 250 ms request. Two fresh final plans must place
+# the crosshair inside the same current cue-confirmed person's R; then one
+# 50 ms D-pad Up press is emitted for that target generation. L3 may wake
+# Vision for the request but never grants aim authority.
+enabled = true
+# Minimum time between accepted L3 request edges. Set to 0 to disable.
+l3_cooldown_ms = 1000
+# Minimum time between accepted LT request edges. Set to 0 to disable.
+lt_cooldown_ms = 1000
+
+[gamepad.auto_fire]
+fire_output = "RB"
+# Physical fire binding used by AI activation, manual takeover and recoil.
+# "both" preserves RT-or-RB behavior; this does not remap physical passthrough.
+manual_fire_input = "both"
+# When enabled, pressing the physical fire control wakes Vision and grants the
+# normal AI-aim acquisition scope until fire is released, including when idle
+# Vision has already selected a target.
+manual_fire_activates_ai_aim = true
+aim_only = true
+max_source_age_ms = 50
+require_aim_ready = true
+manual_takeover_release_seconds = 0.035
+manual_takeover_resume_delay_seconds = 0.085
+pulse_width_ms = 30
+pulse_period_ms = 100
+
+[gamepad.ads]
+strength_scale = 1.54
+vertical_strength_scale = 1.26
+activation_radius_px = 135
+# Small/far-target pickup base. Target height widens this for close targets.
+pickup_base_radius_px = 150
+scope_ready_trigger = 0.80
+snap_duration_ms = 135
+# A held LT may wait this long for the first selected person.
+target_wait_ms = 220
+# Extra time after snap_duration_ms. Expiry changes ADS to manual-safe pursuit;
+# it is not a successful completion and does not hand off an unfinished target.
+extension_budget_ms = 220
+# Once a target is admitted into ADS, configured ADS authority applies
+# immediately; cue/clarity/reliability are not additional gain stages.
+
+[gamepad.bodylock]
+strength = 0.45
+vertical_strength = 0.50
+# Maximum error for timed ADS->BodyLock fallback, not target detection range.
+activation_range_px = 80
+# Settle radius around the shared tracker target point.
+tolerance_px = 8
+
+[gamepad.ai_aim]
+hipfire_multiplier = 1.0 # 0..3; AI input only when physical ADS is not ready; decimals accepted
+aim_response_learning_enabled = true # false pauses sample updates; the selected tool LUT is unchanged
+# Cue-only BodyLock stays conservative for targets no taller than 12% of the
+# capture, blends continuously above that, and reaches full retained authority
+# for close targets at this height ratio.
+cue_hold_full_force_min_target_height_ratio = 0.25
+# Camera/output effect delay used only to pair delivered commands with fresh
+# captures for online response learning. It does not add input latency.
+aim_response_effect_delay_ms = 9
+# Gamepad startup response prior in px/(effective stick*s), 80..4000.
+# 0 inherits the adapter calibration (normally 500). Online learning continues;
+# direct mouse keeps its own calibration. This is not a physical stick curve.
+aim_response_initial_scale = 0
+# Provisional V1 calibration: D may move only inside selector-published R.
+# Continued pressure at R's boundary becomes an explicit exit request.
+desired_point_traversal_ms = 180
+desired_point_boundary_exit_ms = 50
+# BodyLock enemy-cue authority switch (default true):
+# true: reduce follow authority when enemy cue/color evidence is missing.
+# false: skip this reduction for games/scenarios whose enemy markers are not
+# recognized; accepted but enemy-unconfirmed person detections can follow more
+# strongly. Detection reliability, configured force limits, target lifecycle,
+# manual control and AutoFire's own eligibility checks still apply.
+# This does not enable/disable cue detection or cue-only target continuation.
+# Admitted ADS authority is unaffected. Restart the runtime after changing it.
+visual_authority_enabled = true
+
+# Fixed live recoil; retired file-backed profiles and recognizer settings removed.
+[gamepad.recoil]
+enabled = true
+feedback_amount = 0.20
+# Physical ADS uses the bounded feedback_amount; hipfire multiplies it by this.
+# Default 1 preserves ordinary profiles. The Apex entry overrides this to 0.5.
+hipfire_multiplier = 1.0 # 0..1; scales recoil only, never manual/AI sensitivity
+feedback_min_amount = 0.14
+feedback_max_amount = 0.34
+
+[games.apex.runtime.vision]
+model_path = "artifacts/game-specialists-20260914/exports/apex/apex_480x384.engine"
+
+[games.apex.gamepad.aim_response_curve]
+algorithm = "linear"
+
+[games.apex.gamepad.recoil]
+hipfire_multiplier = 0.5
+
+[games.bo3.gamepad.aim_response_curve]
+algorithm = "linear"
+
+[games.bo3.gamepad.output_transfer]
+game_exponent = 1.0
+deadzone = 0.16
+axial = false
+enabled = true
+
+[gamepad.assist]
+minimum_position_stick = 0.20

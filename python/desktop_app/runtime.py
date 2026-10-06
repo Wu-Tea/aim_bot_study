@@ -143,6 +143,33 @@ class RuntimeManager:
             if result.returncode or 'unknown config key:' in error:
                 raise ValueError(f'{game} 配置校验失败：\n{error or result.stdout.decode("utf-8", errors="replace")}')
 
+    def input_devices(self):
+        """Native enumeration only; no config, model, controller output or log files."""
+        if not self.executable.is_file():
+            raise ValueError('请先构建原生程序，再刷新手柄列表。')
+        result = subprocess.run([str(self.executable), '--list-input-devices'], cwd=self.executable.parent,
+                                capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=10)
+        if result.returncode:
+            raise ValueError('无法识别手柄：' + result.stderr.decode('utf-8', errors='replace').strip())
+        devices = json.loads(result.stdout.decode('utf-8'))
+        if not isinstance(devices, list) or any(not isinstance(d, dict) or not isinstance(d.get('id'), str) or
+            not d['id'] or not isinstance(d.get('name'), str) or not d['name'] for d in devices):
+            raise ValueError('原生手柄列表格式无效。')
+        if len({d['id'] for d in devices}) != len(devices):
+            raise ValueError('原生手柄标识重复，无法确定选择。')
+        return devices
+
+    def ads_geometry_policy(self):
+        """Read the production geometry policy, without starting a runtime."""
+        if not self.executable.is_file():
+            raise ValueError('请先构建原生程序，再查看触发范围。')
+        result = subprocess.run([str(self.executable), '--describe-ads-geometry'], cwd=self.executable.parent,
+            capture_output=True, creationflags=CREATE_NO_WINDOW, timeout=10)
+        if result.returncode:
+            raise ValueError('原生程序尚未提供范围预览，请构建更新版本。')
+        from .ads_geometry import validate_policy
+        return validate_policy(json.loads(result.stdout.decode('utf-8')))
+
     def inspect_defaults(self, game, config_text=None):
         """Use the native loader for absent fields, including profile defaults."""
         if not self.executable.is_file():
@@ -164,9 +191,12 @@ class RuntimeManager:
                 candidate.unlink(missing_ok=True)
         if result.returncode:
             raise ValueError('无法读取原生配置：' + result.stderr.decode('utf-8', errors='replace').strip())
+        lines = result.stdout.decode('utf-8').splitlines()
+        if not lines or lines[-1] != '# effective-config complete':
+            raise ValueError('原生配置读回不完整，已停止读取；请确认已构建新版原生程序。')
         fields = {field[0]: field for field in GAME_FIELDS + COMMON_FIELDS}
         values = {}
-        for line in result.stdout.decode('utf-8').splitlines():
+        for line in lines[:-1]:
             setting, separator, _source = line.rpartition(' source=')
             path, equals, raw = setting.partition('=')
             if not separator or not equals or path not in fields:
@@ -272,10 +302,15 @@ class RuntimeManager:
         record = self.active()
         if not record:
             return None
+
         try:
             return learning_state(record)
         except (OSError, ValueError):
             return None
+
+    def frame_rates(self,record):
+        from .frame_rates import read_frame_rates
+        return read_frame_rates(record)
 
     def fusion_state(self):
         path = self.root / 'runs/fusion_canvas/background/fusion_canvas_state.json'

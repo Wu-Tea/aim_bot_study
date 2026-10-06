@@ -1,4 +1,5 @@
 #include "ads_acquisition_controller.h"
+#include "pipeline_contract/target_acquisition.h"
 #include "bodylock_follow_controller.h"
 #include "incident_fixture_support.h"
 #include "ds4_output_report.h"
@@ -9,6 +10,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <utility>
 
@@ -151,6 +153,12 @@ void native_prior() {
         config.ai_aim.body_lock_max_ai_force=.8f;
         config.ai_aim.body_lock_max_ai_force_y=.6f;
         config.ai_aim.body_lock_box_tolerance_px=8;
+        config.ai_aim.body_lock_feedback_distance_px=0; // Exercise the legacy in-memory path.
+        config.ai_aim.normalized_assist_parameters=true;
+        config.ai_aim.bodylock_output_limit_x=.8f;
+        config.ai_aim.bodylock_output_limit_y=.6f;
+        config.ai_aim.bodylock_response_time_x_ms=45.f;
+        config.ai_aim.bodylock_response_time_y_ms=60.f;
         config.tracker.max_observation_age_ms=1000;
         double now=10;
         NativeGamepadController controller(config,&now);
@@ -181,11 +189,54 @@ void native_prior() {
     require(std::fabs(old.first)>.01f && std::fabs(next.first)>.01f,
             "position counterfactual must be nonzero");
     require(std::fabs(next.first/old.first-500.f/650.f)<1e-4f,
-            "prior must reduce demand without shortening the BodyLock horizon");
+            "prior must reduce planning demand without shortening the BodyLock horizon");
     require(std::fabs(next.second-650)<1e-4f,"configured prior must reach native plan");
     seeded.ai_aim.adapter_direct_mouse_manual=true;
     const auto mouse=run(seeded);
     require(std::fabs(mouse.second-500)<1e-4f,"gamepad prior must not change mouse calibration");
+}
+
+void direct_feedback_distance_reaches_native_chain() {
+    auto run=[](float distance) {
+        GamepadRuntimeConfig config;
+        config.ai_aim.body_lock_box_tolerance_px=8;
+        config.ai_aim.body_lock_feedback_distance_px=distance;
+        config.ai_aim.aim_response_learning_enabled=false;
+        config.ai_aim.ads_completion_fresh_frames=1;
+        config.aim_response_curve.algorithm=AimResponseCurveAlgorithm::Linear;
+        config.recoil.enabled=false;
+        double now=10;
+        NativeGamepadController controller(config,&now);
+        incident_fixture::TargetSpec spec;
+        spec.observation_id=20;spec.selector_generation=1;
+        spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        for (unsigned frame=1;frame<=4;++frame) {
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,frame,now,frame<4 ? 0.f : .5f,0));
+            controller.build_output(incident_fixture::ads_input());now+=.005;
+        }
+        require(controller.last_target_plan().mode==pipeline_contract::ControlMode::BodyLockFollow,
+                "direct feedback regression must enter the production BodyLock chain");
+        const float demand=controller.last_output_components().bodylock_position_stick.x;
+        const auto identity=controller.last_target_plan().target_id;
+        config.ai_aim.body_lock_max_ai_force=.2f;
+        config.ai_aim.body_lock_max_ai_force_y=.25f;
+        controller.apply_hot_config(config,true);
+        controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,5,now,.5f,0));
+        controller.build_output(incident_fixture::ads_input());now+=.005;
+        require(controller.last_target_plan().target_id==identity &&
+                controller.last_target_plan().mode==pipeline_contract::ControlMode::BodyLockFollow,
+                "hot force tuning must retain identity and lifecycle");
+        auto physical=incident_fixture::ads_input(.021f,-.018f);physical.left_trigger=0;
+        const auto raw=controller.build_output(physical);
+        require(raw.right_x==physical.right_x && raw.right_y==physical.right_y,
+                "aggressive response must retain raw manual passthrough on release");
+        return demand;
+    };
+    const float legacy=run(0),equivalent=run(18),fine=run(1);
+    require(std::fabs(legacy-equivalent)<1e-6f,
+            "old 8 and direct 18 must produce identical native position demand");
+    require(std::fabs(fine/legacy-18)<1e-3f,
+            "one pixel must reach the actual controller, not just config and preview");
 }
 
 void undelivered_commands_cannot_train_motion() {
@@ -369,6 +420,174 @@ void high_rate_source_keeps_response_learning(const native_test::TestContext& co
 }
 
 void register_startup_response_prior_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock","gap_uses_actual_delivery_and_never_becomes_observation", [] {
+        GamepadRuntimeConfig config;config.ai_aim.normalized_assist_parameters=true;
+        config.ai_aim.aim_response_effect_delay_ms=0;config.recoil.enabled=false;
+        double now=10;NativeGamepadController controller(config,&now);
+        incident_fixture::TargetSpec spec;spec.observation_id=20;spec.selector_generation=1;
+        spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        for(unsigned frame=1;frame<=8;++frame) {
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,frame,now,20,0));
+            controller.build_output(incident_fixture::ads_input());now+=.001;
+        }
+        const auto identity=controller.last_target_plan().target_id;
+        ControllerVisionSnapshot miss;miss.frame_updated=true;miss.selector_identity_protocol=true;
+        miss.selector_target_generation=1;miss.frame_id=9;miss.capture_time_seconds=now;
+        miss.state.screen_center_x=320;miss.state.screen_center_y=256;
+        controller.submit_vision_snapshot(miss);controller.build_output(incident_fixture::ads_input());
+        require(controller.last_target_plan().observation_gap && controller.last_target_plan().target_id==identity,
+            "production chain must bridge qualified same-person missing frames");
+        require(!controller.last_frame_vision_state().fresh_observation &&
+            !controller.last_frame_vision_state().current_observed_target_present &&
+            !controller.last_target_plan().fire_authority,"predicted continuation cannot become a fresh measurement or fire authority");
+        require(controller.last_output_components().requested_assist_stick.x>0,
+            "brief miss cannot neutralize the existing target correction");
+        now+=.033;controller.build_output(incident_fixture::ads_input());
+        require(controller.last_target_plan().aim_authority==0,"production chain stops beyond original capture plus 32ms");
+    });
+    registry.add_case("BaseBodyLock","inside_box_is_not_point_arrival", [] {
+        GamepadRuntimeConfig config;
+        config.ai_aim.normalized_assist_parameters=true;config.ai_aim.arrival_radius_px=2;
+        config.ai_aim.minimum_position_stick=.15f;config.ai_aim.ads_response_time_ms=350;
+        config.ai_aim.ads_completion_fresh_frames=1;config.ai_aim.aim_response_learning_enabled=false;
+        config.recoil.enabled=false;config.aim_response_curve.algorithm=AimResponseCurveAlgorithm::Linear;
+        double now=10;NativeGamepadController controller(config,&now);
+        incident_fixture::TargetSpec spec;spec.observation_id=20;spec.selector_generation=1;
+        spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        for(unsigned frame=1;frame<=6;++frame) {
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,frame,now,3,0));
+            const auto output=controller.build_output(incident_fixture::ads_input());now+=.005;
+            const auto& plan=controller.last_target_plan();
+            require(plan.mode==pipeline_contract::ControlMode::AdsAcquire,
+                "3 px is inside the box but outside the configured 2 px point arrival; ADS cannot finish early");
+            require(controller.last_output_components().requested_assist_stick.x>0,
+                "position solver must keep a continuous final approach outside the point radius");
+            if(frame>=3) require(output.right_x>0,"after existing onset slew, composed output must keep advancing");
+        }
+        controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,7,now,0,0));
+        controller.build_output(incident_fixture::ads_input());
+        require(controller.last_output_components().bodylock_position_stick.x==0,
+            "point arrival must stop position correction while observed motion remains separately owned");
+    });
+
+    registry.add_case("BaseBodyLock","real_plan_owns_stage_range_and_handover", [] {
+        GamepadRuntimeConfig config;
+        config.ai_aim.normalized_assist_parameters=true;
+        config.ai_aim.ads_pickup_base_radius_px=73;
+        config.ai_aim.body_lock_activation_box_px=227;
+        config.ai_aim.ads_completion_fresh_frames=1;
+        config.ai_aim.aim_response_learning_enabled=false;
+        config.ai_aim.ai_input_deadzone=0;
+        config.recoil.enabled=false;
+        config.aim_response_curve.algorithm=AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+        double now=10;NativeGamepadController controller(config,&now);
+        incident_fixture::TargetSpec spec;spec.observation_id=20;spec.selector_generation=1;
+        spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        bool saw_ads=false,saw_follow=false;std::uint64_t identity=0;
+        for(unsigned frame=1;frame<=10;++frame) {
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,frame,now,frame<4 ? 30.f : 0.f,0));
+            controller.build_output(incident_fixture::ads_input());now+=.005;
+            const auto& plan=controller.last_target_plan();
+            if(plan.lifecycle==pipeline_contract::TargetLifecycle::None)continue;
+            const bool ads=plan.mode==pipeline_contract::ControlMode::AdsAcquire;
+            const float expected=pipeline_contract::target_scaled_pickup_radius(ads ? 73.f : 227.f,plan.normalized_size);
+            require(std::abs(plan.position_response_radius_px-expected)<1e-4f,"stage radius must come from actual configured admission geometry");
+            saw_ads|=ads;saw_follow|=!ads;
+            if(identity)require(identity==plan.target_id,"changing phase must preserve selected identity");
+            identity=plan.target_id;
+        }
+        require(saw_ads && saw_follow,"fixture must cross actual ADS to BodyLock transition");
+        config.ai_aim.minimum_position_stick=.15f;config.ai_aim.bodylock_response_time_x_ms=1000;
+        controller.apply_hot_config(config,true);
+        controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,11,now,3,0));
+        controller.build_output(incident_fixture::ads_input());
+        require(controller.last_target_plan().error_px.x>2 &&
+            controller.last_output_components().bodylock_position_stick.x>0,
+            "being inside the person box must keep the position task active");
+
+
+    });
+
+    registry.add_case("BaseBodyLock","ai_deadzone_hot_reload_preserves_manual_and_recoil", [] {
+        GamepadRuntimeConfig config;
+        config.ai_aim.normalized_assist_parameters=true;
+        config.ai_aim.arrival_radius_px=1;
+        config.ai_aim.minimum_position_stick=0;
+        config.ai_aim.aim_response_learning_enabled=false;
+        config.ai_aim.ads_completion_fresh_frames=1;
+        config.ai_aim.bodylock_response_time_x_ms=200;
+        config.ai_aim.bodylock_response_time_y_ms=200;
+        config.recoil.enabled=true;config.recoil.output_amount=.2f;
+        config.auto_fire.enabled=false;
+        config.aim_response_curve.algorithm=AimResponseCurveAlgorithm::Linear;
+        double now=10;
+        NativeGamepadController controller(config,&now);
+        incident_fixture::TargetSpec spec;
+        spec.observation_id=20;spec.selector_generation=1;
+        spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        auto physical=incident_fixture::ads_input(.012f,-.021f);
+        auto tick=[&](unsigned frame,float error) {
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,frame,now,error,0));
+            const auto output=controller.build_output(physical);now+=.005;return output;
+        };
+        for(unsigned frame=1;frame<=3;++frame)tick(frame,0);
+        const auto output=tick(4,1.5f);
+        require(controller.last_output_components().requested_assist_stick.x>0 &&
+            controller.last_output_components().shaped_assist_stick.x==0,
+            "small real native AI request is filtered at the input boundary");
+        require(output.right_x==physical.right_x && output.right_y==physical.right_y,
+            "AI filtering must preserve tiny physical input exactly while aiming");
+        const auto identity=controller.last_target_plan().target_id;
+        config.ai_aim.ai_input_deadzone=0;controller.apply_hot_config(config,true);tick(5,1.5f);
+        require(controller.last_output_components().shaped_assist_stick.x>0,
+            "zero deadzone immediately admits the same request");
+        config.ai_aim.ai_input_deadzone=1;controller.apply_hot_config(config,true);
+        physical.right_trigger=1;
+        const auto firing=tick(6,1.5f);
+        require(std::abs(firing.right_y-(physical.right_y-.2f))<1e-6f,
+            "independent recoil bypasses AI deadzone");
+        require(controller.last_target_plan().target_id==identity,"filter changes cannot discard identity");
+    });
+    registry.add_case("BaseBodyLock","independent_parameters_hot_apply_keeps_identity", [] {
+        GamepadRuntimeConfig config;
+        config.ai_aim.normalized_assist_parameters=true;
+        config.ai_aim.arrival_radius_px=1;
+        config.ai_aim.minimum_position_stick=0;
+        config.ai_aim.aim_response_learning_enabled=false;
+        config.ai_aim.ads_completion_fresh_frames=1;
+        config.ai_aim.bodylock_output_limit_x=.8f;
+        config.ai_aim.bodylock_output_limit_y=.8f;
+        config.ai_aim.bodylock_response_time_x_ms=200;
+        config.ai_aim.bodylock_response_time_y_ms=200;
+        config.recoil.enabled=false;
+        config.aim_response_curve.algorithm=AimResponseCurveAlgorithm::Linear;
+        double now=10;
+        NativeGamepadController controller(config,&now);
+        incident_fixture::TargetSpec spec;
+        spec.observation_id=20;spec.selector_generation=1;
+        spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        auto tick=[&](unsigned frame,float error) {
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,frame,now,error,0));
+            controller.build_output(incident_fixture::ads_input());now+=.005;
+            return controller.last_output_components().bodylock_position_stick.x;
+        };
+        for(unsigned frame=1;frame<=3;++frame)tick(frame,0);
+        const float before=tick(4,1.5f);
+        const auto identity=controller.last_target_plan().target_id;
+        require(std::abs(before)>1e-5f,"fixture must exercise actual position correction");
+        config.ai_aim.bodylock_output_limit_x=.2f;
+        controller.apply_hot_config(config,true);
+        require(std::abs(tick(5,1.5f)-before)<1e-5f,"hot limit change must leave unsaturated position demand alone");
+        config.ai_aim.bodylock_response_time_x_ms=100;
+        controller.apply_hot_config(config,true);
+        require(std::abs(tick(6,1.5f)-before*2)<1e-5f,"hot response time must change actual native demand");
+        require(controller.last_target_plan().target_id==identity &&
+            controller.last_target_plan().mode==pipeline_contract::ControlMode::BodyLockFollow,
+            "hot control updates must preserve selected identity and lifecycle");
+        auto physical=incident_fixture::ads_input(.012f,-.021f);physical.left_trigger=0;
+        const auto raw=controller.build_output(physical);
+        require(raw.right_x==physical.right_x && raw.right_y==physical.right_y,"release retains zero-deadzone manual passthrough");
+    });
     registry.add_case("BaseBodyLock", "learning_pause_preserves_and_resumes_samples", [] {
         for (int axis : {0, 1}) {
             auto config = incident_fixture::base_config(100, 200);
@@ -417,4 +636,5 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
     registry.add_case("BaseBodyLock","delivery_receipt_coordinate_and_failure",delivery_receipt_owns_camera_coordinate_and_failure_boundary);
     registry.add_context_case("BaseBodyLock","cold_response_prior_before_learning",cold_prior);
     registry.add_case("BaseBodyLock","gamepad_prior_preserves_horizon_and_mouse",native_prior);
+    registry.add_case("BaseBodyLock","direct_feedback_distance_reaches_native_chain",direct_feedback_distance_reaches_native_chain);
 }

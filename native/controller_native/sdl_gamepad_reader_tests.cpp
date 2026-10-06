@@ -6,6 +6,7 @@
 
 #include <Windows.h>
 #include <array>
+#include <algorithm>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -155,9 +156,24 @@ void all_axes_and_triggers_to_ds4() {
             "axis/trigger release must be reflected immediately");
     }
 }
+void named_selection_matches_real_enumeration() {
+    VirtualInput input; input.start(15);
+    const auto devices=controller_native::scan_sdl_joystick_devices();
+    const auto found=std::find_if(devices.begin(),devices.end(),[&](const auto& d) { return d.device_index==input.index; });
+    require(found!=devices.end() && found->opened && !found->name.empty() && !found->id.empty(),
+        "actual enumeration must supply display name and selectable identity");
+    controller_native::SdlGamepadReader correct(input.index,found->id);
+    require(correct.available(),"selected identity must open the same real SDL input");
+    controller_native::SdlGamepadReader wrong(input.index,"path:wrong");
+    require(!wrong.available(),"an index cannot override an explicit device identity");
+    require(correct.reconnect(),"explicit identity must survive reconnect with the original fixture");
+    input.press_only(15);
+    require((read_report(correct).bytes[6]&2)==2,"named selection must retain the native button/output mapping");
+}
 } // namespace
 
 void register_sdl_gamepad_reader_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "named_input_real_sdl_enumeration", named_selection_matches_real_enumeration);
     registry.add_case("BaseRuntimeFreshness", "sony_buttons_to_ds4_report", all_sony_buttons_to_ds4);
     registry.add_case("BaseRuntimeFreshness", "touchpad_uses_sdl_device_binding", touchpad_uses_device_binding);
     registry.add_case("BaseRuntimeFreshness", "sony_axes_triggers_to_ds4_report", all_axes_and_triggers_to_ds4);

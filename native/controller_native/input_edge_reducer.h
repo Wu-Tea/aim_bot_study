@@ -11,6 +11,7 @@ namespace controller_native {
 
 constexpr float kPhysicalAdsPressThreshold = 0.05f;
 constexpr float kPhysicalAdsIdleThreshold = 0.03f;
+constexpr float kPhysicalAdsReleaseHysteresis = 0.02f;
 constexpr unsigned int kPhysicalAdsIdleDebounceSamples = 3;
 constexpr float kPhysicalAdsReadyHysteresis = 0.05f;
 constexpr float kManualFireTriggerThreshold = 0.04f;
@@ -49,16 +50,18 @@ public:
         bool rb_counts_as_physical_ads,
         std::uint64_t* next_event_sequence,
         float ads_ready_threshold = 0.80f,
-        std::string_view fire_input = "both") noexcept {
+        std::string_view fire_input = "both",
+        float ads_activation_threshold = kPhysicalAdsPressThreshold) noexcept {
         InputEdgeSnapshot result{};
         const bool previous_physical_ads = physical_ads_active_;
         const bool previous_physical_ads_ready = physical_ads_ready_;
         const float left_trigger = std::clamp(physical.left_trigger, 0.0f, 1.0f);
+        const float idle_threshold = std::max(0.0f, ads_activation_threshold - kPhysicalAdsReleaseHysteresis);
         const bool rb_ads = rb_counts_as_physical_ads && physical.rb;
         if (rb_ads) {
             physical_ads_active_ = true;
             physical_ads_idle_samples_ = 0;
-        } else if (left_trigger <= kPhysicalAdsIdleThreshold) {
+        } else if (left_trigger <= idle_threshold) {
             if (physical_ads_active_ &&
                 ++physical_ads_idle_samples_ >=
                     kPhysicalAdsIdleDebounceSamples) {
@@ -68,7 +71,7 @@ public:
         } else {
             physical_ads_idle_samples_ = 0;
             if (!physical_ads_active_ &&
-                left_trigger > kPhysicalAdsPressThreshold) {
+                left_trigger > ads_activation_threshold) {
                 physical_ads_active_ = true;
             }
         }
@@ -83,7 +86,7 @@ public:
             !physical_ads_active_ && previous_physical_ads;
         const float ready_threshold = std::clamp(
             ads_ready_threshold,
-            kPhysicalAdsPressThreshold + 0.001f,
+            ads_activation_threshold,
             1.0f);
         if (!physical_ads_active_) {
             physical_ads_ready_ = false;
@@ -91,7 +94,7 @@ public:
             physical_ads_ready_ = true;
         } else if (physical_ads_ready_) {
             physical_ads_ready_ = left_trigger >= std::max(
-                kPhysicalAdsPressThreshold,
+                ads_activation_threshold,
                 ready_threshold - kPhysicalAdsReadyHysteresis);
         } else {
             physical_ads_ready_ = left_trigger >= ready_threshold;

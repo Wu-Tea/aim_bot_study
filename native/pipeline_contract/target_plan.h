@@ -103,6 +103,8 @@ struct TargetPlan {
     std::uint64_t source_observation_id = 0;
     std::uint64_t target_id = 0;
     TargetLifecycle lifecycle = TargetLifecycle::None;
+    // Bounded missing-observation continuation, never fresh detector evidence.
+    bool observation_gap = false;
     // True only when this exact controller update consumed a fresh,
     // selector-selected person observation. Replay and cue continuation never
     // inherit this bit; digital actions may therefore use it without creating
@@ -180,6 +182,10 @@ struct TargetPlan {
     std::uint64_t ads_acquisition_begin_ns = 0;
     std::uint64_t ads_acquisition_complete_ns = 0;
     float ads_activation_radius_px = 0.0f;
+    // Coordinator-owned actual radius for the final mode: ADS pickup or
+    // BodyLock continuation, including observed-size scaling.
+    float position_response_radius_px = 0.0f;
+    float position_arrival_radius_px = 0.0f;
     Vec2f ads_raw_error_px{};
     Vec2f ads_target_size_px{};
     std::uint32_t ads_candidate_count = 0;
@@ -239,6 +245,9 @@ inline bool valid(const TargetPlan& plan) noexcept {
            std::isfinite(plan.source_capture_age_ms) &&
            std::isfinite(plan.ads_activation_radius_px) &&
            plan.ads_activation_radius_px >= 0.0f &&
+           std::isfinite(plan.position_response_radius_px) &&
+           plan.position_response_radius_px >= 0.0f &&
+           std::isfinite(plan.position_arrival_radius_px) && plan.position_arrival_radius_px >= 0.0f &&
            finite(plan.ads_raw_error_px) &&
            finite(plan.ads_target_size_px) &&
            finite(plan.predicted_terminal_error_px) &&

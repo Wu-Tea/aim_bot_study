@@ -19,12 +19,12 @@ ResponseModelAimOutput solve_response_model_aim(
     const float response = std::max(
         1.0f, std::fabs(request.response_px_per_stick_second));
     const float horizon = std::clamp(
-        request.arrival_horizon_seconds, 0.005f, 1.0f);
+        request.arrival_horizon_seconds, kArrivalHorizonMinimumSeconds, kArrivalHorizonMaximumSeconds);
     const float horizon_y = std::clamp(
         request.arrival_horizon_y_seconds > 0.0f
             ? request.arrival_horizon_y_seconds
             : request.arrival_horizon_seconds,
-        0.005f, 1.0f);
+        kArrivalHorizonMinimumSeconds, kArrivalHorizonMaximumSeconds);
     const float authority = std::clamp(request.authority, 0.0f, 1.0f);
     const float motion_weight = std::clamp(request.motion_weight, 0.0f, 2.0f);
     const bool point_policy = request.point_tolerance_px > 0.0f;
@@ -32,11 +32,15 @@ ResponseModelAimOutput solve_response_model_aim(
         return point_policy && std::fabs(error) <= request.point_tolerance_px
             ? 0.0f : error;
     };
-    const pipeline_contract::Vec2f control_error{
+    pipeline_contract::Vec2f control_error{
         point_error(request.error_px.x), -point_error(request.error_px.y)};
+    if (request.range_position_response) {
+        if (request.max_force.x <= 0.f) control_error.x = 0.f;
+        if (request.max_force.y <= 0.f) control_error.y = 0.f;
+    }
     const pipeline_contract::Vec2f control_velocity{
-        request.relative_velocity_px_per_sec.x,
-        -request.relative_velocity_px_per_sec.y};
+        request.range_position_response && request.max_force.x <= 0.f ? 0.f : request.relative_velocity_px_per_sec.x,
+        request.range_position_response && request.max_force.y <= 0.f ? 0.f : -request.relative_velocity_px_per_sec.y};
     output.position_stick = {
         control_error.x / (horizon * response),
         control_error.y / (horizon_y * response),
@@ -140,6 +144,58 @@ ResponseModelAimOutput solve_response_model_aim(
         std::max(0.0f, request.max_force.y), authority_budget);
     if (max_x <= 0.0f) output.unclamped_stick.x = 0.0f;
     if (max_y <= 0.0f) output.unclamped_stick.y = 0.0f;
+    bool range_limited = false;
+    if (request.range_position_response) {
+        // A canonical active plan must carry its coordinator-owned range.
+        // Missing geometry cannot manufacture an unrestricted correction.
+        if (!std::isfinite(request.position_range_px) || request.position_range_px <= 0.0f)
+            return {};
+        const float distance = std::hypot(
+            max_x > 0.0f ? control_error.x : 0.0f,
+            max_y > 0.0f ? control_error.y : 0.0f);
+        const float fraction = std::sqrt(std::clamp(distance / request.position_range_px, 0.0f, 1.0f));
+        pipeline_contract::Vec2f sustaining{};
+        if (request.motion_is_sustaining_target_motion && !request.motion_is_error_rate_lookahead) {
+            // Only capture-aligned real target motion can own centered work.
+            sustaining = inverse_aim_response_curve({
+                output.bounded_motion_stick.x * authority,
+                output.bounded_motion_stick.y * authority}, request.response_curve);
+        }
+        if (max_x <= 0.0f) sustaining.x = 0.0f;
+        if (max_y <= 0.0f) sustaining.y = 0.0f;
+        pipeline_contract::Vec2f correction{
+            output.unclamped_stick.x - sustaining.x,
+            output.unclamped_stick.y - sustaining.y};
+        float magnitude = std::hypot(correction.x, correction.y);
+        const float correction_length = std::hypot(
+            max_x > 0.0f ? correction.x / max_x : 0.0f,
+            max_y > 0.0f ? correction.y / max_y : 0.0f);
+        const float directional_cap = correction_length > 0.0f ? magnitude / correction_length : 0.0f;
+        const float minimum = std::min(directional_cap, request.minimum_position_stick);
+        const float budget = std::max(directional_cap * fraction, minimum);
+        // A pursuit floor is not a license to overrun the point. Bound the
+        // remaining position work by a 25 ms stopping horizon (vision age,
+        // actuator delay and ordinary output slew). Convert through the same
+        // user curve; a nonlinear inverse must not bypass the camera budget.
+        // The configured point radius now shapes a continuous final approach,
+        // rather than switching position between zero and the pursuit floor.
+        constexpr float stopping_seconds = .025f;
+        const float taper = distance > 0.f
+            ? distance / std::hypot(distance, request.arrival_radius_px) : 0.f;
+        const auto braking = inverse_aim_response_curve({
+            control_error.x / (response * stopping_seconds),
+            control_error.y / (response * stopping_seconds)}, request.response_curve);
+        const float braking_budget = std::hypot(braking.x, braking.y) * taper;
+        const float delivered = magnitude > 0.f
+            ? std::min(std::clamp(magnitude, minimum, budget), braking_budget) : 0.f;
+        const float scale = magnitude > 0.f ? delivered / magnitude : 1.f;
+        range_limited = magnitude > std::min(budget, braking_budget);
+        // Apply in final stick space so a nonlinear inverse response curve
+        // cannot expand a tiny position correction back to full force.
+        output.unclamped_stick = {
+            sustaining.x + correction.x * scale,
+            sustaining.y + correction.y * scale};
+    }
     const float normalized_x = max_x > 0.0f
         ? output.unclamped_stick.x / max_x : 0.0f;
     const float normalized_y = max_y > 0.0f
@@ -151,7 +207,7 @@ ResponseModelAimOutput solve_response_model_aim(
         output.unclamped_stick.x * vector_scale,
         output.unclamped_stick.y * vector_scale,
     };
-    output.limited = ellipse_length > 1.0f;
+    output.limited = range_limited || ellipse_length > 1.0f;
     return output;
 }
 

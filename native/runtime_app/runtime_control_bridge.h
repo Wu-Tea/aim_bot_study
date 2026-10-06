@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime_control_protocol.h"
+#include "frame_rate_protocol.h"
 #include "controller_native/runtime_config.h"
 #include "controller_native/aim_response_estimator.h"
 #include <array>
@@ -16,7 +17,7 @@
 namespace runtime_app {
 
 // OS/file work is owned by this background thread. The tick only consumes a
-// prepared immutable candidate and offers fixed-size learning snapshots.
+// prepared immutable candidate and offers fixed-size learning/FPS snapshots.
 class RuntimeControlBridge {
 public:
     RuntimeControlBridge(controller_native::RuntimeConfig initial,
@@ -29,9 +30,12 @@ public:
     std::shared_ptr<const controller_native::RuntimeConfig> take_prepared();
     void complete(const std::array<controller_native::AimResponseEstimate, 4>& values = {}, bool preserved = false) noexcept;
     void offer_learning(const std::array<controller_native::AimResponseEstimate, 4>& values) noexcept;
+    void offer_frame_rates(const FrameRateCounts& counts) noexcept;
+    void finish_frame_rates(const FrameRateCounts& counts) noexcept;
 private:
     void write_bindings(const controller_native::RuntimeConfig& config);
     void publish() noexcept;
+    void publish_frame_rates_locked() noexcept;
     void work() noexcept;
     void acknowledge_commit();
     void accept_reload_request();
@@ -41,10 +45,16 @@ private:
     struct ViewUnmapper {
         void operator()(RuntimeControlMemory* view) const noexcept { UnmapViewOfFile(view); }
     };
+    struct FrameRateViewUnmapper {
+        void operator()(RuntimeFrameRateMemory* view) const noexcept { UnmapViewOfFile(view); }
+    };
     // unique_ptr also releases partially constructed channels if allocation or
     // thread creation throws. Declare the view after handles so it unmaps first.
     std::unique_ptr<void, HandleCloser> mapping_, request_, finished_, exit_;
     std::unique_ptr<RuntimeControlMemory, ViewUnmapper> memory_;
+    std::unique_ptr<void, HandleCloser> frame_rate_mapping_;
+    std::unique_ptr<RuntimeFrameRateMemory, FrameRateViewUnmapper> frame_rate_memory_;
+    RuntimeFrameRateSnapshot frame_rate_state_{};
     RuntimeControlSnapshot state_{};
     RuntimeLearningRegion learning_[4]{};
     RuntimeLearningRegion cleared_learning_[4]{};

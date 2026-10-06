@@ -1,5 +1,7 @@
 #include "runtime_reload_policy.h"
+#include "controller_native/bodylock_feedback_geometry.h"
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 #include <stdexcept>
@@ -8,7 +10,15 @@
 namespace runtime_app {
 namespace {
 
-const std::set<std::string> hot_keys{
+const std::set<std::string> catalog_hot_keys = [] {
+    std::set<std::string> result;
+#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (HOT) result.insert(SECTION "." KEY);
+#include "editable_float_parameters.inc"
+#undef NATIVE_EDITABLE_FLOAT
+    return result;
+}();
+const std::set<std::string> hot_keys = [] {
+    std::set<std::string> result{
     "gamepad.ads.strength_scale", "gamepad.ads.vertical_strength_scale",
     "gamepad.bodylock.strength", "gamepad.bodylock.vertical_strength",
     "gamepad.ai_aim.hipfire_multiplier", "gamepad.ai_aim.aim_response_learning_enabled",
@@ -20,6 +30,9 @@ const std::set<std::string> hot_keys{
     "gamepad.auto_fire.manual_fire_activates_ai_aim",
     "runtime.vision.friendly_filter_enabled", "runtime.vision.target_height_ratio",
     "runtime.vision.target_wide_low_height_ratio"};
+    result.insert(catalog_hot_keys.begin(), catalog_hot_keys.end());
+    return result;
+}();
 
 // Walk the sorted maps once, including additions and removals. Both restart
 // eligibility and learning retention use the same definition of a change.
@@ -40,6 +53,20 @@ std::vector<std::string> changed_keys(const controller_native::RuntimeConfig& be
             ++b;
         }
     }
+    // Persistence migration changes spelling, not control. Compare this
+    // setting at its resolved owner so saving an old profile at the same
+    // effective distance does not spuriously require a restart.
+    const auto distance = [](const controller_native::RuntimeConfig& config) {
+        return controller_native::bodylock_feedback_distance(
+            config.gamepad.ai_aim.body_lock_box_tolerance_px,
+            config.gamepad.ai_aim.body_lock_feedback_distance_px);
+    };
+    changed.erase(std::remove_if(changed.begin(), changed.end(), [](const std::string& key) {
+        return key=="gamepad.bodylock.tolerance_px" ||
+            key=="gamepad.ai_aim.body_lock_box_tolerance_px" ||
+            key=="gamepad.bodylock.feedback_distance_px";
+    }), changed.end());
+    if (distance(before)!=distance(after)) changed.push_back("gamepad.bodylock.feedback_distance_px");
     return changed;
 }
 
@@ -82,6 +109,11 @@ bool preserve_response_learning_on_reload(const controller_native::RuntimeConfig
     if (changed.empty()) return false;
     // These controls change actuation/training admission, not game response.
     for (const auto& key : changed) {
+        bool catalog_retains = false;
+#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (key == SECTION "." KEY) catalog_retains = RETAIN;
+#include "editable_float_parameters.inc"
+#undef NATIVE_EDITABLE_FLOAT
+        if (catalog_retains) continue;
         if (key != "gamepad.ai_aim.hipfire_multiplier" &&
             key != "gamepad.ai_aim.aim_response_learning_enabled") return false;
     }

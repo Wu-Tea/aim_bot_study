@@ -1,0 +1,13 @@
+F
+======================================================================
+FAIL: test_truncated_native_config_cannot_supply_partial_defaults (test_desktop_app.DesktopConfigTests.test_truncated_native_config_cannot_supply_partial_defaults)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\work\AI\yolo-study-001\python\tests\test_desktop_app.py", line 40, in test_truncated_native_config_cannot_supply_partial_defaults
+    with patch('desktop_app.runtime.subprocess.run',return_value=result), self.assertRaisesRegex(ValueError,'������'):
+AssertionError: ValueError not raised
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=1)

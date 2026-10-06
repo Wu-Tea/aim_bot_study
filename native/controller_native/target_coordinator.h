@@ -11,6 +11,8 @@ namespace controller_native {
 
 struct TargetCoordinatorConfig {
     float max_observation_age_ms = 50.0f;
+    // Explicit gamepad miss policy; adapters retain immediate release.
+    float missing_observation_grace_ms = 0.0f;
     float association_radius_px = 80.0f;
     float settle_radius_px = 8.0f;
     std::uint32_t settle_frames = 5;
@@ -53,6 +55,9 @@ struct TargetControlFeedback {
     float aim_response_px_per_stick_second = 500.0f;
     float aim_response_confidence = 0.0f;
     bool firing_recently = false;
+    // Capture-to-now displacement from actual delivered camera history.
+    bool continuation_valid = false;
+    pipeline_contract::Vec2f continuation_offset_px{};
 };
 
 class TargetCoordinator {
@@ -125,6 +130,7 @@ private:
     bool fire_requested_ = false;
     bool observed_fire_eligible_ = false;
     bool cue_continuation_active_ = false;
+    bool observation_gap_active_ = false;
     std::uint64_t selector_target_generation_ = 0;
     float frame_width_px_ = 480.0f;
     float frame_height_px_ = 416.0f;

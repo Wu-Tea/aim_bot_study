@@ -15,15 +15,18 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 import tomllib
 
-from .components import ACCENT, INK, MUTED, RAIL, SURFACE, ChoiceInput, ScrollSurface, StrengthInput, ToggleInput, configure_theme
+from .components import ACCENT, INK, MUTED, RAIL, SURFACE, FORM_COLUMN_GAP, FORM_GROUP_GAP, FORM_LABEL_WIDTH, FORM_LABEL_GAP, FORM_ROW_PADDING, ChoiceInput, DisclosureButton, SegmentedInput, ScrollSurface, StrengthInput, UnitNumberInput, ToggleInput, configure_theme
 from .curve_editor import CurveEditor, ProfileStrip
 from .curve_model import CurveModel
 from .curves import CurveLibrary, curve_document, read_curve, seed_points
 from .runtime import RuntimeManager, tail
 from .observation import RuntimeObserver
+from .frame_rates import rate
 from .settings import ConfigStore, UiPreferences, effective, lookup
-from .fields import CHOICE_LABELS, COMMON_FIELDS, GAME_FIELDS, field_value
-from .workspace import FIELDS, GAMES, ProfileRepository, projection, put, snapshot, toml_text
+from .fields import CHOICE_LABELS, COMMON_FIELDS, GAME_FIELDS, field_value, field_presentation
+from .parameter_catalog import PARAMETERS, groups as catalog_groups
+from .ads_preview import AdsEnvelopePreview
+from .workspace import FIELDS, GAMES, ProfileRepository, configured_value, projection, put, snapshot, toml_text
 
 GAME_LABELS = GAMES
 FIELD_MAP = {f[0]: f for f in FIELDS}
@@ -32,18 +35,32 @@ VIEW_ATTRIBUTES = ('surface','inputs','search_rows','field_widgets','page_traces
     'precision_button','point_error','point_error_label','snap_value','lock_value','snap_toggle',
     'point_table','tableholder','undo_button','redo_button','add_point_button','remove_point_button',
     'device_text','fusion_button','learning_summary','learning_table',
-    'advanced_parent','advanced_group','transfer_parent','transfer_group')
+    'frame_rate_values','frame_rate_detail',
+    'advanced_parent','advanced_group','advanced_button','transfer_parent','transfer_group','ads_diagram','ads_groups')
 PAGES = {'assist': ('参数调校', '辅助力度与识别目标'), 'curve': ('响应曲线', '直接编辑输入与响应'),
-         'device': ('设备与运行', '模型、手柄与检测设置'), 'feedback': ('运行反馈', '设备状态与响应学习')}
+         'ads': ('范围与跟随', '开镜时找到目标，瞄上后持续跟随'),
+         'device': ('设备与运行', '模型、手柄与检测设置'), 'feedback': ('运行反馈', '设备状态、帧率与响应学习')}
 ASSIST_GROUPS = [
-    ('开镜与跟随', ['gamepad.ads.strength_scale','gamepad.ads.vertical_strength_scale','gamepad.bodylock.strength',
-                   'gamepad.ai_aim.hipfire_multiplier','gamepad.ai_aim.aim_response_learning_enabled'],0),
-    ('识别目标', ['runtime.vision.target_height_ratio','runtime.vision.friendly_filter_enabled'],0),
+    ('首次瞄准与腰射', ['gamepad.ads.output_limit_x','gamepad.ads.output_limit_y',
+                   'gamepad.assist.hipfire_ratio','gamepad.ai_aim.aim_response_learning_enabled'],0),
+    ('瞄点与识别', ['runtime.vision.target_height_ratio','runtime.vision.target_wide_low_height_ratio','runtime.vision.friendly_filter_enabled'],0),
     ('开火与压枪', ['gamepad.auto_fire.fire_output','gamepad.auto_fire.manual_fire_input','gamepad.recoil.enabled',
-                   'gamepad.recoil.feedback_amount','gamepad.recoil.hipfire_multiplier'],1)]
+                   'gamepad.recoil.output_amount','gamepad.recoil.hipfire_multiplier'],1)]
+for title, paths in catalog_groups(False):
+    for group_title, group_paths, _ in ASSIST_GROUPS:
+        if title == group_title:
+            group_paths.extend(p for p in paths if p not in group_paths)
+            break
+    else:ASSIST_GROUPS.append((title,list(paths),1))
 PRIOR_PATHS = [f[0] for f in FIELDS if f[0].endswith('_initial_scale')]
+ADVANCED_PATHS = PRIOR_PATHS + [p['path'] for p in PARAMETERS.values() if p['advanced']]
 SHORT_LABELS = {'gamepad.ai_aim.aim_response_learning_enabled':'自适应响应学习',
-                'gamepad.ai_aim.hipfire_multiplier':'腰射辅助倍率', 'runtime.vision.target_height_ratio':'目标高度比例',
+                'gamepad.ads.output_limit_x':'ADS 横向输出上限',
+                'gamepad.ads.output_limit_y':'ADS 纵向输出上限',
+                'gamepad.ads.pickup_base_radius_px':'ADS 拾取半径（px）',
+                'gamepad.bodylock.activation_range_px':'跟随半径（px）',
+                'gamepad.bodylock.response_time_x_ms':'横向响应时间',
+                'gamepad.assist.hipfire_ratio':'腰射辅助保留比例', 'runtime.vision.target_height_ratio':'瞄点距顶部',
                 'runtime.vision.friendly_filter_enabled':'过滤友方目标',
                 'gamepad.ai_aim.body_free_initial_scale':'跟随 · 普通区', 'gamepad.ai_aim.body_slow_initial_scale':'跟随 · 减速区',
                 'gamepad.ai_aim.ads_free_initial_scale':'ADS · 普通区', 'gamepad.ai_aim.ads_slow_initial_scale':'ADS · 减速区'}
@@ -69,6 +86,16 @@ class AssistantWindow:
         self.views = {}
         self.current_view = None
         self.runtime_status = {'phase':'stopped','record':None}
+        self.last_frame_rates=None
+        self.frame_rate_record=None
+        self.frame_rate_session=None
+        self.input_devices=[]
+        self.device_results=queue.Queue()
+        self.device_scanning=False
+        self.devices_scanned=False
+        self.ads_policy=None
+        self.ads_policy_loading=False
+        self.ads_policy_results=queue.Queue()
         self.observation_after=0.
         self.disposed = False
         self.profile = None
@@ -104,10 +131,10 @@ class AssistantWindow:
         self.root.minsize(840,680)
         configure_theme()
         self.root.configure(background=SURFACE)
-        shell = ttk.Frame(self.root,padding=(22,16,22,12))
+        shell = ttk.Frame(self.root,padding=(24,16,24,12))
         shell.pack(fill='both',expand=True)
         header = ttk.Frame(shell)
-        header.pack(fill='x',pady=(0,12))
+        header.pack(fill='x',pady=(0,4))
         ttk.Label(header,text='手柄助手',style='Section.TLabel').pack(side='left')
         ttk.Label(header,text='  /  配置工作室',style='Muted.TLabel').pack(side='left')
         self.primary = ttk.Button(header,text='启动配置',style='Primary.TButton',command=self.primary_action)
@@ -118,7 +145,7 @@ class AssistantWindow:
         self.save_button.pack(side='right')
         ttk.Label(header,textvariable=self.status_text,style='Accent.TLabel').pack(side='right',padx=16)
         strip = ttk.Frame(shell)
-        strip.pack(fill='x',pady=(0,10))
+        strip.pack(fill='x',pady=(0,4))
         self.new_button = ttk.Button(strip,text='＋ 新建',command=self.new_profile)
         self.new_button.pack(side='right',padx=(8,0))
         self.manage_value = tk.StringVar(value='manage')
@@ -136,9 +163,9 @@ class AssistantWindow:
             button = ttk.Button(nav,text=label,style='Nav.TButton',command=lambda k=key:self.show_page(k))
             button.pack(side='left',padx=(0,3))
             self.navigation[key]=button
-        ttk.Separator(shell).pack(fill='x',pady=(4,10))
+        ttk.Separator(shell).pack(fill='x',pady=(4,8))
         page_header = ttk.Frame(shell)
-        page_header.pack(fill='x',pady=(0,10))
+        page_header.pack(fill='x',pady=(0,4))
         self.page_title = tk.StringVar()
         ttk.Label(page_header,textvariable=self.page_title,style='Section.TLabel').pack(side='left')
         ttk.Label(page_header,textvariable=self.change_summary,style='Muted.TLabel').pack(side='left',padx=12)
@@ -147,7 +174,7 @@ class AssistantWindow:
         self.search_label = ttk.Label(page_header,text='查找参数',style='Muted.TLabel')
         self.search_label.pack(side='right',padx=8)
         footer = ttk.Frame(shell)
-        footer.pack(side='bottom',fill='x',pady=(10,0))
+        footer.pack(side='bottom',fill='x',pady=(8,0))
         ttk.Separator(footer).pack(fill='x',pady=(0,8))
         notice_row=ttk.Frame(footer,height=26);notice_row.pack(fill='x');notice_row.pack_propagate(False)
         self.notice_summary=tk.StringVar(master=self.root)
@@ -196,6 +223,7 @@ class AssistantWindow:
         self.variable_traces,self.ui_traces,self.page_traces=[],[],[]
         self.variables={}
         self.views.clear()
+        self.frame_rate_values=[]
         # Remove UI-owned variables while the interpreter is on its UI thread.
         # An in-flight worker may still own the window controller after an
         # external window destroy; it must not own Tcl variable finalizers.
@@ -224,7 +252,7 @@ class AssistantWindow:
     def make_state(self, entry):
         saved, expected = self.repository.read(self.repository.path(entry['id']))
         self.states[entry['id']] = {'saved':saved,'data':deepcopy(saved),'expected':expected,
-            'raw':{f[0]:raw_value(f,lookup(saved['config'],f[0],f[3])) for f in FIELDS},
+            'raw':{f[0]:raw_value(f,configured_value(saved['config'],f[0],f[3])) for f in FIELDS},
             'model':self.model_for(saved)}
 
     def model_for(self,data):
@@ -237,7 +265,7 @@ class AssistantWindow:
     def dirty(self,state=None):
         state = state or self.state
         if not state:return False
-        baseline={f[0]:raw_value(f,lookup(state['saved']['config'],f[0],f[3])) for f in FIELDS}
+        baseline={f[0]:raw_value(f,configured_value(state['saved']['config'],f[0],f[3])) for f in FIELDS}
         return state['raw']!=baseline or state['data']!=state['saved']
 
     def select_profile(self,identifier):
@@ -269,6 +297,11 @@ class AssistantWindow:
     def field_changed(self,path,value):
         if self.loading:return
         self.state['raw'][path]=value
+        if path=='runtime.input.device_id':
+            device=next((d for d in self.input_devices if d['id']==value),None)
+            if device or not value:self.variables['runtime.input.device_name'].set(device['name'] if device else '')
+            if not value:self.variables['runtime.input.auto_detect'].set(True)
+            self.refresh_device_choices()
         self.refresh_strip()
         self.refresh_actions()
         self.validate_visible(path)
@@ -282,12 +315,12 @@ class AssistantWindow:
             if error_label.winfo_manager():
                 error_label.configure(text='')
                 error_label.grid_remove()
-            target=widget.entry if isinstance(widget,StrengthInput) else widget
+            target=getattr(widget,'entry',widget)
             target.state(['!invalid'])
         except ValueError as error:
             error_label.configure(text=str(error))
             error_label.grid()
-            target=widget.entry if isinstance(widget,StrengthInput) else widget
+            target=getattr(widget,'entry',widget)
             target.state(['invalid'])
 
     def show_page(self,page):
@@ -300,7 +333,7 @@ class AssistantWindow:
         self.page=page
         for nav_page,button in self.navigation.items():button.configure(style='Selected.Nav.TButton' if nav_page==page else 'Nav.TButton')
         self.page_title.set(PAGES[page][1])
-        self.search_entry.state(['!disabled'] if page in ('assist','device') and self.profile else ['disabled'])
+        self.search_entry.state(['!disabled'] if page in ('assist','device','ads') and self.profile else ['disabled'])
         self.current_view=key
         if key in self.views:
             for name,value in self.views[key].items():setattr(self,name,value)
@@ -316,6 +349,11 @@ class AssistantWindow:
                 self.curve_editor.draw()
                 self.tableholder.pack(fill='x',pady=(8,0)) if self.show_point_table.get() else self.tableholder.pack_forget()
                 self.point_selected(self.curve_editor.selected)
+            if page=='feedback':self.show_frame_rates()
+            if page=='device':self.refresh_device_choices()
+            if page=='ads':
+                self.ads_diagram.set_config(self.profile['config'])
+                self.ads_diagram.set_policy(self.ads_policy)
             for path in self.field_widgets:self.validate_visible(path)
             self.update_advanced_groups()
             self.filter_rows()
@@ -339,6 +377,7 @@ class AssistantWindow:
         elif page=='assist':self.build_assist(body)
         elif page=='device':self.build_device(body)
         elif page=='curve':self.build_curve(body)
+        elif page=='ads':self.build_ads(body)
         else:self.build_feedback(body)
         self.surface.install_wheel()
         self.views[key]={name:getattr(self,name,None) for name in VIEW_ATTRIBUTES}
@@ -350,35 +389,44 @@ class AssistantWindow:
         row.pack(fill='x')
         row.columnconfigure((0,1),weight=1,uniform='columns')
         left,right=ttk.Frame(row),ttk.Frame(row)
-        left.grid(row=0,column=0,sticky='new',padx=(0,18))
-        right.grid(row=0,column=1,sticky='new',padx=(18,0))
+        left.grid(row=0,column=0,sticky='new',padx=(0,FORM_COLUMN_GAP//2))
+        right.grid(row=0,column=1,sticky='new',padx=(FORM_COLUMN_GAP//2,0))
         return left,right
 
-    def group(self,parent,title,paths,slider=True,hint=''):
+    def group(self,parent,title,paths,slider=True,hint='',compact=False):
         group=ttk.Frame(parent)
-        group.pack(fill='x',pady=(0,14))
-        ttk.Label(group,text=title,style='Section.TLabel').pack(anchor='w',pady=(0,5))
+        group.pack(fill='x',pady=(0,4 if compact else FORM_GROUP_GAP))
+        ttk.Label(group,text=title,style='Section.TLabel').pack(anchor='w',pady=(0,4))
         if hint:ttk.Label(group,text=hint,style='Muted.TLabel',wraplength=380).pack(anchor='w',pady=(0,5))
-        ttk.Separator(group).pack(fill='x',pady=(0,4))
-        for path in paths:self.field_row(group,path,slider)
+        if not compact:ttk.Separator(group).pack(fill='x',pady=(0,4))
+        for path in paths:self.field_row(group,path,slider,compact)
         return group
 
-    def field_row(self,parent,path,slider=True):
+    def field_row(self,parent,path,slider=True,compact=False):
         field=FIELD_MAP[path]
         _,label,kind,_,limits=field
-        row=ttk.Frame(parent,padding=(0,5))
+        row=ttk.Frame(parent,padding=(0,FORM_ROW_PADDING))
         row.pack(fill='x')
         row.columnconfigure(1,weight=1)
-        label=SHORT_LABELS.get(path,label)
-        ttk.Label(row,text=label,wraplength=140).grid(row=0,column=0,sticky='w',padx=(0,10))
-        row.columnconfigure(0,minsize=145)
+        presentation=field_presentation(path)
+        label=presentation.get('label',SHORT_LABELS.get(path,label))
+        ttk.Label(row,text=label,wraplength=FORM_LABEL_WIDTH-4).grid(row=0,column=0,sticky='w',padx=(0,FORM_LABEL_GAP))
+        row.columnconfigure(0,minsize=FORM_LABEL_WIDTH+FORM_LABEL_GAP)
         variable=self.variables[path]
-        if kind is bool:
+        if path=='runtime.input.device_id':
+            widget=ChoiceInput(row,variable,[''],{'':'自动选择'},ellipsize=True,width=12)
+        elif kind is bool:
             widget=ToggleInput(row,variable)
         elif kind is str and limits:
             widget=ChoiceInput(row,variable,limits,CHOICE_LABELS)
-        elif kind is float and slider and not path.endswith('_initial_scale'):
-            widget=StrengthInput(row,variable,limits)
+        elif presentation.get('display_scale'):
+            if slider and kind is float and presentation.get('editor')!='number':
+                widget=StrengthInput(row,variable,limits,unit=presentation['unit'],display_scale=presentation['display_scale'])
+            else:widget=UnitNumberInput(row,variable,presentation['display_scale'],presentation['unit'])
+        elif kind is float and slider and PARAMETERS.get(path,{}).get('editor') != 'number' and not path.endswith(('_initial_scale','_ms')):
+            widget=StrengthInput(row,variable,limits,unit=presentation.get('unit',''))
+        elif kind in (int,float):
+            widget=UnitNumberInput(row,variable)
         else:
             widget=ttk.Entry(row,textvariable=variable,justify='right' if kind in (int,float) else 'left',width=12)
         widget.grid(row=0,column=1,sticky='ew')
@@ -389,11 +437,13 @@ class AssistantWindow:
         self.field_widgets[path]=(widget,error)
         self.search_rows.append((row,(label+' '+field[1]+' '+path+' '+parent.winfo_name()).lower()))
         targets=[widget,widget.entry,widget.scale] if isinstance(widget,StrengthInput) else [widget]
+        if isinstance(widget,UnitNumberInput):targets.append(widget.entry)
         targets.extend(row.winfo_children())
         for target in targets:
             target.bind('<Button-3>',lambda e,p=path:self.field_menu(p,e),add='+')
             target.bind('<Shift-F10>',lambda e,p=path:self.field_menu(p,e),add='+')
         self.validate_visible(path)
+        return row
 
     def field_menu(self,path,event):
         if self.busy:return 'break'
@@ -403,9 +453,17 @@ class AssistantWindow:
         def action(*_):
             if self.field_popup.variable.get()=='initial':
                 field=FIELD_MAP[path]
-                self.variables[path].set(raw_value(field,lookup(self.profile['initial']['config'],path,field[3])))
+                self.variables[path].set(raw_value(field,configured_value(self.profile['initial']['config'],path,field[3])))
             elif self.field_popup.variable.get()=='help':
                 field=FIELD_MAP[path]
+                if path in ('gamepad.ads.output_limit_x','gamepad.ads.output_limit_y'):
+                    self.notice.set('开镜时把准星拉向目标的力度倍率：1× 保留原力度上限，0.5× 将上限减半。范围 0～3×；保存后热加载。瞄上后的持续跟随力度在“范围与跟随”设置。')
+                    return
+                if path in PARAMETERS:
+                    change='保存后热加载。' if PARAMETERS[path]['hot_reload'] else '保存后需要重启。'
+                    scale=PARAMETERS[path].get('display_scale',1);unit=PARAMETERS[path].get('unit','')
+                    self.notice.set(PARAMETERS[path]['help']+f' 范围 {field[4][0]*scale:g}～{field[4][1]*scale:g}{unit}。'+change)
+                    return
                 ranges='开关' if field[2] is bool else '、'.join(CHOICE_LABELS.get(v,v) for v in field[4]) if field[2] is str and field[4] else \
                        ('0 使用原生默认值；手动指定为 80～4000' if path.endswith('_initial_scale') else f'范围 {field[4][0]}～{field[4][1]}')
                 self.notice.set(field[1]+'：'+ranges+'。恢复创建时的值只修改草稿。')
@@ -415,12 +473,61 @@ class AssistantWindow:
 
     def build_assist(self,parent):
         cols=self.columns(parent)
-        for title,paths,column in ASSIST_GROUPS:self.group(cols[column],title,paths)
-        toggle=self.register(ToggleInput(cols[1],self.advanced,'高级：响应初值',lambda:self.show_page('assist'),width=190))
-        toggle.pack(anchor='w',pady=(2,6))
-        self.advanced_parent=cols[1]
+        for title,paths,column in ASSIST_GROUPS:
+            group=self.group(cols[column],title,paths)
+            if title=='首次瞄准与腰射':
+                ttk.Button(group,text='瞄上后持续跟随 → 范围与跟随',style='Link.TButton',command=lambda:self.show_page('ads')).pack(anchor='w',pady=(4,0))
+        self.advanced_button=self.register(DisclosureButton(parent,self.advanced,'高级：意图、开火与响应',lambda:self.show_page('assist')))
+        self.advanced_button.pack(fill='x',pady=(2,0))
+        self.advanced_parent=ttk.Frame(parent)
+        self.advanced_parent.pack(fill='x')
+        self.register(DisclosureButton(parent,self.manual_transfer,'手动输出补偿',lambda:self.show_page('assist'))).pack(fill='x',pady=(8,0))
+        self.transfer_parent=ttk.Frame(parent)
+        self.transfer_parent.pack(fill='x')
         self.update_advanced_groups()
-        ttk.Label(parent,text='修改保留在当前配置中；保存后，运行实例会尝试热重载支持的参数。',style='Muted.TLabel').pack(anchor='w',pady=(0,4))
+
+    def build_ads(self,parent):
+        row=ttk.Frame(parent);row.pack(fill='x')
+        row.columnconfigure(0,weight=1)
+        self.ads_diagram=AdsEnvelopePreview(row,self.variables)
+        self.ads_diagram.grid(row=0,column=0,sticky='new',padx=(0,FORM_COLUMN_GAP))
+        diagram,surface=self.ads_diagram,self.surface
+        surface.canvas.bind('<Configure>',lambda _:diagram.fit_height(surface.canvas.winfo_height()),add='+')
+        settings=ttk.Frame(row,width=265)
+        settings.grid(row=0,column=1,sticky='new')
+        titles={'辅助输入':'L2 触发与 AI 输入',
+                '目标范围':'① ADS Snap · 首次抓取','跟随响应':'② BodyLock · 持续跟随'}
+        self.ads_groups={}
+        for title,paths in catalog_groups(False,page='ads'):
+            group=self.group(settings,titles.get(title,title),paths,False,compact=True)
+            if title in ('目标范围','跟随响应'):
+                self.ads_groups['acquire' if title=='目标范围' else 'follow']=group
+        # Capture this retained page, not whichever page is later current.
+        groups,preview=self.ads_groups,self.ads_diagram
+        result=ttk.Frame(settings)
+        result.pack(fill='x',pady=(4,0))
+        def stage_changed(*_):
+            for stage,group in groups.items():
+                if stage==preview.active_mode:group.pack(fill='x',pady=(0,4),before=result)
+                else:group.pack_forget()
+        self.watch(preview.mode,stage_changed,page=True)
+        stage_changed()
+        ttk.Separator(result).pack(fill='x',pady=(0,6))
+        ttk.Label(result,text='此位置的辅助示例',style='Section.TLabel').pack(anchor='w')
+        ttk.Label(result,textvariable=preview.example_output,style='Muted.TLabel',wraplength=260).pack(anchor='w',pady=(4,4))
+        ttk.Label(result,text='静止 / 线性示例，非实时输出',style='Muted.TLabel').pack(anchor='w')
+        self.ads_diagram.set_config(self.profile['config'])
+        self.ads_diagram.set_policy(self.ads_policy)
+        if self.ads_policy is None and not self.ads_policy_loading:self.request_ads_policy()
+
+    def request_ads_policy(self):
+        if self.ads_policy_loading or self.closed:return
+        self.ads_policy_loading=True
+        manager,results=self.manager,self.ads_policy_results
+        def work():
+            try:results.put((manager.ads_geometry_policy(),None))
+            except Exception as error:results.put((None,str(error)))
+        threading.Thread(target=work,daemon=True,name='ads-geometry-policy').start()
 
     def build_device(self,parent):
         model=ttk.Frame(parent)
@@ -432,31 +539,86 @@ class AssistantWindow:
         cols=self.columns(parent)
         common=[f[0] for f in COMMON_FIELDS]
         self.group(cols[0],'捕获与推理',common[:7],False)
-        self.group(cols[1],'手柄与日志',common[7:],False)
-        self.register(ToggleInput(cols[1],self.manual_transfer,'高级：手动输出补偿',lambda:self.show_page('device'),width=210)).pack(anchor='w',pady=(0,8))
-        self.transfer_parent=cols[1]
-        self.update_advanced_groups()
+        devices=self.group(cols[1],'手柄与日志',[],False)
+        row=self.field_row(devices,'runtime.input.device_id',False)
+        self.register(ttk.Button(row,text='刷新',width=5,command=self.refresh_input_devices)).grid(row=0,column=2,padx=(6,0))
+        ttk.Label(devices,text='按名称选择；保存后重启生效。',style='Muted.TLabel').pack(anchor='w',pady=(0,5))
+        for path in ('runtime.telemetry.enabled','runtime.performance.enabled'):self.field_row(devices,path,False)
+        self.refresh_device_choices()
+        if not self.devices_scanned:self.refresh_input_devices()
         tools=ttk.Frame(parent)
         tools.pack(fill='x',pady=(8,0))
         self.register(ttk.Button(tools,text='编辑完整配置…',command=self.raw_editor)).pack(side='left')
-        self.register(ttk.Button(tools,text='保存后重新应用',command=self.apply_saved_config)).pack(side='left',padx=8)
+        self.register(ttk.Button(tools,text='保存并热加载',command=self.apply_saved_config)).pack(side='left',padx=8)
         self.register(ttk.Button(tools,text='重启当前配置',command=lambda:self.primary_action(force_restart=True))).pack(side='left')
+
+    def refresh_input_devices(self):
+        if self.device_scanning or self.closed:return
+        self.device_scanning=True
+        self.devices_scanned=True
+        # The worker captures only the manager and result queue, never Tk or
+        # this window controller. Scanning does not disable navigation/editing.
+        manager,results=self.manager,self.device_results
+        def work():
+            try:results.put((manager.input_devices(),None))
+            except Exception as error:results.put((None,str(error)))
+        threading.Thread(target=work,daemon=True,name='input-device-scan').start()
+
+    def refresh_device_choices(self):
+        if self.page!='device' or not self.profile:return
+        record=self.field_widgets.get('runtime.input.device_id')
+        if not record:return
+        choice,_=record
+        selected=self.variables['runtime.input.device_id'].get()
+        names={d['name']:sum(other['name']==d['name'] for other in self.input_devices) for d in self.input_devices}
+        labels={'':'自动选择' if self.variables['runtime.input.auto_detect'].get() else '沿用已存手柄设置'}
+        details={}
+        for device in self.input_devices:
+            if names[device['name']]<=1:continue
+            try:detail=bytes.fromhex(device['id'].partition(':')[2]).decode('utf-8').split('\0')[-1]
+            except (ValueError,UnicodeError):detail=device['id']
+            # Windows HID paths share a final interface GUID. The instance
+            # segment carries the useful distinction between equal names.
+            if '#' in detail:detail=detail.split('#')[-2]
+            details[device['id']]=detail
+        for device in self.input_devices:
+            name=device['name']
+            if names[name]>1:
+                peers=[details[d['id']] for d in self.input_devices if d['name']==name]
+                prefix=os.path.commonprefix(peers)
+                detail=details[device['id']][len(prefix):]
+                length=8
+                while length<len(detail) and sum(v[len(prefix):][:length]==detail[:length] for v in peers)>1:length+=1
+                name+=f' · {detail[:length] or "末端"}'
+            labels[device['id']]=name
+        if selected and selected not in labels:
+            labels[selected]='未连接 · '+(self.variables['runtime.input.device_name'].get() or '已选手柄')
+        choice.choices=list(labels)
+        choice.labels=labels
+        if choice.popup:choice.dismiss()
+        choice.refresh()
 
     def update_advanced_groups(self):
         if self.page=='assist' and self.profile:
             if self.advanced.get():
                 if self.advanced_group is None:
-                    self.advanced_group=self.group(self.advanced_parent,'响应学习起点',PRIOR_PATHS,False,
-                        '0 使用原生默认值；手动指定范围为 80～4000。')
+                    self.advanced_group=ttk.Frame(self.advanced_parent)
+                    self.advanced_group.pack(fill='x',pady=(0,14))
+                    left,right=self.columns(self.advanced_group)
+                    for title,paths in catalog_groups(True):
+                        self.group(left,title,paths,True,
+                            '逐轴力度：0.15 = 15%；忽略阈值必须小于完整阈值。' if title=='手动意图' else '')
+                    self.group(right,'响应学习起点',PRIOR_PATHS,False,
+                               '0 使用原生默认值；手动指定范围为 80～4000。')
                     self.surface.install_wheel(self.advanced_group)
                 else:self.advanced_group.pack(fill='x',pady=(0,14))
             elif self.advanced_group is not None:self.advanced_group.pack_forget()
-        if self.page=='device' and self.profile:
+        if self.page=='assist' and self.profile:
             if self.manual_transfer.get():
                 if self.transfer_group is None:
                     self.transfer_group=self.group(self.transfer_parent,'手动输出补偿',
                         [f[0] for f in GAME_FIELDS if f[0].startswith('gamepad.output_transfer.')],False,
-                        '已有原生参数；不包含自动测量与反曲线校准。')
+                        '调整手动摇杆输出的映射；展开此处不会启用补偿。')
                     self.surface.install_wheel(self.transfer_group)
                 else:self.transfer_group.pack(fill='x',pady=(0,14))
             elif self.transfer_group is not None:self.transfer_group.pack_forget()
@@ -465,12 +627,17 @@ class AssistantWindow:
         toolbar=ttk.Frame(parent)
         toolbar.pack(fill='x',pady=(0,10))
         self.curve_choice=tk.StringVar(value=self.profile['curve']['algorithm'])
-        choice=self.register(ChoiceInput(toolbar,self.curve_choice,['linear','cod_dynamic_legacy_lut','custom_lut'],CHOICE_LABELS))
+        choice=self.register(SegmentedInput(toolbar,self.curve_choice,['linear','cod_dynamic_legacy_lut','custom_lut'],
+            {'linear':'线性','cod_dynamic_legacy_lut':'动态','custom_lut':'自定义'}))
         choice.pack(side='left')
+        ttk.Label(toolbar,text='蓝：当前 / 灰：已保存',style='Muted.TLabel').pack(side='left',padx=12)
         self.watch(self.curve_choice,self.curve_choice_changed,page=True)
-        self.register(ttk.Button(toolbar,text='导入…',command=self.import_curve)).pack(side='left',padx=8)
-        self.register(ttk.Button(toolbar,text='导出…',command=self.export_curve)).pack(side='left')
-        self.register(ttk.Button(toolbar,text='存为预设…',command=self.save_curve_preset)).pack(side='right')
+        menu=ttk.Menubutton(toolbar,text='曲线文件 ▾')
+        popup=tk.Menu(menu,tearoff=False,background=RAIL,foreground=INK)
+        for title,command in [('导入曲线…',self.import_curve),('导出曲线…',self.export_curve),('存为预设…',self.save_curve_preset)]:
+            popup.add_command(label=title,command=command)
+        menu.configure(menu=popup)
+        self.register(menu).pack(side='right')
         self.preset_value=tk.StringVar(value='presets')
         self.preset_button=self.register(ChoiceInput(toolbar,self.preset_value,[],{'presets':'曲线预设'}))
         self.watch(self.preset_value,self.preset_changed,page=True)
@@ -481,6 +648,7 @@ class AssistantWindow:
         self.curve_editor=self.register(CurveEditor(graphrow,self.curve_changed,self.point_selected))
         self.curve_editor.grid(row=0,column=0,sticky='nsew',padx=(0,16))
         self.curve_editor.model=self.state['model']
+        self.curve_editor.before_edit=self.apply_precision
         self.curve_editor.on_error=self.notice.set
         self.curve_editor.baseline=deepcopy(self.state['saved']['curve']['definition']['points'])
         side=ttk.Frame(graphrow,width=190)
@@ -502,10 +670,9 @@ class AssistantWindow:
         self.point_error_label=ttk.Label(side,textvariable=self.point_error,foreground='#f49090',wraplength=190,font=('Microsoft YaHei UI',8))
         self.snap_value=tk.BooleanVar()
         self.lock_value=tk.BooleanVar()
-        self.snap_toggle=self.register(ToggleInput(side,self.snap_value,'吸附 1% 网格',lambda:setattr(self.curve_editor,'snap',self.snap_value.get()),width=190))
+        self.snap_toggle=self.register(ttk.Checkbutton(side,variable=self.snap_value,text='吸附 1% 网格',command=lambda:setattr(self.curve_editor,'snap',self.snap_value.get())))
         self.snap_toggle.pack(anchor='w',pady=(10,0))
-        self.register(ToggleInput(side,self.lock_value,'拖动时锁定输入',lambda:setattr(self.curve_editor,'lock_x',self.lock_value.get()),width=190)).pack(anchor='w')
-        ttk.Label(side,text='蓝：当前曲线\n灰虚线：已保存曲线',style='Muted.TLabel').pack(anchor='w',pady=(12,0))
+        self.register(ttk.Checkbutton(side,variable=self.lock_value,text='拖动时锁定输入',command=lambda:setattr(self.curve_editor,'lock_x',self.lock_value.get()))).pack(anchor='w')
         actions=ttk.Frame(parent)
         actions.pack(fill='x',pady=(10,8))
         self.undo_button=self.register(ttk.Button(actions,text='撤销',command=self.curve_editor.undo))
@@ -518,9 +685,9 @@ class AssistantWindow:
         self.remove_point_button.pack(side='left',padx=6)
         for label,action in [('－',lambda:self.curve_editor.zoom(1.4)),('＋',lambda:self.curve_editor.zoom(.7)),('适合视图',self.curve_editor.fit)]:
             self.register(ttk.Button(actions,text=label,command=action)).pack(side='right',padx=(5,0))
-        ttk.Label(parent,text='拖动控制点 · Shift 限定方向 · Alt 精细拖动 · 双击空白插点 · 中键平移 · ↑↓ 调响应 · Ctrl+Z / Y',
+        ttk.Label(parent,text='拖动点调整 · 双击空白插点 · ↑↓ 微调 · Ctrl+Z 撤销',
                   style='Muted.TLabel').pack(anchor='w',pady=(0,8))
-        self.register(ToggleInput(parent,self.show_point_table,'全部点位',lambda:self.show_page('curve'),width=160)).pack(anchor='w')
+        self.register(DisclosureButton(parent,self.show_point_table,'查看全部控制点',lambda:self.show_page('curve'))).pack(anchor='w')
         self.point_table=ttk.Treeview(parent,columns=('input','output'),show='headings',height=4,selectmode='browse')
         self.point_table.local_scroll=True
         self.point_table.heading('input',text='控制点输入 %')
@@ -594,7 +761,9 @@ class AssistantWindow:
     def table_selected(self,_):
         if not self.curve_editor or self.busy or not self.show_point_table.get():return
         selected=self.point_table.selection()
-        if selected and int(selected[0])!=self.curve_editor.selected:self.curve_editor.select(int(selected[0]))
+        if selected and int(selected[0])!=self.curve_editor.selected:
+            self.curve_editor.select(int(selected[0]))
+            self.point_table.selection_set(str(self.curve_editor.selected))
 
     def apply_precision(self):
         if not self.point_dirty:return True
@@ -618,6 +787,11 @@ class AssistantWindow:
     def curve_choice_changed(self,*_):
         if self.loading:return
         algorithm=self.curve_choice.get()
+        if not self.apply_precision():
+            self.loading=True
+            self.curve_choice.set(self.profile['curve']['algorithm'])
+            self.loading=False
+            return
         if algorithm!='custom_lut':
             points=seed_points(algorithm,self.project)
             self.curve_editor.model.replace(points,{'algorithm':algorithm,'name':'响应曲线'})
@@ -632,6 +806,7 @@ class AssistantWindow:
         except ValueError as error:self.notice.set(str(error))
 
     def use_curve(self,data):
+        if not self.apply_precision():return
         self.curve_editor.model.replace(data['points'],{'algorithm':'custom_lut','name':data['name']})
         self.curve_editor.changed()
 
@@ -662,9 +837,19 @@ class AssistantWindow:
 
     def filter_rows(self):
         query=self.search.get().strip().lower()
+        transfer=[f[0] for f in GAME_FIELDS if f[0].startswith('gamepad.output_transfer.')]
+        if self.profile and self.page=='assist' and query and not self.manual_transfer.get() and \
+            any(query in ('手动输出补偿 '+FIELD_MAP[p][1]+' '+p).lower() for p in transfer):
+            self.manual_transfer.set(True)
+            self.show_page('assist')
+            return
+        if self.profile and self.page=='ads' and query:
+            matches={AdsEnvelopePreview.context_for(p) for p in self.field_widgets
+                     if query in (SHORT_LABELS.get(p,'')+' '+FIELD_MAP[p][1]+' '+p).lower()}
+            matches.discard(None)
+            if len(matches)==1:self.ads_diagram.mode.set(matches.pop())
         if self.profile and self.page=='assist' and query and not self.advanced.get() and \
-            any(query in (SHORT_LABELS.get(p,'')+' '+FIELD_MAP[p][1]+' '+p).lower() for p in PRIOR_PATHS) and \
-            not any(p in self.field_widgets for p in PRIOR_PATHS):
+            any(query in (SHORT_LABELS.get(p,'')+' '+FIELD_MAP[p][1]+' '+p).lower() for p in ADVANCED_PATHS):
             self.advanced.set(True)
             self.show_page('assist')
             return
@@ -755,7 +940,7 @@ class AssistantWindow:
             if messagebox.askyesno('恢复创建时的参数','把当前草稿恢复为配置创建时的参数和曲线？保存后才会写入文件。',parent=self.root):
                 initial=deepcopy(self.profile['initial'])
                 self.profile.update(initial)
-                self.state['raw']={f[0]:raw_value(f,lookup(self.profile['config'],f[0],f[3])) for f in FIELDS}
+                self.state['raw']={f[0]:raw_value(f,configured_value(self.profile['config'],f[0],f[3])) for f in FIELDS}
                 self.state['model']=self.model_for(self.profile)
                 self.select_profile(self.profile['id'])
 
@@ -839,7 +1024,7 @@ class AssistantWindow:
             state['saved']=deepcopy(candidate)
             state['data'].update(deepcopy(candidate))
             state['expected']=result['expected']
-            state['raw']={f[0]:raw_value(f,lookup(candidate['config'],f[0])) for f in FIELDS}
+            state['raw']={f[0]:raw_value(f,configured_value(candidate['config'],f[0],f[3])) for f in FIELDS}
             self.loading=True
             for path,variable in self.variables.items():variable.set(state['raw'][path])
             self.loading=False
@@ -899,7 +1084,7 @@ class AssistantWindow:
                 return {'expected':expected,'start_error':str(error)}
         def done(result):
             state['saved']=deepcopy(candidate);state['data'].update(deepcopy(candidate));state['expected']=result['expected']
-            state['raw']={f[0]:raw_value(f,lookup(candidate['config'],f[0])) for f in FIELDS}
+            state['raw']={f[0]:raw_value(f,configured_value(candidate['config'],f[0],f[3])) for f in FIELDS}
             self.restart_required=False;self.pending_reload=None
             self.refresh_strip()
             self.notice.set('启动失败：'+result['start_error'] if 'start_error' in result else '启动请求已提交，正在等待原生程序与手柄就绪。')
@@ -937,6 +1122,20 @@ class AssistantWindow:
         self.fusion_button.pack(side='left')
         self.register(ttk.Button(tools,text='查看日志…',command=self.show_logs)).pack(side='left',padx=8)
         self.register(ttk.Button(tools,text='导出响应学习…',command=self.export_learning)).pack(side='left')
+        rates=ttk.Frame(parent)
+        rates.pack(fill='x',pady=(0,12))
+        rates.columnconfigure((0,1,2),weight=1,uniform='fps')
+        self.frame_rate_values=[tk.StringVar(master=self.root,value='—') for _ in range(3)]
+        for column,(title,variable) in enumerate(zip(('应用平均 FPS','Aim 平均 FPS','近 5 秒 Aim FPS'),self.frame_rate_values)):
+            group=ttk.Frame(rates)
+            group.grid(row=0,column=column,sticky='ew')
+            ttk.Label(group,text=title,style='Muted.TLabel').pack(anchor='w')
+            ttk.Label(group,textvariable=variable,style='Title.TLabel').pack(anchor='w')
+        self.frame_rate_detail=tk.StringVar(master=self.root)
+        ttk.Label(parent,textvariable=self.frame_rate_detail,style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(0,6))
+        ttk.Label(parent,text='FPS 为新视觉结果的消费帧率；Aim 按实体开镜计时。统计只驻留内存，无需开启日志。',
+                  style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(0,14))
+        self.show_frame_rates()
         ttk.Label(parent,text='响应学习',style='Section.TLabel').pack(anchor='w',pady=(0,8))
         self.learning_summary=tk.StringVar(value='尚无运行数据。')
         ttk.Label(parent,textvariable=self.learning_summary,style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(0,10))
@@ -948,6 +1147,25 @@ class AssistantWindow:
         self.learning_table.pack(fill='x')
         ttk.Label(parent,text='响应单位：px / (有效摇杆 × 秒)。这是控制器内部响应估计，不能代替独立游戏曲线校准。',
             style='Muted.TLabel',wraplength=760).pack(anchor='w',pady=(12,0))
+
+    def show_frame_rates(self):
+        record=self.runtime_status.get('record')
+        data=self.last_frame_rates
+        values=[None,None,None]
+        if data:
+            values=[rate(data['vision_frames'],data['elapsed_ns']),rate(data['aim_frames'],data['aim_ns']),
+                    rate(data['recent_aim_frames'],data['recent_aim_ns'])]
+            owner=self.states.get(self.frame_rate_record.get('profile_id'))
+            name=owner['saved']['name'] if owner else GAMES.get(self.frame_rate_record['game'],self.frame_rate_record['game'])
+            mode='已停止' if not record or data['state']==2 else 'Aim' if data['aiming'] else '空闲'
+            detail=f'{name} · {mode} · Aim {data["aim_ns"]/1_000_000_000:.1f} 秒 / {data["aim_frames"]:,} 帧'
+            if record and data['state']==0:detail+=' · 等待首个控制周期'
+        elif record:detail='当前运行实例尚未提供内存帧率；旧版本需重启更新后的原生程序。'
+        else:detail='启动配置后自动统计；每次启动从零开始，结束后在本窗口保留最近收到的数据。'
+        for variable,value in zip(self.frame_rate_values,values):
+            text='—' if value is None else f'{value:.1f}'
+            if variable.get()!=text:variable.set(text)
+        if self.frame_rate_detail.get()!=detail:self.frame_rate_detail.set(detail)
 
     def toggle_fusion(self):
         enabled=not bool(self.manager.fusion_state())
@@ -989,7 +1207,7 @@ class AssistantWindow:
                         native(temporary)
                     finally:temporary.unlink(missing_ok=True)
                 self.profile.update(candidate)
-                self.state['raw']={f[0]:raw_value(f,lookup(candidate['config'],f[0])) for f in FIELDS}
+                self.state['raw']={f[0]:raw_value(f,configured_value(candidate['config'],f[0],f[3])) for f in FIELDS}
                 self.state['model']=self.model_for(self.profile)
                 window.destroy();self.select_profile(self.profile['id']);self.notice.set('完整配置已进入草稿；点击保存后生效。')
             except (ValueError,KeyError,TypeError,OSError) as problem:error.set(str(problem))
@@ -1022,9 +1240,27 @@ class AssistantWindow:
     def poll(self):
         if self.closed:return
         self.process_jobs()
+        try:policy,error=self.ads_policy_results.get_nowait()
+        except queue.Empty:pass
+        else:
+            self.ads_policy_loading=False
+            if error:self.notice.set(error)
+            else:
+                self.ads_policy=policy
+                if self.page=='ads' and self.ads_diagram:self.ads_diagram.set_policy(policy)
+        try:devices,error=self.device_results.get_nowait()
+        except queue.Empty:pass
+        else:
+            self.device_scanning=False
+            if error:self.notice.set('手柄识别失败：'+error)
+            else:
+                self.input_devices=devices
+                self.refresh_device_choices()
+                if not devices:self.notice.set('未识别到可选择的手柄；连接后点击刷新。')
         if not self.busy:
             if time.monotonic()>=self.next_observation:
-                self.observer.request(learning=self.page=='feedback' or bool(self.pending_reload),fusion=self.page=='feedback')
+                self.observer.request(learning=self.page=='feedback' or bool(self.pending_reload),fusion=self.page=='feedback',
+                                      performance=self.page=='feedback')
                 self.next_observation=time.monotonic()+.5
             observation=self.observer.drain()
             if observation:
@@ -1035,6 +1271,14 @@ class AssistantWindow:
     def apply_observation(self,observation):
         status=observation['status'];self.runtime_status=status
         record=status.get('record');phase=status['phase']
+        if record:
+            session=(record['process_id'],record.get('process_created'))
+            if session!=self.frame_rate_session:
+                self.frame_rate_session=session
+                self.last_frame_rates=None
+            self.frame_rate_record=dict(record)
+            performance=observation.get('performance')
+            if performance is not None:self.last_frame_rates=performance
         description={'stopped':'已停止','starting':'正在启动','running':'运行中','waiting_device':'等待手柄','stopping':'正在停止','failed':'运行失败'}.get(phase,phase)
         if record:
             state=self.states.get(record.get('profile_id'))
@@ -1050,6 +1294,7 @@ class AssistantWindow:
             if not record or record.get('process_id')!=pid:self.pending_reload=None
             elif learning and learning.get('completed_id')==request and learning.get('status')!=1:self.applied(learning)
         if self.page=='feedback' and self.profile:
+            self.show_frame_rates()
             owner=' · '+GAMES.get(record['game'],record['game']) if record else ''
             self.device_text.set(status.get('device','未运行')+owner+(' · 虚拟输出已连接' if status.get('virtual_connected') else ''))
             fusion=observation['fusion']

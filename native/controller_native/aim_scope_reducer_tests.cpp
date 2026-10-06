@@ -116,6 +116,25 @@ void test_lt_then_fire_preserves_the_manual_fire_event() {
 }  // namespace
 
 void register_aim_scope_reducer_tests(native_test::Registry& registry) {
+    registry.add_case("BaseAds", "ads_press_clock_belongs_to_physical_scope", [] {
+        controller_native::AimScopeReducer owner;
+        controller_native::InputEdgeSnapshot input{};
+        input.manual_fire_signal_active=input.manual_fire_pressed=true;
+        owner.reduce(input,true,99);
+        input.manual_fire_pressed=false;input.physical_ads_active=input.physical_ads_pressed=true;
+        auto scope=owner.reduce(input,true,100);
+        require(scope.physical_ads_started_seconds==100 && !scope.scope_acquired,
+            "a physical press has its own clock even inside an existing manual-fire scope");
+        input.physical_ads_pressed=false;input.physical_ads_ready=true;
+        require(owner.reduce(input,true,100.1).physical_ads_started_seconds==100,
+            "ADS-ready or a held press must not restart the physical press clock");
+        input.physical_ads_active=false;
+        require(owner.reduce(input,true,100.2).physical_ads_started_seconds==0,
+            "release clears the physical press clock");
+        input.physical_ads_active=input.physical_ads_pressed=true;
+        require(owner.reduce(input,true,100.3).physical_ads_started_seconds==100.3,
+            "each actual new press owns a new deadline");
+    });
     registry.add_case("BaseAds", "physical_ads_edges_are_debounced_and_unique", test_physical_ads_edges_are_debounced_and_unique);
     registry.add_case("BaseAds", "manual_fire_scope_is_target_independent", test_manual_fire_scope_is_target_independent_input_state);
     registry.add_case("BaseAds", "fire_then_lt_preserves_physical_ads_event", test_fire_then_lt_preserves_the_physical_ads_event);

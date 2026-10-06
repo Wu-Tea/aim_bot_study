@@ -1,5 +1,8 @@
 # 当前项目模型与任务进度
 
+> 2026-10-06 更新：保留的 Tk GUI 已完成重新排版及参数语义统一；原生加入 32 ms 有界漏检续跟、Vision 高精度等待和连续近点收尾／短历史速度估计。最终验证为 Release、50 组 CTest、111 项桌面检查通过；最新 Apex 实机手感未确认。详见 [配置与检查](CONFIGURATION_AND_CHECKS.md)、[工作记录](../../.agent-context/handoff.md) 和 [产物索引](../../output/README.md)。以下 10 月 4 日的合并叙述是历史结构基线，“未改 GUI／控制算法”仅描述当次合并。
+
+
 更新：2026-10-04。现行路径为 dev 的 C++ runtime 与 Python/Tk 配置工作室。用户最新要求合并原生重构，但排除新 C++ GUI、保留 dev GUI。Python 仅保留桌面配置、曲线、进程管理、IPC 和界面检查；控制器、视觉 fallback、训练及分析路径继续退役。
 
 ## 项目 → 业务组成 → 能力

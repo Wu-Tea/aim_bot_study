@@ -143,3 +143,15 @@ and machine-local runtime assets out of project context.
 - Runtime/diagnostics/state ownership refactor, historical test reduction, native DLL build inputs and non-GUI Python/pybind retirement are integrated. Python UI exception supersedes blanket retirement; native control/Vision/build still have no Python participation. User configs/models/profiles and original untracked output artifacts untouched.
 - Full merged Release build passes; CTest 50/50 groups and GUI unittest 66/66 pass. Actual retained Python RuntimeManager/ControlChannel starts merged TensorRT runtime with output disabled, applies control reload revision 0→1, and gracefully stops exit=0. GUI source/launch scripts have zero diff from pre-merge dev. No controller algorithm change or new live gameplay acceptance.
 - SyncSet accept_draft self-review under direct merge and ongoing one-pass authorization. Updated current entry/model/handoff to reflect Python GUI exception; no new decisions, raw logs, secrets or writes to project-cognition.
+
+
+## 2026-10-06 — Desktop, parameter semantics and tracking checkpoint
+
+- User authorized redesign across GUI/config/native semantics, independent caps and response times, all editable values matching actual accepted ranges, 3% AI-only deadzone, and up to 32 ms same-target miss continuity. Later authorized autonomous curve tuning and recording/committing the entire workspace.
+- Redesigned retained Tk workspace and curve/range examples; generated numeric parameter catalog; stable SDL device identity/reconnect checks, input activation/release handling, reload boundaries and frame-rate reporting included in the workspace checkpoint.
+- Removed hidden recoil floor and numeric mismatches; strict configuration boundaries and explicit old-key migration preserve user assets. Config output end markers reject incomplete IPC output; the intermittent truncation origin remains unproven.
+- COD timed-wait scheduling defect corrected; sustained-ADS measured capture/inference roughly 66–69 → 166–167 FPS at configured 180. Game rendering FPS was not the reported issue.
+- Supersedes today's intermediate hard point-stop/floor design: continuous position braking (nominal 25 ms), independent sustaining motion, five capture intervals / maximum 25 ms displacement-based velocity estimate. GUI now labels arrival radius as 近点收尾半径; preview protocol v3. No optical-flow or new trajectory extrapolator claimed.
+- Final Release + 50 CTest groups + 111 desktop tests pass. 192 simulated scenarios / 1,344,000 steps; 90/96 paired configured-floor cases reduce mean error. Six stationary residual-error regressions explicitly retained. Latest Apex live acceptance still pending.
+- Navigation/evidence: `docs/project/CONFIGURATION_AND_CHECKS.md`, `output/README.md`, `decisions/DEC-2026-10-06-001-assist-parameter-and-continuity-semantics.md`. Prior handoff archived. Output includes historical intermediate failures, not all final verdicts.
+- SyncSet reviewer accept_draft under explicit user authorization. No personal profiles/models or ignored build/raw telemetry force-added; no subagents or external push requested.

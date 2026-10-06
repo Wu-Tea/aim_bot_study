@@ -15,13 +15,16 @@ struct SdlJoystickDevice {
     int buttons = 0;
     int hats = 0;
     bool opened = false;
+    // Independent of enumeration order. Prefer serial, then driver path;
+    // name-only identity is accepted only when the matching device is unique.
+    std::string id;
 };
 
 std::vector<SdlJoystickDevice> scan_sdl_joystick_devices();
 
 class SdlGamepadReader {
 public:
-    explicit SdlGamepadReader(int device_index = 0);
+    explicit SdlGamepadReader(int device_index = 0, std::string required_id = {});
     ~SdlGamepadReader();
 
     SdlGamepadReader(const SdlGamepadReader&) = delete;
@@ -42,6 +45,7 @@ private:
     std::unique_ptr<Backend> backend_;
     int device_index_ = -1;
     std::string device_name_;
+    std::string required_id_;
     int expected_axes_ = 0;
     int expected_buttons_ = 0;
     bool trigger_initialized_ = false;

@@ -3,6 +3,8 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <mutex>
+#include <condition_variable>
 
 namespace runtime_app {
 
@@ -41,6 +43,27 @@ private:
     void* timer_ = nullptr;
     unsigned int spin_tail_us_ = 50;
     PrecisionSchedulerMode mode_ = PrecisionSchedulerMode::LegacyFallback;
+};
+
+// Single waiter, multiple notifiers. A notification before the wait is retained.
+// Windows deadlines use a high-resolution timer rather than CV timeout ticks.
+class InterruptibleDeadlineWait {
+public:
+    InterruptibleDeadlineWait();
+    ~InterruptibleDeadlineWait();
+    InterruptibleDeadlineWait(const InterruptibleDeadlineWait&) = delete;
+    InterruptibleDeadlineWait& operator=(const InterruptibleDeadlineWait&) = delete;
+    void notify() noexcept;
+    void wait_until(std::chrono::steady_clock::time_point deadline);
+private:
+#ifdef _WIN32
+    void* timer_ = nullptr;
+    void* event_ = nullptr;
+#else
+    std::mutex mutex_;
+    std::condition_variable condition_;
+    bool notified_ = false;
+#endif
 };
 
 enum class RuntimeThreadPriority {

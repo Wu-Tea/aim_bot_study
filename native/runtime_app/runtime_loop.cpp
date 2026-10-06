@@ -158,7 +158,8 @@ bool gamepad_perf_log_enabled(bool perf_log) {
 void log_xinput_slot_table(const std::vector<controller_native::XInputUserSlot>& slots);
 void log_sdl_joystick_table(const std::vector<controller_native::SdlJoystickDevice>& devices);
 
-std::unique_ptr<controller_native::SdlGamepadReader> open_sdl_input_reader();
+std::unique_ptr<controller_native::SdlGamepadReader> open_sdl_input_reader(
+    const controller_native::GamepadRuntimeConfig& config);
 
 unsigned int select_xinput_user_index(
     const controller_native::GamepadRuntimeConfig& config,
@@ -199,11 +200,21 @@ unsigned int select_xinput_user_index(
     return fallback_index;
 }
 
-std::unique_ptr<controller_native::SdlGamepadReader> open_sdl_input_reader() {
+std::unique_ptr<controller_native::SdlGamepadReader> open_sdl_input_reader(
+    const controller_native::GamepadRuntimeConfig& config) {
     const std::vector<controller_native::SdlJoystickDevice> devices =
         controller_native::scan_sdl_joystick_devices();
     if (input_log_enabled()) {
         log_sdl_joystick_table(devices);
+    }
+    if (!config.input_device_id.empty()) {
+        const int selected = controller_native::select_sdl_reconnect_device(
+            devices, {}, 4, 0, config.input_device_id);
+        if (selected >= 0) {
+            auto reader = std::make_unique<controller_native::SdlGamepadReader>(selected, config.input_device_id);
+            if (reader->available()) return reader;
+        }
+        throw std::runtime_error("selected input device is unavailable or ambiguous: " + config.input_device_name);
     }
     for (const controller_native::SdlJoystickDevice& device : devices) {
         if (!device.opened) {
@@ -251,7 +262,7 @@ void log_xinput_slot_table(const std::vector<controller_native::XInputUserSlot>&
 }  // namespace
 
 int probe_physical_input(const controller_native::GamepadRuntimeConfig& config) {
-    auto sdl = open_sdl_input_reader();
+    auto sdl = open_sdl_input_reader(config);
     controller_native::XInputReader xinput(select_xinput_user_index(config, sdl == nullptr));
     std::cout << "[InputProbe] backend=" << (sdl ? "SDL" : "XInput")
               << " name=" << (sdl ? sdl->device_name() : "XInput") << '\n';
@@ -309,7 +320,7 @@ RuntimeLoop::RuntimeLoop(
       downward_diagnostics_(DownwardPullDiagnostics::from_environment()),
       perf_log_(perf_log),
       gamepad_perf_log_(gamepad_perf_log_enabled(perf_log)),
-      sdl_input_reader_(open_sdl_input_reader()),
+      sdl_input_reader_(open_sdl_input_reader(config_.gamepad)),
       input_reader_(select_xinput_user_index(config_.gamepad, sdl_input_reader_ == nullptr)),
       controller_(config_.gamepad),
       output_composer_(config_.gamepad.output_transfer),
@@ -446,6 +457,8 @@ int RuntimeLoop::run() {
             virtual_gamepad_->update(*output_composer_.finalized_output());
         }
     }
+    frame_rates_.finish(steady_time_point_ns(std::chrono::steady_clock::now()));
+    if (control_bridge_) control_bridge_->finish_frame_rates(frame_rates_.snapshot());
     if (vision_service_ != nullptr) {
         vision_service_->stop();
     }
@@ -509,10 +522,6 @@ void RuntimeLoop::submit_vision_result(const vision_native::VisionResult& result
 
 void RuntimeLoop::run_once() {
     apply_pending_config();
-    if (control_bridge_ && tick_count_ % 128 == 0 && GetTickCount64() - last_learning_publish_ms_ >= 500) {
-        control_bridge_->offer_learning(controller_.learning_snapshot());
-        last_learning_publish_ms_ = GetTickCount64();
-    }
     const auto tick_started = std::chrono::steady_clock::now();
     const controller_native::PhysicalGamepadState physical = read_physical_gamepad();
     const std::uint64_t physical_read_at_ns = steady_time_point_ns(std::chrono::steady_clock::now());
@@ -643,6 +652,13 @@ void RuntimeLoop::run_once() {
     const auto vigem_update_finished = std::chrono::steady_clock::now();
     // Everything below is observation, diagnostics, or future-frame setup.
     // It must never delay the output calculated from a newly consumed result.
+    frame_rates_.record_tick(physical_read_at_ns, aiming,
+        fresh_vision && latest_vision_result_.frame_updated);
+    if (control_bridge_ && tick_count_ % 128 == 0 && GetTickCount64() - last_learning_publish_ms_ >= 500) {
+        control_bridge_->offer_learning(controller_.learning_snapshot());
+        control_bridge_->offer_frame_rates(frame_rates_.snapshot());
+        last_learning_publish_ms_ = GetTickCount64();
+    }
     if (fresh_vision) {
         if (fusion_publisher_.enabled() && latest_vision_result_.frame_updated) {
             fusion_publisher_.publish_vision_result(latest_vision_result_,

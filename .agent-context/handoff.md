@@ -1,29 +1,30 @@
 # Agent Handoff
 
-Last updated: 2026-10-04
-Active scope: native refactor merged into dev; dev GUI preserved, new C++ GUI excluded.
+Last updated: 2026-10-06
+Active scope: desktop redesign, canonical parameter semantics, native continuity/performance and point-approach fixes; user requested a complete local workspace commit.
 
 ## Current state
 
-- Latest user explicitly requested merge into dev and preserve dev GUI. This supersedes the prior blanket Python retirement for desktop UI. Native gameplay/control/Vision/build stay C++; Python is retained only for desktop configuration/curves/process management/IPC and GUI checks. Do not restore Python gameplay, training or analysis paths.
-- dev GUI baseline 0ab4020, pre-merge cleanup/source preservation 05d1c83. Original untracked output screenshots/reports and ignored models/config/profiles remain intact. Refactor branch remains available independently; it contains the excluded C++ GUI.
-- GUI implementation, root VBS, GUI docs and background start/stop/Fusion launch scripts exactly preserve 05d1c83. New native desktop sources/target/tests are excluded from dev. Native IPC protocol is shared and unchanged (protocol=1, snapshot=640 bytes).
-- Merged runtime ownership/RAII/diagnostics/telemetry refactor, strict config parsing, optional output resource creation, historical test cleanup, pybind and non-GUI Python retirement, native SDL/ViGEm DLL inputs. Preserve dev independent game-profile parsing and its regression; no production controller algorithm change.
-- Current model/links: [Current State](../docs/project/CURRENT_STATE.md); build/entry: [README](../README.md); GUI: [Desktop Assistant](../docs/project/DESKTOP_ASSISTANT.md).
+- Python/Tk remains the desktop GUI/configuration/curves/process/IPC layer; native control, Vision and builds remain Python-free. The October 4 GUI preservation statement was a merge checkpoint, not a ban on the subsequently authorized redesign.
+- GUI pages and previews redesigned; manual output compensation is in parameters with disclosure navigation. Numeric parameter catalog generates native parsing/defaults/validation/reload rules and drives GUI controls. Output caps use percentages in GUI, normalized values in configuration; response times are independent milliseconds. AI deadzone defaults to 3%, per axis, without rescaling manual or recoil input. Recoil no longer has a hidden 14% floor.
+- Canonical gamepad may bridge a same-target observation gap for at most the user-approved 32 ms, using capture age and delivered-camera history. Invalid evidence/manual exit/expiry revoke it; gap prediction never becomes a fresh observation or fire authority. Mouse/legacy behavior remains separate.
+- Windows Vision deadline waits use an interruptible high-resolution timer. COD sustained-ADS capture/inference increased from approximately 66–69 FPS to 166–167 FPS in the recorded before/after sessions (configured target 180); this is a measured improvement, not an exact target-rate guarantee.
+- Current approach curve continuously tapers position correction at the actual target point, with a nominal 25 ms braking budget. Pursuit minimum cannot override braking. `arrival_radius_px` is now the smooth final-approach scale and still the ADS completion radius; GUI label is 近点收尾半径. Geometry preview semantics are `range-response-v3`.
+- Target velocity uses up to five aligned capture intervals and at most 25 ms of displacement history instead of a median of three instantaneous derivatives. No optical flow, 10-frame/2-frame extrapolator or additional return-to-zero delay was added.
 
-## Verification and limits
+## Verification and open limits
 
-- Merged dev full Release build passes. CTest 50/50 groups and retained GUI unittest 66/66 pass. GUI/native config assertions include independent-game identity and malformed inputs.
-- Actual retained Python RuntimeManager/ControlChannel starts merged TensorRT runtime with device output disabled, control reload applies revision 0→1, graceful stop completes exit=0 and owned active record becomes inert. Temporary config isolated; original config/profile assets unchanged.
-- GUI source/entry/scripts have no diff versus pre-merge dev. No new live receiver, gameplay, Canvas capture exclusion or feel acceptance; disabled output does not prove delivery. Engine export untested without ONNX.
-- Earlier isolated branch ignored-cache recursive cleanup was rejected by automatic review with blocked by policy; not retried/bypassed. Historical ignored outputs may remain, outside current build paths.
+- Final Release build, 50/50 CTest groups, 111/111 desktop tests and whitespace checks pass. Evidence: `output/point-curve-tuning-20261006/`.
+- Point simulation: 192 scenarios / 1,344,000 steps, two independent seeds, short/long durations. Of 96 paired configured-floor cases, 90 reduce mean absolute error; six clean stationary cases have larger residual error but remain inside their configured arrival radii. Representative moving-target mean error: 8.13 → 0.62 px. This is a simplified plant, not live Apex acceptance.
+- Latest Apex sessions without detailed telemetry cannot establish current live control behavior. Remaining gaps: actual nonlinear game response, recoil/manual arbitration, cue/source transitions, and small AI commands removed by configured deadzone.
+- An intermittent truncated native config dump was not causally reproduced; end-marker validation is boundary hardening, not a proven fix for its origin.
 
-## Continuing boundaries
+## Resume and boundaries
 
-- SHA256 checking/provenance and benchmark comparison/release framework stay retired. GUI path-derived mutex names do not constitute provenance validation. Ordinary tests and useful numerical simulations remain.
-- Preserve zero-deadzone raw manual passthrough, continuous 15–30% intent, search/acquisition/identity/handover, same-tick controller chain and resource/button release. ai_proposal knobs remain unknown/inert.
-- GUI uses the existing Python 3.11+ Tk/stdlib environment; no retired vision/controller Python packages are needed. Native build needs SDKs/DLLs and compatible models, not Python.
+- Read `docs/project/CONFIGURATION_AND_CHECKS.md`, the October 6 decision and `output/README.md`; earlier snapshots are historical. Prior handoff: `archive/handoff-2026-10-04-before-20261006-checkpoint.md`.
+- Preserve user profiles/models/configuration; do not restore retired Python runtime paths, SHA manifests or benchmark acceptance gates. Preserve raw manual passthrough, 15–30% authority, selection/identity/handover and complete controller lockstep.
+- Next evidence needed is live Apex feedback with detailed telemetry on the rebuilt runtime. Simulations are not a release verdict.
 
 ## Context review
 
-SyncSet: update current dev handoff/model and append merge milestone. Reviewer accept_draft (self-review) under user's direct merge/one-pass authorization. Latest scope overrides historical isolation/GUI-retirement claims; historic verification distinguished from merged results. No decision rewrite, secrets/raw logs/assets or writes to project-cognition.
+SyncSet self-review: accept_draft. User explicitly authorized recording, organization and committing all workspace changes. Current implementation and observed measurements are distinguished from live acceptance; no secrets, raw personal telemetry or new subagent briefs copied into context. Historical session entries retained.

@@ -10,6 +10,10 @@
 
 namespace controller_native {
 
+#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) inline constexpr float k##NAME = DEFAULT;
+#include "editable_float_parameters.inc"
+#undef NATIVE_EDITABLE_FLOAT
+
 struct VisionRuntimeConfig {
     int capture_width = 480;
     int capture_height = 416;
@@ -46,20 +50,37 @@ struct VisionRuntimeConfig {
 };
 
 struct GamepadAiAimConfig {
+    float manual_intent_begin = kManualIntentBegin;
+    float manual_intent_full = kManualIntentFull;
     float ai_delta_gain = 1.0f;
     float hipfire_multiplier = 1.0f; // AI only; physical ADS-ready input is unscaled.
+    float hipfire_ratio = kHipfireRatio;
+    float ai_input_deadzone = kAiInputDeadzone;
+    float minimum_position_stick = kMinimumPositionStick;
+    float arrival_radius_px = kArrivalRadiusPx;
     float target_max_age_ms = 96.0f;
     // Response-demand normalization only; Vision owns target admission.
     float ads_activation_radius_px = 135.0f;
     // Small/far-target base pickup radius. Vision scales it smoothly with
     // apparent target height and applies it only to new selector identity.
-    float ads_pickup_base_radius_px = 150.0f;
+    float ads_pickup_base_radius_px = kAdsPickupBaseRadiusPx;
     // Vision may start on a light LT press, but target-first ADS authority and
     // its acquisition clock begin only after the physical request is ready.
-    float ads_scope_ready_trigger = 0.80f;
+    float ads_activation_trigger = kAdsActivationTrigger;
+    float ads_scope_ready_trigger = kAdsScopeReadyTrigger;
     int ads_snap_window_ms = 135;
     float ads_snap_max_ai_force = 1.0f;
     float ads_snap_max_ai_force_y = 1.0f;
+    float ads_output_limit_x = kAdsOutputLimitX;
+    float ads_output_limit_y = kAdsOutputLimitY;
+    float ads_response_time_ms = kAdsResponseTimeMs;
+    float bodylock_output_limit_x = kBodylockOutputLimitX;
+    float bodylock_output_limit_y = kBodylockOutputLimitY;
+    float bodylock_response_time_x_ms = kBodylockResponseTimeXMs;
+    float bodylock_response_time_y_ms = kBodylockResponseTimeYMs;
+    // Set after configuration resolution; programmatic device adapters keep
+    // their own units and resolve through the adapter boundary.
+    bool normalized_assist_parameters = false;
     float ads_completion_radius_px = 8.0f;
     int ads_completion_fresh_frames = 3;
     // Bounds the one-LT opportunity to receive the first selected target.
@@ -75,10 +96,12 @@ struct GamepadAiAimConfig {
     // the last direct body height reaches this capture-height ratio. Smaller
     // targets keep the conservative cue-hold scale; the transition is smooth.
     float cue_hold_full_force_min_target_height_ratio = 0.25f;
-    float body_lock_max_ai_force = 0.30f;
-    float body_lock_max_ai_force_y = 0.42f;
-    float body_lock_box_tolerance_px = 18.0f;
-    float body_lock_activation_box_px = 150.0f;
+    float body_lock_max_ai_force = kBodylockStrength;
+    float body_lock_max_ai_force_y = kBodylockVerticalStrength;
+    float body_lock_box_tolerance_px = 18.0f; // Legacy input, converted once by the loader.
+    // Zero denotes an unresolved legacy in-memory config; never a valid user value.
+    float body_lock_feedback_distance_px = 0.0f;
+    float body_lock_activation_box_px = kBodylockActivationRangePx;
     // End-to-end command-to-captured-motion delay used only by online plant
     // identification. It does not delay actuation or change control cadence.
     float aim_response_effect_delay_ms = 9.0f;
@@ -130,6 +153,7 @@ struct GamepadRecoilConfig {
     float profile_amount = 1.0f;
     float profile_x_amount = 1.0f;
     float feedback_amount = 0.20f;
+    float output_amount = -1.0f; // Unresolved legacy programmatic config.
     // Multiplies the bounded live recoil only while physical ADS is not ready.
     float hipfire_multiplier = 1.0f;
     // Target-independent live recoil boundary. No file-backed timeline is
@@ -153,10 +177,13 @@ struct GamepadAutoFireConfig {
     bool aim_only = true;
     float max_source_age_ms = 50.0f;
     bool require_aim_ready = true;
+    // Suppresses synthetic fire from physical ADS press, independent of target
+    // arrival/readiness; native passthrough and acquisition remain immediate.
+    float ads_press_delay_ms = kAdsPressDelayMs;
     float manual_takeover_release_seconds = 0.035f;
     float manual_takeover_resume_delay_seconds = 0.085f;
-    float pulse_width_ms = 30.0f;
-    float pulse_period_ms = 100.0f;
+    float pulse_width_ms = kFirePulseWidthMs;
+    float pulse_period_ms = kFirePulsePeriodMs;
 };
 
 struct GamepadTrackerConfig {
@@ -176,6 +203,8 @@ struct GamepadRuntimeConfig {
     bool rb_counts_as_aiming = false;
     bool xinput_auto_detect = true;
     unsigned int xinput_user_index = 0;
+    std::string input_device_id;
+    std::string input_device_name;
     GamepadTrackerConfig tracker;
     GamepadEnemyMarkConfig enemy_mark;
     GamepadAutoFireConfig auto_fire;

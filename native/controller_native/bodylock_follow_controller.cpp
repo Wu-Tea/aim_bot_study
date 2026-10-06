@@ -7,7 +7,14 @@
 namespace controller_native {
 
 BodylockFollowController::BodylockFollowController(BodylockFollowControllerConfig config)
-    : config_(config) {}
+    : config_(config) {
+    if (config_.response_time_x_seconds < 0.0f)
+        config_.response_time_x_seconds = config_.feedback_range_x_px /
+            std::max(1.0f, config_.max_force_x * config_.fallback_response_px_per_stick_second);
+    if (config_.response_time_y_seconds < 0.0f)
+        config_.response_time_y_seconds = config_.feedback_range_y_px /
+            std::max(1.0f, config_.max_force_y * config_.fallback_response_px_per_stick_second);
+}
 
 pipeline_contract::Vec2f BodylockFollowController::compute(
     const pipeline_contract::TargetPlan& plan,
@@ -34,17 +41,13 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     }
     const float authority = std::clamp(
         std::min(plan.aim_authority, plan.reliability), 0.0f, 1.0f);
-    // Consume the estimator's prior even before it has learned any samples.
-    // Keep the calibrated fallback below unchanged: it also defines timing.
+    // Consume the estimator's prior even before it has learned samples.
+    // Plant response converts demand; independent planning times stay fixed.
     const float response = std::isfinite(plan.response_scale) && plan.response_scale >= 50.0f
         ? std::fabs(plan.response_scale) : config_.fallback_response_px_per_stick_second;
     result.response_max_force = {config_.max_force_x, config_.max_force_y};
-    result.response_horizon_seconds = config_.feedback_range_x_px /
-        std::max(1.0f, config_.max_force_x *
-            config_.fallback_response_px_per_stick_second);
-    result.response_horizon_y_seconds = config_.feedback_range_y_px /
-        std::max(1.0f, config_.max_force_y *
-            config_.fallback_response_px_per_stick_second);
+    result.response_horizon_seconds = config_.response_time_x_seconds;
+    result.response_horizon_y_seconds = config_.response_time_y_seconds;
     result.response_envelope_valid = true;
     result.response_envelope_source = "bodylock_response_model";
     ResponseModelAimRequest request{};
@@ -52,10 +55,8 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     request.point_tolerance_px = config_.bodylock_point_tolerance_px;
     request.relative_velocity_px_per_sec = result.error_rate_px_per_sec;
     request.response_px_per_stick_second = response;
-    request.arrival_horizon_seconds = config_.feedback_range_x_px /
-        std::max(1.0f, config_.max_force_x * config_.fallback_response_px_per_stick_second);
-    request.arrival_horizon_y_seconds = config_.feedback_range_y_px /
-        std::max(1.0f, config_.max_force_y * config_.fallback_response_px_per_stick_second);
+    request.arrival_horizon_seconds = config_.response_time_x_seconds;
+    request.arrival_horizon_y_seconds = config_.response_time_y_seconds;
     // A valid observer value is already the total sustaining motion of the
     // target, not a residual hint. The legacy screen-relative fallback keeps
     // its conservative gain until enough aligned evidence exists.
@@ -67,6 +68,10 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     request.authority = authority;
     request.authority_budget_scale = config_.authority_budget_scale;
     request.response_curve = config_.response_curve;
+    request.range_position_response = config_.range_position_response;
+    request.position_range_px = plan.position_response_radius_px;
+    request.minimum_position_stick = config_.minimum_position_stick;
+    request.arrival_radius_px = plan.position_arrival_radius_px;
     const auto solved = solve_response_model_aim(request);
     result.position_stick = solved.position_stick;
     result.motion_stick = solved.motion_stick;

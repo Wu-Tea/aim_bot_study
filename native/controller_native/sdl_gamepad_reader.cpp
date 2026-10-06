@@ -104,6 +104,16 @@ std::string safe_name(const char* value) {
     return std::string(value);
 }
 
+// Opaque printable tokens survive the native TOML loader without introducing
+// escaping rules for Windows paths, quotes or non-ASCII device names.
+std::string identity_token(const char* prefix, const std::string& value) {
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string result(prefix);
+    result.reserve(result.size() + value.size() * 2);
+    for (unsigned char c : value) { result += hex[c >> 4]; result += hex[c & 15]; }
+    return result;
+}
+
 struct SdlApi {
     using SdlInit = int (*)(std::uint32_t);
     using SdlQuitSubSystem = void (*)(std::uint32_t);
@@ -112,6 +122,8 @@ struct SdlApi {
     using SdlPumpEvents = void (*)();
     using SdlNumJoysticks = int (*)();
     using SdlJoystickNameForIndex = const char* (*)(int);
+    using SdlJoystickPathForIndex = const char* (*)(int);
+    using SdlJoystickGetSerial = const char* (*)(void*);
     using SdlJoystickOpen = void* (*)(int);
     using SdlJoystickClose = void (*)(void*);
     using SdlJoystickUpdate = void (*)();
@@ -135,6 +147,8 @@ struct SdlApi {
     SdlPumpEvents pump_events = nullptr;
     SdlNumJoysticks num_joysticks = nullptr;
     SdlJoystickNameForIndex joystick_name_for_index = nullptr;
+    SdlJoystickPathForIndex joystick_path_for_index = nullptr;
+    SdlJoystickGetSerial joystick_serial = nullptr;
     SdlJoystickOpen joystick_open = nullptr;
     SdlJoystickClose joystick_close = nullptr;
     SdlJoystickUpdate joystick_update = nullptr;
@@ -193,6 +207,8 @@ struct SdlApi {
         load_proc(library, "SDL_GameControllerGetNumTouchpadFingers", game_controller_num_fingers);
         load_proc(library, "SDL_GameControllerGetTouchpadFinger", game_controller_finger);
         load_proc(library, "SDL_SetHint", set_hint);
+        load_proc(library, "SDL_JoystickPathForIndex", joystick_path_for_index);
+        load_proc(library, "SDL_JoystickGetSerial", joystick_serial);
         if (!ok) {
             FreeLibrary(library);
             library = nullptr;
@@ -275,6 +291,40 @@ struct SdlGamepadReader::Backend {
         return true;
     }
 
+    std::string identity(int index, void* candidate) const {
+        const auto name = safe_name(api.joystick_name_for_index(index));
+        if (api.joystick_serial) {
+            const char* serial = api.joystick_serial(candidate);
+            if (serial && *serial) return identity_token("serial:", name + '\0' + serial);
+        }
+        if (api.joystick_path_for_index) {
+            const char* path = api.joystick_path_for_index(index);
+            if (path && *path) return identity_token("path:", path);
+        }
+        return name == "unknown" ? std::string{} : identity_token("name:", name);
+    }
+
+    std::vector<SdlJoystickDevice> devices() const {
+        std::vector<SdlJoystickDevice> result;
+        const int count = std::max(0, api.num_joysticks());
+        result.reserve(static_cast<std::size_t>(count));
+        for (int index = 0; index < count; ++index) {
+            SdlJoystickDevice device;
+            device.device_index = index;
+            device.name = safe_name(api.joystick_name_for_index(index));
+            if (void* candidate = api.joystick_open(index)) {
+                device.opened = true;
+                device.axes = std::max(0, api.joystick_num_axes(candidate));
+                device.buttons = std::max(0, api.joystick_num_buttons(candidate));
+                device.hats = std::max(0, api.joystick_num_hats(candidate));
+                device.id = identity(index, candidate);
+                api.joystick_close(candidate);
+            }
+            result.push_back(std::move(device));
+        }
+        return result;
+    }
+
     void close() {
         if (controller != nullptr && api.game_controller_close != nullptr) {
             api.game_controller_close(controller);
@@ -317,28 +367,16 @@ std::vector<SdlJoystickDevice> scan_sdl_joystick_devices() {
         return {};
     }
 
-    std::vector<SdlJoystickDevice> devices;
-    const int count = std::max(0, backend.api.num_joysticks());
-    devices.reserve(static_cast<std::size_t>(count));
-    for (int index = 0; index < count; ++index) {
-        SdlJoystickDevice device;
-        device.device_index = index;
-        device.name = safe_name(backend.api.joystick_name_for_index(index));
-        if (void* joystick = backend.api.joystick_open(index)) {
-            device.opened = true;
-            device.axes = std::max(0, backend.api.joystick_num_axes(joystick));
-            device.buttons = std::max(0, backend.api.joystick_num_buttons(joystick));
-            device.hats = std::max(0, backend.api.joystick_num_hats(joystick));
-            backend.api.joystick_close(joystick);
-        }
-        devices.push_back(device);
-    }
-    return devices;
+    return backend.devices();
 }
 
-SdlGamepadReader::SdlGamepadReader(int device_index)
-    : backend_(std::make_unique<Backend>()) {
+SdlGamepadReader::SdlGamepadReader(int device_index, std::string required_id)
+    : backend_(std::make_unique<Backend>()), required_id_(std::move(required_id)) {
     if (!backend_->load_and_init() || !backend_->open(device_index)) {
+        backend_.reset();
+        return;
+    }
+    if (!required_id_.empty() && backend_->identity(device_index, backend_->joystick) != required_id_) {
         backend_.reset();
         return;
     }
@@ -368,25 +406,14 @@ bool SdlGamepadReader::reconnect() {
     backend_->api.pump_events();
     backend_->api.joystick_update();
     backend_->close();
-    std::vector<SdlJoystickDevice> devices;
-    const int count = std::max(0, backend_->api.num_joysticks());
-    devices.reserve(static_cast<std::size_t>(count));
-    for (int index = 0; index < count; ++index) {
-        SdlJoystickDevice device;
-        device.device_index = index;
-        device.name = safe_name(backend_->api.joystick_name_for_index(index));
-        if (void* candidate = backend_->api.joystick_open(index)) {
-            device.opened = true;
-            device.axes = std::max(0, backend_->api.joystick_num_axes(candidate));
-            device.buttons = std::max(0, backend_->api.joystick_num_buttons(candidate));
-            device.hats = std::max(0, backend_->api.joystick_num_hats(candidate));
-            backend_->api.joystick_close(candidate);
-        }
-        devices.push_back(std::move(device));
-    }
+    const auto devices = backend_->devices();
     const int selected = select_sdl_reconnect_device(
-        devices, device_name_, expected_axes_, expected_buttons_);
+        devices, device_name_, expected_axes_, expected_buttons_, required_id_);
     if (selected < 0 || !backend_->open(selected)) {
+        return false;
+    }
+    if (!required_id_.empty() && backend_->identity(selected, backend_->joystick) != required_id_) {
+        backend_->close();
         return false;
     }
     device_index_ = selected;

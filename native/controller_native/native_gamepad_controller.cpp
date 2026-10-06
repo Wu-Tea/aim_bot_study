@@ -1,4 +1,5 @@
 #include "native_gamepad_controller.h"
+#include "bodylock_feedback_geometry.h"
 #include "output_composer.h"
 #include "../tracking_native/tracker_authority.h"
 
@@ -102,7 +103,10 @@ TargetCoordinatorConfig coordinator_config(const GamepadRuntimeConfig& config) {
     TargetCoordinatorConfig result{};
     result.max_observation_age_ms = std::max(
         1.0f, config.tracker.max_observation_age_ms);
-    result.settle_radius_px = std::max(1.0f, config.ai_aim.ads_completion_radius_px);
+    result.missing_observation_grace_ms = config.ai_aim.normalized_assist_parameters &&
+        !config.ai_aim.adapter_direct_mouse_manual ? 32.f : 0.f;
+    result.settle_radius_px = config.ai_aim.normalized_assist_parameters && !config.ai_aim.adapter_direct_mouse_manual
+        ? config.ai_aim.arrival_radius_px : std::max(1.0f, config.ai_aim.ads_completion_radius_px);
     result.settle_frames = static_cast<std::uint32_t>(
         std::max(1, config.ai_aim.ads_completion_fresh_frames));
     result.ads_nominal_acquisition_ms = std::max(
@@ -144,6 +148,14 @@ AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
         static_cast<float>(config.ai_aim.ads_snap_window_ms) / 1000.0f,
         0.060f,
         0.350f);
+    if (config.ai_aim.normalized_assist_parameters && !config.ai_aim.adapter_direct_mouse_manual) {
+        result.range_position_response = true;
+        result.minimum_position_stick = config.ai_aim.minimum_position_stick;
+        result.max_force_x = config.ai_aim.ads_output_limit_x;
+        result.max_force_y = config.ai_aim.ads_output_limit_y;
+        result.force_headroom = 1.0f;
+        result.arrival_horizon_seconds = config.ai_aim.ads_response_time_ms / 1000.0f;
+    }
     result.response_curve = config.aim_response_curve;
     return result;
 }
@@ -154,9 +166,17 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
     result.authority_budget_scale = config.ai_aim.adapter_force_budget_scale;
     result.max_force_x = config.ai_aim.body_lock_max_ai_force;
     result.max_force_y = config.ai_aim.body_lock_max_ai_force_y;
-    result.feedback_range_x_px = std::max(
-        18.0f, config.ai_aim.body_lock_box_tolerance_px * 1.5f);
+    result.feedback_range_x_px = bodylock_feedback_distance(
+        config.ai_aim.body_lock_box_tolerance_px, config.ai_aim.body_lock_feedback_distance_px);
     result.feedback_range_y_px = result.feedback_range_x_px;
+    if (config.ai_aim.normalized_assist_parameters && !config.ai_aim.adapter_direct_mouse_manual) {
+        result.range_position_response = true;
+        result.minimum_position_stick = config.ai_aim.minimum_position_stick;
+        result.max_force_x = config.ai_aim.bodylock_output_limit_x;
+        result.max_force_y = config.ai_aim.bodylock_output_limit_y;
+        result.response_time_x_seconds = config.ai_aim.bodylock_response_time_x_ms / 1000.0f;
+        result.response_time_y_seconds = config.ai_aim.bodylock_response_time_y_ms / 1000.0f;
+    }
     result.feedforward_gain = 0.72f;
     if (config.ai_aim.adapter_direct_mouse_manual)
         result.bodylock_point_tolerance_px = config.ai_aim.adapter_bodylock_point_tolerance_px;
@@ -217,6 +237,8 @@ IntentFilterConfig intent_filter_config(const GamepadRuntimeConfig& config) {
         // User policy: zero software deadzone on physical gamepad passthrough;
         // AI ignores small per-axis motion when interpreting manual intent.
         result.gamepad_right_stick_curve = true;
+        result.gamepad_intent_begin = config.ai_aim.manual_intent_begin;
+        result.gamepad_intent_full = config.ai_aim.manual_intent_full;
     }
     return result;
 }
@@ -229,8 +251,8 @@ AssistControlStateMachineConfig assist_control_config(
     result.use_gamepad_intent_for_arbitration = !config.ai_aim.adapter_direct_mouse_manual;
     result.mouse_bodylock_deadzone = config.ai_aim.adapter_bodylock_deadzone;
     result.mouse_response_px_per_second = config.ai_aim.adapter_response_px_per_second;
-    result.capture_settle_radius_px = std::max(
-        2.0f, config.ai_aim.ads_completion_radius_px);
+    result.capture_settle_radius_px = config.ai_aim.normalized_assist_parameters && !config.ai_aim.adapter_direct_mouse_manual
+        ? config.ai_aim.arrival_radius_px : std::max(2.0f, config.ai_aim.ads_completion_radius_px);
     result.capture_settle_fresh_frames = 2;
     result.capture_timeout_ms = std::clamp(
         static_cast<float>(config.ai_aim.ads_snap_window_ms),
@@ -355,6 +377,10 @@ void NativeGamepadController::clear_learning() noexcept {
 }
 
 void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& config, bool preserve_learning) {
+#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (HOT) config_.MEMBER = config.MEMBER;
+#include "editable_float_parameters.inc"
+#undef NATIVE_EDITABLE_FLOAT
+    intent_filter_.reconfigure(intent_filter_config(config_));
     config_.ai_aim.aim_response_initial_scale = config.ai_aim.aim_response_initial_scale;
     config_.ai_aim.body_free_initial_scale = config.ai_aim.body_free_initial_scale;
     config_.ai_aim.body_slow_initial_scale = config.ai_aim.body_slow_initial_scale;
@@ -365,6 +391,9 @@ void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& confi
         ads_response_estimator_ = AdsResponseEstimator(ads_response_estimator_config(config_));
     }
     config_.ai_aim.hipfire_multiplier = config.ai_aim.hipfire_multiplier;
+    config_.ai_aim.hipfire_ratio = config.ai_aim.hipfire_ratio;
+    config_.ai_aim.ai_input_deadzone = config.ai_aim.ai_input_deadzone;
+    config_.ai_aim.minimum_position_stick = config.ai_aim.minimum_position_stick;
     config_.ai_aim.aim_response_learning_enabled = config.ai_aim.aim_response_learning_enabled;
     config_.ai_aim.ads_snap_max_ai_force = config.ai_aim.ads_snap_max_ai_force;
     config_.ai_aim.ads_snap_max_ai_force_y = config.ai_aim.ads_snap_max_ai_force_y;
@@ -372,10 +401,21 @@ void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& confi
     config_.ai_aim.body_lock_max_ai_force_y = config.ai_aim.body_lock_max_ai_force_y;
     config_.recoil.enabled = config.recoil.enabled;
     config_.recoil.feedback_amount = config.recoil.feedback_amount;
+    config_.recoil.output_amount = config.recoil.output_amount;
     config_.recoil.hipfire_multiplier = config.recoil.hipfire_multiplier;
     config_.auto_fire = config.auto_fire;
-    ads_controller_.set_force_limits(config_.ai_aim.ads_snap_max_ai_force, config_.ai_aim.ads_snap_max_ai_force_y);
-    bodylock_controller_.set_force_limits(config_.ai_aim.body_lock_max_ai_force, config_.ai_aim.body_lock_max_ai_force_y);
+    config_.ai_aim.ads_output_limit_x = config.ai_aim.ads_output_limit_x;
+    config_.ai_aim.ads_output_limit_y = config.ai_aim.ads_output_limit_y;
+    config_.ai_aim.ads_response_time_ms = config.ai_aim.ads_response_time_ms;
+    config_.ai_aim.bodylock_output_limit_x = config.ai_aim.bodylock_output_limit_x;
+    config_.ai_aim.bodylock_output_limit_y = config.ai_aim.bodylock_output_limit_y;
+    config_.ai_aim.bodylock_response_time_x_ms = config.ai_aim.bodylock_response_time_x_ms;
+    config_.ai_aim.bodylock_response_time_y_ms = config.ai_aim.bodylock_response_time_y_ms;
+    config_.ai_aim.normalized_assist_parameters = config.ai_aim.normalized_assist_parameters;
+    config_.ai_aim.body_lock_feedback_distance_px = config.ai_aim.body_lock_feedback_distance_px;
+    config_.ai_aim.body_lock_box_tolerance_px = config.ai_aim.body_lock_box_tolerance_px;
+    ads_controller_ = AdsAcquisitionController(ads_config(config_));
+    bodylock_controller_ = BodylockFollowController(bodylock_config(config_));
     recoil_ = RecoilReducer(config_.recoil);
     auto_fire_gate_.reconfigure(config_.auto_fire, config_.ai_aim);
     if (!preserve_learning) clear_learning();
@@ -544,7 +584,7 @@ NativeControllerVisionState NativeGamepadController::vision_state_from_plan(
     // plan, never the long-lived target identity.
     state.selected_observation_id = plan.source_observation_id;
     state.has_target = plan.lifecycle != pipeline_contract::TargetLifecycle::None;
-    state.current_observed_target_present = !plan.cue_continuation &&
+    state.current_observed_target_present = !plan.observation_gap && !plan.cue_continuation &&
         (plan.lifecycle == pipeline_contract::TargetLifecycle::Observed ||
          plan.fire_authority);
     state.fresh_observation =
@@ -567,7 +607,7 @@ NativeControllerVisionState NativeGamepadController::vision_state_from_plan(
     state.aim_region_x2 = plan.aim_region_px.x + plan.aim_region_px.w;
     state.aim_region_y2 = plan.aim_region_px.y + plan.aim_region_px.h;
     state.observed_at_seconds = now_seconds - plan.observation_age_ms / 1000.0;
-    state.target_tier = plan.cue_continuation
+    state.target_tier = plan.observation_gap ? "observation_gap" : plan.cue_continuation
         ? "cue_hold"
         : state.current_observed_target_present ? "observed_strong" : "none";
     return state;
@@ -591,10 +631,11 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
         physical,
         config_.rb_counts_as_aiming,
         &next_command_sequence_,
-        config_.ai_aim.ads_scope_ready_trigger, config_.auto_fire.manual_fire_input);
+        config_.ai_aim.ads_scope_ready_trigger, config_.auto_fire.manual_fire_input,
+        config_.ai_aim.ads_activation_trigger);
     const AimScopeSnapshot scope = aim_scope_reducer_.reduce(
         input_edges,
-        config_.auto_fire.manual_fire_activates_ai_aim);
+        config_.auto_fire.manual_fire_activates_ai_aim, now);
     if (!physical.connected) activation_reducer_.revoke();
     const auto activation = activation_reducer_.reduce(scope, now);
     const auto reacquisition = ads_reacquisition_reducer_.on_input(
@@ -731,6 +772,26 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         (last_firing_activity_seconds_ >= 0.0 &&
          now - last_firing_activity_seconds_ <=
              kFiringDisturbanceWindowSeconds);
+    // Reuse the delivered-command history, not requested or unsent AI output.
+    // Prediction has its own coordinate; it never rewrites detector geometry.
+    const double continuation_begin = last_frame_vision_state_.observed_at_seconds;
+    const double continuation_seconds = now - continuation_begin;
+    if (config_.ai_aim.normalized_assist_parameters && !config_.ai_aim.adapter_direct_mouse_manual &&
+        last_target_plan_.target_id != 0 && continuation_seconds > 0 && continuation_seconds <= .032) {
+        pipeline_contract::Vec2f average{}, tracking{};bool ambiguous=false;
+        if (average_aim_response_command(continuation_begin-aim_response_effect_delay_seconds_,
+            now-aim_response_effect_delay_seconds_, &average, &tracking, &ambiguous) && !ambiguous) {
+            // Consume the already-qualified motion (including firing/POV
+            // ownership), never bypass that policy with a raw observer value.
+            const auto target=last_target_plan_.bodylock_target_motion_valid
+                ? last_target_plan_.bodylock_target_motion_px_per_sec : pipeline_contract::Vec2f{};
+            const float seconds=static_cast<float>(continuation_seconds);
+            const float scale=std::max(50.f,last_target_plan_.response_scale)*seconds;
+            control_feedback.continuation_offset_px={target.x*seconds-tracking.x*scale,
+                                                    target.y*seconds+tracking.y*scale};
+            control_feedback.continuation_valid=true;
+        }
+    }
     auto plan = target_coordinator_.update(
         observations, intent, now, control_feedback);
     const float aim_response_zone_weight = aim_response_slow_zone_weight(
@@ -1115,10 +1176,12 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         plan, now, observations.capture_fresh, plan.error_px);
     last_ai_aim_mode_ = mode_name(plan.mode);
 
+    const float hipfire_ratio = config_.ai_aim.normalized_assist_parameters && !config_.ai_aim.adapter_direct_mouse_manual
+        ? config_.ai_aim.hipfire_ratio : config_.ai_aim.hipfire_multiplier;
     const bool target_authoritative =
         plan.target_id != 0 && plan.aim_authority > 0.0f &&
         plan.mode != pipeline_contract::ControlMode::Manual &&
-        (last_tick_preparation_.scope.physical_ads_ready || config_.ai_aim.hipfire_multiplier > 0.0f);
+        (last_tick_preparation_.scope.physical_ads_ready || hipfire_ratio > 0.0f);
     pipeline_contract::Vec2f requested{};
     pipeline_contract::Vec2f shaped{};
     BodylockFollowControllerOutput bodylock_diagnostics{};
@@ -1146,9 +1209,9 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         {});
     // Scale only AI, before arbitration. Physical input and recoil stay owned
     // independently; the physical ADS-ready signal selects full ADS strength.
-    if (!last_tick_preparation_.scope.physical_ads_ready && config_.ai_aim.hipfire_multiplier != 1.0f) {
-        shaped.x = clamp_unit(shaped.x * config_.ai_aim.hipfire_multiplier);
-        shaped.y = clamp_unit(shaped.y * config_.ai_aim.hipfire_multiplier);
+    if (!last_tick_preparation_.scope.physical_ads_ready && hipfire_ratio != 1.0f) {
+        shaped.x = clamp_unit(shaped.x * hipfire_ratio);
+        shaped.y = clamp_unit(shaped.y * hipfire_ratio);
     }
     if (intent.activation == pipeline_contract::AssistActivation::Application) {
         // Budget the AI proposal before the sole manual/AI arbiter. Physical
@@ -1159,6 +1222,9 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             shaped.x *= budget / magnitude;
             shaped.y *= budget / magnitude;
         }
+    }
+    if (config_.ai_aim.normalized_assist_parameters && !config_.ai_aim.adapter_direct_mouse_manual) {
+        shaped = filter_ai_input(shaped, config_.ai_aim.ai_input_deadzone);
     }
     components.bodylock_error_rate_px_per_sec = {
         bodylock_diagnostics.error_rate_px_per_sec.x,
@@ -1370,7 +1436,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         : "reject";
     components.assist_authority_reason = plan.cue_continuation
         ? "cue_only" : "target_plan";
-    components.bodylock_lifecycle = lifecycle_name(plan.lifecycle);
+    components.bodylock_lifecycle = plan.observation_gap ? "observation_gap" : lifecycle_name(plan.lifecycle);
     components.assist_limit_reason = "single_dynamics_shaper";
     record_stage_trace(
         "target_plan_aim",
@@ -1384,7 +1450,13 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     // A fire-triggered hip-fire search grants aim-assist ownership only. It
     // must not turn on synthetic AutoFire as though physical LT were held.
     fire_input.aiming = last_tick_preparation_.scope.physical_ads_ready;
-    fire_input.ads_min_elapsed = true;
+    // The input-scope owner records the first physical ADS press, including a
+    // light LT before ADS-ready or before any target arrives. Hot reload does
+    // not rearm that clock; the new duration uses the original press time.
+    fire_input.ads_min_elapsed = config_.auto_fire.ads_press_delay_ms <= 0.0f ||
+        !last_tick_preparation_.scope.physical_ads_active ||
+        now >= last_tick_preparation_.scope.physical_ads_started_seconds +
+            static_cast<double>(config_.auto_fire.ads_press_delay_ms) / 1000.0;
     // Explicit touch fire owns the fire cadence while held. Target AutoFire
     // must not fill its release gaps; use the existing manual takeover policy.
     fire_input.manual_fire_pressed = manual_fire_pressed(physical) || touch_fire.requested;

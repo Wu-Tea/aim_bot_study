@@ -1,0 +1,125 @@
+Internal ctest changing into directory: D:/work/AI/yolo-study-001/native/build
+Test project D:/work/AI/yolo-study-001/native/build
+      Start 40: Mouse_runtime_supervisor
+      Start  5: BaseBodyLock
+      Start 38: Mouse_virtual_hid_transport
+      Start 19: NativeSustainedAimlabLeftStrafeOff
+      Start 47: Mouse_target_point_boundaries
+      Start 11: NativeAimlabBenchmarkTests
+ 1/50 Test #38: Mouse_virtual_hid_transport .....................   Passed    0.76 sec
+      Start 12: NativeSustainedAimlabScenarioTests
+ 2/50 Test #19: NativeSustainedAimlabLeftStrafeOff ..............   Passed    0.73 sec
+      Start  6: BaseEndToEnd
+ 3/50 Test #11: NativeAimlabBenchmarkTests ......................   Passed    0.02 sec
+      Start 45: Mouse_bodylock_curve
+ 4/50 Test #47: Mouse_target_point_boundaries ...................   Passed    0.73 sec
+      Start 14: NativeSustainedAimlabSimulatorTests
+ 5/50 Test #12: NativeSustainedAimlabScenarioTests ..............   Passed    0.37 sec
+      Start 43: Mouse_recoil
+ 6/50 Test #14: NativeSustainedAimlabSimulatorTests .............   Passed    0.40 sec
+      Start 13: NativeSustainedAimlabScoreTests
+ 7/50 Test #45: Mouse_bodylock_curve ............................   Passed    0.77 sec
+      Start 16: NativeBenchmarkPhysicalInputTests
+ 8/50 Test #43: Mouse_recoil ....................................   Passed    0.41 sec
+      Start 46: Mouse_target_point
+ 9/50 Test #13: NativeSustainedAimlabScoreTests .................   Passed    0.37 sec
+      Start 24: NativeRuntimeRejectsRetiredAiCadenceCli
+10/50 Test #16: NativeBenchmarkPhysicalInputTests ...............   Passed    0.37 sec
+      Start  1: BaseContracts
+11/50 Test #46: Mouse_target_point ..............................   Passed    0.38 sec
+      Start 20: NativeSustainedAimlabLeftStrafeBoth
+12/50 Test #20: NativeSustainedAimlabLeftStrafeBoth .............   Passed    0.02 sec
+      Start 18: NativePidBenchmarkControllerTests
+13/50 Test #18: NativePidBenchmarkControllerTests ...............   Passed    0.01 sec
+      Start 42: Mouse_bodylock_escape
+14/50 Test #24: NativeRuntimeRejectsRetiredAiCadenceCli .........   Passed    0.45 sec
+      Start 15: NativeSustainedAimlabTraceTests
+15/50 Test  #6: BaseEndToEnd ....................................   Passed    1.60 sec
+      Start 17: NativeBenchmarkControllerAdapterTests
+16/50 Test #15: NativeSustainedAimlabTraceTests .................   Passed    0.05 sec
+      Start  3: BaseRuntimeFreshness
+17/50 Test #42: Mouse_bodylock_escape ...........................   Passed    0.45 sec
+18/50 Test #17: NativeBenchmarkControllerAdapterTests ...........   Passed    0.05 sec
+      Start 36: Mouse_interception_transport
+      Start 39: Mouse_virtual_session
+19/50 Test #39: Mouse_virtual_session ...........................   Passed    0.06 sec
+      Start 35: Mouse_tuning
+20/50 Test #36: Mouse_interception_transport ....................   Passed    0.27 sec
+      Start 28: Mouse_adapter
+21/50 Test #35: Mouse_tuning ....................................   Passed    0.22 sec
+      Start 27: Mouse_relay_contract
+22/50 Test #28: Mouse_adapter ...................................   Passed    0.09 sec
+      Start  7: FeatureDynamicViewport
+23/50 Test #27: Mouse_relay_contract ............................   Passed    0.37 sec
+      Start 30: Mouse_controller_facade
+24/50 Test  #1: BaseContracts ...................................   Passed    1.31 sec
+25/50 Test  #7: FeatureDynamicViewport ..........................   Passed    0.45 sec
+      Start 26: FusionOverlayContracts
+      Start 41: Mouse_bodylock_deadzone
+26/50 Test  #3: BaseRuntimeFreshness ............................   Passed    0.96 sec
+      Start 10: FeatureTelemetryAndDiagnostics
+27/50 Test #30: Mouse_controller_facade .........................   Passed    0.27 sec
+28/50 Test #26: FusionOverlayContracts ..........................   Passed    0.15 sec
+      Start 37: Mouse_manual_judgment
+      Start 44: Mouse_diagnostics
+29/50 Test #41: Mouse_bodylock_deadzone .........................   Passed    0.25 sec
+      Start 48: Mouse_virtual_hid_source_leak_red
+30/50 Test #37: Mouse_manual_judgment ...........................   Passed    0.11 sec
+      Start 31: Mouse_emergency_exit
+31/50 Test #48: Mouse_virtual_hid_source_leak_red ...............   Passed    0.06 sec
+      Start 49: Mouse_virtual_session_source_leak_red
+32/50 Test #44: Mouse_diagnostics ...............................   Passed    0.12 sec
+      Start 32: Mouse_controller_runtime_core
+33/50 Test #31: Mouse_emergency_exit ............................   Passed    0.11 sec
+      Start 22: NativeSustainedAimlabEightKhzCounterfactual
+34/50 Test #49: Mouse_virtual_session_source_leak_red ...........   Passed    0.07 sec
+35/50 Test #10: FeatureTelemetryAndDiagnostics ..................   Passed    0.24 sec
+      Start 21: NativeSustainedAimlabBodyLockFreshLtPerTarget
+      Start 33: Mouse_relay_client
+36/50 Test #32: Mouse_controller_runtime_core ...................   Passed    0.10 sec
+      Start 29: Mouse_sensitivity_calibrator
+37/50 Test #22: NativeSustainedAimlabEightKhzCounterfactual .....   Passed    0.10 sec
+38/50 Test #21: NativeSustainedAimlabBodyLockFreshLtPerTarget ...   Passed    0.09 sec
+      Start  8: FeatureRecoilAndWeapon
+      Start  9: FeatureAutoFireAndMarker
+39/50 Test #33: Mouse_relay_client ..............................   Passed    0.09 sec
+      Start  4: BaseAds
+40/50 Test #29: Mouse_sensitivity_calibrator ....................   Passed    0.06 sec
+      Start  2: BaseVisionSelection
+41/50 Test  #9: FeatureAutoFireAndMarker ........................   Passed    0.03 sec
+      Start 34: Mouse_auto_fire_button
+42/50 Test  #4: BaseAds .........................................   Passed    0.06 sec
+      Start 50: Mouse_interception_no_exclusion_red
+43/50 Test  #8: FeatureRecoilAndWeapon ..........................   Passed    0.08 sec
+      Start 23: NativeSustainedAimlabLeftStrafeRejectsInvalid
+44/50 Test #34: Mouse_auto_fire_button ..........................   Passed    0.05 sec
+      Start 25: NativeSustainedAimlabRejectsRetiredAiCadence
+45/50 Test #23: NativeSustainedAimlabLeftStrafeRejectsInvalid ...   Passed    0.02 sec
+46/50 Test  #2: BaseVisionSelection .............................   Passed    0.08 sec
+47/50 Test #25: NativeSustainedAimlabRejectsRetiredAiCadence ....   Passed    0.01 sec
+48/50 Test #50: Mouse_interception_no_exclusion_red .............   Passed    0.04 sec
+49/50 Test #40: Mouse_runtime_supervisor ........................   Passed    5.54 sec
+50/50 Test  #5: BaseBodyLock ....................................   Passed    6.58 sec
+
+100% tests passed, 0 tests failed out of 50
+
+Label Time Summary:
+BaseAds                           =   0.06 sec*proc (1 test)
+BaseBodyLock                      =   6.58 sec*proc (1 test)
+BaseContracts                     =   1.31 sec*proc (1 test)
+BaseEndToEnd                      =   1.60 sec*proc (1 test)
+BaseRuntimeFreshness              =   0.96 sec*proc (1 test)
+BaseVisionSelection               =   0.08 sec*proc (1 test)
+FeatureAutoFireAndMarker          =   0.03 sec*proc (1 test)
+FeatureDynamicViewport            =   0.45 sec*proc (1 test)
+FeatureRecoilAndWeapon            =   0.08 sec*proc (1 test)
+FeatureTelemetryAndDiagnostics    =   0.24 sec*proc (1 test)
+base                              =  10.59 sec*proc (6 tests)
+contract                          =  11.37 sec*proc (24 tests)
+contracts                         =   0.15 sec*proc (1 test)
+functional                        =   0.80 sec*proc (4 tests)
+fusion                            =   0.15 sec*proc (1 test)
+mouse                             =  11.37 sec*proc (24 tests)
+negative-control                  =   0.17 sec*proc (3 tests)
+
+Total Test time (real) =   6.64 sec

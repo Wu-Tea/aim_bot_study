@@ -24,6 +24,14 @@ RuntimeControlBridge::RuntimeControlBridge(controller_native::RuntimeConfig init
     FILETIME created, end, kernel, user;
     GetProcessTimes(GetCurrentProcess(), &created, &end, &kernel, &user);
     state_.created = (std::uint64_t(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+    frame_rate_mapping_.reset(CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(RuntimeFrameRateMemory),
+        (L"Local\\cod_native_fps_" + suffix).c_str()));
+    if (frame_rate_mapping_) frame_rate_memory_.reset(static_cast<RuntimeFrameRateMemory*>(
+        MapViewOfFile(frame_rate_mapping_.get(), FILE_MAP_ALL_ACCESS, 0, 0, sizeof(RuntimeFrameRateMemory))));
+    if (!frame_rate_memory_) throw std::runtime_error("cannot open in-memory frame rate channel");
+    *frame_rate_memory_ = RuntimeFrameRateMemory{};
+    frame_rate_state_.pid = state_.pid;
+    frame_rate_state_.created = state_.created;
     write_bindings(*current_);
     publish();
     worker_ = std::thread([this] { work(); });
@@ -59,8 +67,33 @@ void RuntimeControlBridge::write_bindings(const controller_native::RuntimeConfig
     strncpy_s(state_.manual_fire_input, config.gamepad.auto_fire.manual_fire_input.c_str(), _TRUNCATE);
 }
 
+void RuntimeControlBridge::offer_frame_rates(const FrameRateCounts& counts) noexcept {
+    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) return;
+    frame_rate_state_.counts = counts;
+    frame_rate_state_.sampled_at_ms = GetTickCount64();
+    frame_rate_state_.state = counts.controller_ticks ? Sampling : NotStarted;
+}
+
+void RuntimeControlBridge::publish_frame_rates_locked() noexcept {
+    InterlockedIncrement(&frame_rate_memory_->sequence);
+    frame_rate_memory_->snapshot = frame_rate_state_;
+    MemoryBarrier();
+    InterlockedIncrement(&frame_rate_memory_->sequence);
+}
+
+void RuntimeControlBridge::finish_frame_rates(const FrameRateCounts& counts) noexcept {
+    // Only called after controller authority is revoked and output neutralized.
+    std::lock_guard<std::mutex> lock(mutex_);
+    frame_rate_state_.counts = counts;
+    frame_rate_state_.sampled_at_ms = GetTickCount64();
+    frame_rate_state_.state = Stopped;
+    publish_frame_rates_locked();
+}
+
 void RuntimeControlBridge::publish() noexcept {
-    { std::lock_guard<std::mutex> lock(mutex_); std::copy(std::begin(learning_), std::end(learning_), state_.regions); state_.sampled_at_ms = learning_at_; }
+    { std::lock_guard<std::mutex> lock(mutex_); std::copy(std::begin(learning_), std::end(learning_), state_.regions); state_.sampled_at_ms = learning_at_;
+      publish_frame_rates_locked(); }
     InterlockedIncrement(&memory_->sequence);
     memory_->snapshot = state_;
     MemoryBarrier();
@@ -92,11 +125,13 @@ void RuntimeControlBridge::acknowledge_commit() {
     write_bindings(*current_);
     const auto& value = *current_;
     std::cout << "[RuntimeControl] applied revision=" << state_.revision << " learning_cleared=" << !learning_preserved_ << " game=" << value.game
-        << " hipfire_ai_multiplier=" << value.gamepad.ai_aim.hipfire_multiplier
+        << " hipfire_ai_ratio=" << value.gamepad.ai_aim.hipfire_ratio
         << " response_learning_enabled=" << value.gamepad.ai_aim.aim_response_learning_enabled
-        << " ads_x=" << value.ads.strength_scale << " ads_y=" << value.ads.vertical_strength_scale
-        << " body_x=" << value.gamepad.ai_aim.body_lock_max_ai_force << " body_y=" << value.gamepad.ai_aim.body_lock_max_ai_force_y
-        << " recoil_enabled=" << value.gamepad.recoil.enabled << " recoil_amount=" << value.gamepad.recoil.feedback_amount
+        << " ads_limit_x=" << value.gamepad.ai_aim.ads_output_limit_x << " ads_limit_y=" << value.gamepad.ai_aim.ads_output_limit_y
+        << " ads_response_ms=" << value.gamepad.ai_aim.ads_response_time_ms
+        << " body_limit_x=" << value.gamepad.ai_aim.bodylock_output_limit_x << " body_limit_y=" << value.gamepad.ai_aim.bodylock_output_limit_y
+        << " body_response_x_ms=" << value.gamepad.ai_aim.bodylock_response_time_x_ms << " body_response_y_ms=" << value.gamepad.ai_aim.bodylock_response_time_y_ms
+        << " recoil_enabled=" << value.gamepad.recoil.enabled << " recoil_output=" << value.gamepad.recoil.output_amount
         << " hipfire_multiplier=" << value.gamepad.recoil.hipfire_multiplier
         << " friendly_filter=" << value.vision.friendly_filter_enabled << " target_ratio=" << value.vision.target_height_ratio
         << " fire_output=" << value.gamepad.auto_fire.fire_output << " fire_input=" << value.gamepad.auto_fire.manual_fire_input

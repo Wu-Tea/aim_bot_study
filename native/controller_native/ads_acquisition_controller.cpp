@@ -7,8 +7,6 @@
 namespace controller_native {
 namespace {
 
-constexpr float kVectorForceHeadroom = 1.41421356237f;
-
 float smoothstep(float value) noexcept {
     const float x = std::clamp(value, 0.0f, 1.0f);
     return x * x * (3.0f - 2.0f * x);
@@ -61,15 +59,23 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         ? horizon * std::clamp(
             config_.target_above_horizon_scale, 0.75f, 1.0f)
         : horizon;
+    if (config_.range_position_response) {
+        request.arrival_horizon_seconds = config_.arrival_horizon_seconds;
+        request.arrival_horizon_y_seconds = config_.arrival_horizon_seconds;
+    }
     request.motion_weight = config_.stopping_lookahead_seconds /
-        horizon;
+        request.arrival_horizon_seconds;
     request.motion_is_error_rate_lookahead = true;
     request.max_force = {
-        config_.max_force_x * kVectorForceHeadroom,
-        config_.max_force_y * kVectorForceHeadroom};
+        config_.max_force_x * config_.force_headroom,
+        config_.max_force_y * config_.force_headroom};
     request.authority = authority;
     request.authority_budget_scale = config_.authority_budget_scale;
     request.response_curve = config_.response_curve;
+    request.range_position_response = config_.range_position_response;
+    request.position_range_px = plan.position_response_radius_px;
+    request.minimum_position_stick = config_.minimum_position_stick;
+    request.arrival_radius_px = plan.position_arrival_radius_px;
     return solve_response_model_aim(request).stick;
 }
 

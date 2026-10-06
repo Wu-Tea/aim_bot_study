@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <random>
 
 namespace {
 
@@ -803,6 +804,68 @@ void test_bounded_acquisition_point_geometry(const native_test::TestContext& con
 
 void register_target_coordinator_tests(native_test::Registry& registry) {
     registry.add_context_case("BaseAds", "bounded_acquisition_point_geometry", test_bounded_acquisition_point_geometry);
+    registry.add_case("BaseBodyLock", "randomized_gap_deadlines_and_invalidations", [] {
+        for(unsigned seed : {10632u,938117u}) {
+            std::mt19937 random(seed);
+            for(int scenario=0;scenario<80;++scenario) {
+                controller_native::TargetCoordinatorConfig config;config.missing_observation_grace_ms=32;
+                config.max_observation_age_ms=scenario%3 ? 50.f : 20.f;
+                controller_native::TargetCoordinator coordinator(config);
+                auto intent=ads_intent();coordinator.begin_ads_epoch(1,2.0);
+                double now=2.,capture=2.;unsigned frame=1;
+                auto first=coordinator.update(selected_frame(frame++,now,290),intent,now);
+                controller_native::TargetControlFeedback feedback;feedback.continuation_valid=true;
+                for(int tick=0;tick<(scenario%2 ? 2000 : 128);++tick) {
+                    now+=.001;
+                    const bool observed=random()%41==0;
+                    auto batch=observed ? selected_frame(frame++,now,290) : fresh_no_selection(frame++,now);
+                    if(observed) capture=now;
+                    feedback.continuation_offset_px={-static_cast<float>((now-capture)*50),0};
+                    const auto plan=coordinator.update(batch,intent,now,feedback);
+                    if(plan.observation_gap) {
+                        require_true((now-capture)*1000<=std::min(32.f,config.max_observation_age_ms)+1e-5,
+                            "prediction cannot exceed original source-age budget");
+                        require_true(!plan.direct_person_observation && !plan.fire_authority,
+                            "random misses never become observation/fire evidence");
+                    }
+                }
+                for(int invalid=0;invalid<5;++invalid) {
+                    coordinator.reset();coordinator.begin_ads_epoch(1,4.);
+                    coordinator.update(selected_frame(1,4.,290),intent,4.);
+                    auto miss=fresh_no_selection(2,4.006);auto changed=intent;
+                    feedback.continuation_valid=true;
+                    if(invalid==0)miss.rejected_friendly_count=1;
+                    if(invalid==1)miss.selector_target_generation=8;
+                    if(invalid==2)miss.selector_identity_protocol=false;
+                    if(invalid==3)feedback.continuation_valid=false;
+                    if(invalid==4)changed.right_purpose=pipeline_contract::UserAimIntentPurpose::HandoverTarget;
+                    require_true(coordinator.update(miss,changed,4.006,feedback).aim_authority==0,
+                        "explicit invalidation, missing delivery evidence and handover must not bridge");
+                }
+            }
+        }
+    });
+    registry.add_case("BaseBodyLock", "bounded_32ms_miss_continuation", [] {
+        controller_native::TargetCoordinatorConfig config;
+        config.missing_observation_grace_ms=32;
+        controller_native::TargetCoordinator coordinator(config);
+        auto intent=ads_intent();coordinator.begin_ads_epoch(2,2.0);
+        const auto observed=coordinator.update(selected_frame(10,2.0,270),intent,2.0);
+        controller_native::TargetControlFeedback feedback;
+        feedback.continuation_valid=true;feedback.continuation_offset_px={-3,1};
+        const auto gap=coordinator.update(fresh_no_selection(11,2.006),intent,2.006,feedback);
+        require_true(gap.target_id==observed.target_id && gap.aim_authority>0,
+            "a same-identity 6ms miss must retain continuous aim");
+        require_true(near(gap.error_px.x,observed.error_px.x-3) &&
+            near(gap.error_px.y,observed.error_px.y+1),"gap uses delivered camera displacement");
+        require_true(!gap.direct_person_observation && !gap.fire_authority,
+            "prediction is not a fresh person or automatic-fire authority");
+        const auto retained=coordinator.update(fresh_no_selection(12,2.031),intent,2.031,feedback);
+        require_true(retained.target_id==observed.target_id && retained.aim_authority>0,
+            "repeated misses remain within original capture deadline");
+        const auto expired=coordinator.update(no_source_tick(),intent,2.033,feedback);
+        require_true(expired.aim_authority==0,"32ms is a hard capture-age deadline, not renewable per miss");
+    });
     registry.add_case("BaseBodyLock", "desired_point_wall_time_across_cadences", test_desired_point_uses_wall_time_at_all_supported_cadences);
     registry.add_case("BaseBodyLock", "boundary_exit_wall_time_across_cadences", test_boundary_exit_uses_wall_time_at_all_supported_cadences);
     registry.add_case("BaseBodyLock", "no_source_tick_reuses_immutable_plan", test_no_source_tick_reuses_immutable_source_plan);

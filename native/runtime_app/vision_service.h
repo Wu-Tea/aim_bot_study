@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime_timing.h"
 
 #include "pipeline_contract/target_snapshot.h"
 #include "pipeline_contract/assist_activation.h"
@@ -129,7 +130,7 @@ private:
     std::unique_ptr<IVisionServicePoller> poller_;
     VisionServiceOptions options_;
     mutable std::mutex mutex_;
-    std::condition_variable wake_condition_;
+    InterruptibleDeadlineWait wake_deadline_;
     std::thread worker_;
     std::atomic<bool> running_{false};
     pipeline_contract::VisionRequest request_ = pipeline_contract::VisionRequest::Idle;

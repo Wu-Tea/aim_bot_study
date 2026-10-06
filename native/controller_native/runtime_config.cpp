@@ -1,4 +1,6 @@
 #include "runtime_config.h"
+#include "bodylock_feedback_geometry.h"
+#include "ads_acquisition_controller.h"
 
 #include <algorithm>
 #include <cctype>
@@ -189,7 +191,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "controller_tick_hz", "mode", "spin_tail_us", "efficiency_core_affinity",
         "efficiency_core_count"};
     static const std::unordered_set<std::string> input_keys{
-        "auto_detect", "controller_index", "rb_counts_as_aiming"};
+        "auto_detect", "controller_index", "rb_counts_as_aiming", "device_id", "device_name"};
     static const std::unordered_set<std::string> output_keys{"enabled", "validation_mode"};
     static const std::unordered_set<std::string> mouse_keys{
         "speed", "breakaway", "bodylock_deadzone", "dpi", "sensitivity", "fov", "ads_multiplier",
@@ -215,8 +217,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> auto_fire_keys{
         "fire_output", "manual_fire_input", "manual_fire_activates_ai_aim", "aim_only",
         "max_source_age_ms", "require_aim_ready",
-        "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds",
-        "pulse_width_ms", "pulse_period_ms"};
+        "manual_takeover_release_seconds", "manual_takeover_resume_delay_seconds"};
     static const std::unordered_set<std::string> enemy_mark_keys{
         "enabled", "l3_cooldown_ms", "lt_cooldown_ms"};
     static const std::unordered_set<std::string> recoil_keys{
@@ -241,6 +242,9 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "ads_free_initial_scale", "ads_slow_initial_scale",
         "desired_point_traversal_ms", "desired_point_boundary_exit_ms",
         "visual_authority_enabled"};
+#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (section == SECTION && key == KEY) return true;
+#include "editable_float_parameters.inc"
+#undef NATIVE_EDITABLE_FLOAT
     if (section == "runtime") return runtime_keys.count(key) != 0;
     if (section == "runtime.vision") return vision_keys.count(key) != 0;
     if (section == "runtime.telemetry") return telemetry_keys.count(key) != 0;
@@ -327,10 +331,6 @@ void apply_gamepad_auto_fire_value(
     } else if (key == "manual_takeover_resume_delay_seconds") {
         config.manual_takeover_resume_delay_seconds =
             parse_float_value(value);
-    } else if (key == "pulse_width_ms") {
-        config.pulse_width_ms = parse_float_value(value);
-    } else if (key == "pulse_period_ms") {
-        config.pulse_period_ms = parse_float_value(value);
     }
 }
 
@@ -562,6 +562,9 @@ void apply_value(
     const std::string& section,
     const std::string& key,
     const std::string& value) {
+#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (section == SECTION && key == KEY) { config.gamepad.MEMBER = parse_float_value(value); return; }
+#include "editable_float_parameters.inc"
+#undef NATIVE_EDITABLE_FLOAT
     if (section == "mouse") {
         if (key == "log_directory") {
             config.mouse.log_directory = parse_string_value(value);
@@ -643,7 +646,11 @@ void apply_value(
             config.scheduler.efficiency_core_count = parse_uint_value(value);
         }
     } else if (section == "runtime.input") {
-        if (key == "auto_detect") {
+        if (key == "device_id") {
+            config.gamepad.input_device_id = parse_string_value(value);
+        } else if (key == "device_name") {
+            config.gamepad.input_device_name = parse_string_value(value);
+        } else if (key == "auto_detect") {
             config.gamepad.xinput_auto_detect = parse_bool_value(value);
         } else if (key == "controller_index") {
             config.gamepad.xinput_user_index = parse_uint_value(value);
@@ -655,15 +662,9 @@ void apply_value(
         else if (key == "validation_mode") config.output.validation_mode = parse_string_value(value);
     } else if (section == "gamepad.tracker") {
         if (key == "aim_height_ratio") {
-            config.gamepad.tracker.aim_height_ratio = std::clamp(
-                parse_float_value(value),
-                0.0f,
-                1.0f);
+            config.gamepad.tracker.aim_height_ratio = parse_float_value(value);
         } else if (key == "max_observation_age_ms") {
-            config.gamepad.tracker.max_observation_age_ms = std::clamp(
-                parse_float_value(value),
-                1.0f,
-                250.0f);
+            config.gamepad.tracker.max_observation_age_ms = parse_float_value(value);
         }
     } else if (section == "gamepad.output_transfer") {
         auto& transfer = config.gamepad.output_transfer;
@@ -761,7 +762,67 @@ void validate_runtime_config(RuntimeConfig& config) {
         throw std::runtime_error(
             "invalid user override for " + key + "; accepted range: " + range);
     };
+    auto& aim = config.gamepad.ai_aim;
+    // Resolve at the config boundary, after game/environment inheritance. An
+    // explicit canonical value always wins; explicit zero must fail validation.
+    if (!config.effective_values.count("gamepad.bodylock.feedback_distance_px")) {
+        if (!std::isfinite(aim.body_lock_box_tolerance_px) ||
+            aim.body_lock_box_tolerance_px < 0 || aim.body_lock_box_tolerance_px > 2000)
+            invalid("gamepad.bodylock.tolerance_px", "finite 0..2000 (legacy)");
+        const bool has_legacy = config.effective_values.count("gamepad.bodylock.tolerance_px") ||
+            config.effective_values.count("gamepad.ai_aim.body_lock_box_tolerance_px");
+        aim.body_lock_feedback_distance_px = has_legacy
+            ? legacy_bodylock_feedback_distance(aim.body_lock_box_tolerance_px) : kBodylockFeedbackDistancePx;
+        for (const auto* legacy : {"gamepad.bodylock.tolerance_px", "gamepad.ai_aim.body_lock_box_tolerance_px"})
+            if (config.effective_values.count(legacy))
+                config.effective_sources["gamepad.bodylock.feedback_distance_px"] =
+                    config.effective_source(legacy) + " (legacy conversion)";
+    }
+    // Translate historical tuning once. Canonical fields never inherit a
+    // multiplier or recompute response time when an output limit changes.
+    const auto resolve = [&](const char* path, float& value, float legacy) {
+        if (!config.effective_values.count(path)) value = legacy;
+    };
+    resolve("gamepad.ads.output_limit_x", aim.ads_output_limit_x,
+        std::clamp(aim.ads_snap_max_ai_force * kAdsVectorForceHeadroom, 0.f, 1.f));
+    resolve("gamepad.ads.output_limit_y", aim.ads_output_limit_y,
+        std::clamp(aim.ads_snap_max_ai_force_y * kAdsVectorForceHeadroom, 0.f, 1.f));
+    resolve("gamepad.ads.response_time_ms", aim.ads_response_time_ms,
+        std::clamp(static_cast<float>(aim.ads_snap_window_ms), 60.f, 350.f));
+    resolve("gamepad.bodylock.output_limit_x", aim.bodylock_output_limit_x,
+        std::clamp(aim.body_lock_max_ai_force, 0.f, 1.f));
+    resolve("gamepad.bodylock.output_limit_y", aim.bodylock_output_limit_y,
+        std::clamp(aim.body_lock_max_ai_force_y, 0.f, 1.f));
+    const bool legacy_body = config.effective_values.count("gamepad.bodylock.strength") ||
+        config.effective_values.count("gamepad.bodylock.vertical_strength") ||
+        config.effective_values.count("gamepad.bodylock.feedback_distance_px") ||
+        config.effective_values.count("gamepad.bodylock.tolerance_px") ||
+        config.effective_values.count("gamepad.ai_aim.body_lock_max_ai_force") ||
+        config.effective_values.count("gamepad.ai_aim.body_lock_max_ai_force_y") ||
+        config.effective_values.count("gamepad.ai_aim.body_lock_box_tolerance_px");
+    if (legacy_body) {
+        resolve("gamepad.bodylock.response_time_x_ms", aim.bodylock_response_time_x_ms,
+            std::clamp(1000.f * aim.body_lock_feedback_distance_px /
+                std::max(1.f, aim.body_lock_max_ai_force * aim.adapter_response_px_per_second), 5.f, 1000.f));
+        resolve("gamepad.bodylock.response_time_y_ms", aim.bodylock_response_time_y_ms,
+            std::clamp(1000.f * aim.body_lock_feedback_distance_px /
+                std::max(1.f, aim.body_lock_max_ai_force_y * aim.adapter_response_px_per_second), 5.f, 1000.f));
+    }
+    resolve("gamepad.assist.arrival_radius_px", aim.arrival_radius_px,
+        config.effective_values.count("gamepad.ads.completion_radius_px") || config.effective_values.count("gamepad.ai_aim.ads_completion_radius_px")
+            ? aim.ads_completion_radius_px : kArrivalRadiusPx);
+    aim.normalized_assist_parameters = true;
+    resolve("gamepad.assist.hipfire_ratio", aim.hipfire_ratio,
+        std::clamp(aim.hipfire_multiplier, 0.f, 1.f));
+    resolve("gamepad.recoil.output_amount", config.gamepad.recoil.output_amount,
+        config.gamepad.recoil.feedback_amount);
     const auto& transfer = config.gamepad.output_transfer;
+#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (!std::isfinite(config.gamepad.MEMBER) || config.gamepad.MEMBER < MIN || config.gamepad.MEMBER > MAX) invalid(SECTION "." KEY, "finite " + std::to_string(MIN) + ".." + std::to_string(MAX));
+#include "editable_float_parameters.inc"
+#undef NATIVE_EDITABLE_FLOAT
+#define NATIVE_PARAMETER_RELATION(PATH, LEFT, OP, RIGHT) if (!(config.gamepad.LEFT OP config.gamepad.RIGHT)) invalid(PATH, "parameter relationship " #LEFT " " #OP " " #RIGHT);
+#include "editable_parameter_relations.inc"
+#undef NATIVE_PARAMETER_RELATION
     if (config.gamepad.auto_fire.fire_output != "RT" && config.gamepad.auto_fire.fire_output != "RB")
         invalid("gamepad.auto_fire.fire_output", "RT or RB");
     if (config.gamepad.auto_fire.manual_fire_input != "both" && config.gamepad.auto_fire.manual_fire_input != "RT" && config.gamepad.auto_fire.manual_fire_input != "RB")
@@ -891,11 +952,11 @@ void validate_runtime_config(RuntimeConfig& config) {
     if (config.vision.aim_release_hold_ms < 0 || config.vision.aim_release_hold_ms > 5000)
         invalid("runtime.vision.aim_release_hold_ms", "0..5000");
     if (!std::isfinite(config.vision.target_height_ratio) ||
-        config.vision.target_height_ratio <= 0.0f || config.vision.target_height_ratio >= 1.0f)
-        invalid("runtime.vision.target_height_ratio", "0 < ratio < 1");
+        config.vision.target_height_ratio < 0.01f || config.vision.target_height_ratio > 0.99f)
+        invalid("runtime.vision.target_height_ratio", "0.01..0.99");
     if (!std::isfinite(config.vision.target_wide_low_height_ratio) ||
-        config.vision.target_wide_low_height_ratio <= 0.0f || config.vision.target_wide_low_height_ratio >= 1.0f)
-        invalid("runtime.vision.target_wide_low_height_ratio", "0 < ratio < 1");
+        config.vision.target_wide_low_height_ratio < 0.01f || config.vision.target_wide_low_height_ratio > 0.99f)
+        invalid("runtime.vision.target_wide_low_height_ratio", "0.01..0.99");
     if (config.vision.color_readback_mode != "pageable" && config.vision.color_readback_mode != "pinned")
         invalid("runtime.vision.color_readback_mode", "pageable|pinned");
     if (config.telemetry.manual_controller_hz < 1 || config.telemetry.manual_controller_hz > 1000)
@@ -920,6 +981,8 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("gamepad.ads.vertical_strength_scale", "0..3");
     if (config.ads.completion_radius_px < 1.0f || config.ads.completion_radius_px > 64.0f)
         invalid("gamepad.ads.completion_radius_px", "1..64");
+    if (config.gamepad.ai_aim.body_lock_activation_box_px < config.gamepad.ai_aim.arrival_radius_px)
+        invalid("gamepad.bodylock.activation_range_px", ">= gamepad.assist.arrival_radius_px; no implicit floor");
     if (config.ads.completion_fresh_frames < 1 || config.ads.completion_fresh_frames > 20)
         invalid("gamepad.ads.completion_fresh_frames", "1..20");
     if (config.gamepad.ai_aim.ads_target_wait_ms < 50.0f ||
@@ -931,12 +994,6 @@ void validate_runtime_config(RuntimeConfig& config) {
     if (config.gamepad.ai_aim.ads_activation_radius_px <= 0.0f ||
         config.gamepad.ai_aim.ads_activation_radius_px > 2000.0f)
         invalid("gamepad.ads.activation_radius_px", "0..2000");
-    if (config.gamepad.ai_aim.ads_pickup_base_radius_px <= 0.0f ||
-        config.gamepad.ai_aim.ads_pickup_base_radius_px > 2000.0f)
-        invalid("gamepad.ads.pickup_base_radius_px", "0..2000");
-    if (config.gamepad.ai_aim.ads_scope_ready_trigger <= 0.05f ||
-        config.gamepad.ai_aim.ads_scope_ready_trigger > 1.0f)
-        invalid("gamepad.ads.scope_ready_trigger", "(0.05)..1");
     if (config.gamepad.ai_aim.desired_point_traversal_ms < 40.0f ||
         config.gamepad.ai_aim.desired_point_traversal_ms > 2000.0f)
         invalid("gamepad.ai_aim.desired_point_traversal_ms", "40..2000");
@@ -961,7 +1018,12 @@ void validate_runtime_config(RuntimeConfig& config) {
                 invalid("gamepad.aim_response_curve.custom_points", "finite strictly increasing input and response");
         }
     }
-    if (config.gamepad.tracker.aim_height_ratio < 0.0f ||
+    if (config.gamepad.xinput_user_index > 3)
+        invalid("runtime.input.controller_index", "0..3");
+    if (!std::isfinite(config.gamepad.tracker.max_observation_age_ms) ||
+        config.gamepad.tracker.max_observation_age_ms < 1 || config.gamepad.tracker.max_observation_age_ms > 250)
+        invalid("gamepad.tracker.max_observation_age_ms", "1..250");
+    if (!std::isfinite(config.gamepad.tracker.aim_height_ratio) || config.gamepad.tracker.aim_height_ratio < 0.0f ||
         config.gamepad.tracker.aim_height_ratio > 1.0f)
         invalid("gamepad.tracker.aim_height_ratio", "0..1");
     if (config.gamepad.auto_fire.pulse_width_ms <= 0.0f ||

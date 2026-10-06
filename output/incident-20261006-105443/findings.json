@@ -1,0 +1,85 @@
+{
+  "video": "Apex Legends 2026.10.06 - 10.54.43.01.mp4",
+  "telemetry_session": "20261006T025439Z_26916_1",
+  "deduplicated_ads_samples": 520,
+  "zero_request_samples": 125,
+  "zero_due_to_inactive_lifecycle": 115,
+  "zero_near_point_observed": 4,
+  "inactive_detector_box_counts": {
+    "1": 53,
+    "2": 4,
+    "0": 58
+  },
+  "capture_to_inference_ms_median": 2.3004,
+  "capture_to_inference_ms_p95": 3.697,
+  "cod_cause": "Fresh COD trace: capture intervals median 15.523 ms; inter-frame idle gap median 12.833 ms; acquire median .069 ms; GPU inference mean about 1.1-1.3 ms. Replaced CV timed wait with interruptible high-resolution Windows timer; awaiting same-game recheck.",
+  "approved_miss_limit_ms": 32,
+  "notes": [
+    "Controller telemetry is event sampled, not a uniform time percentage.",
+    "Video compressed and wall-clock alignment approximate; traces explain control state, not per-frame detector rejection reason.",
+    "Prediction uses delivered nonlinear camera work, original capture deadline and independently estimated target motion; no new observation or fire authority."
+  ],
+  "cod_reproduction_session": "20261006T030616Z_30968_1",
+  "cod_verification": {
+    "after_session": "20261006-111218-63c0e4",
+    "continuous_ads_windows": [
+      {
+        "phase": "before",
+        "window_ms": 5000.961,
+        "aiming_ratio": 1.0,
+        "vision_active_hz": 65.787,
+        "accumulated_active_mean": 2.733,
+        "infer_mean_ms": 1.139
+      },
+      {
+        "phase": "before",
+        "window_ms": 5000.003,
+        "aiming_ratio": 1.0,
+        "vision_active_hz": 69.0,
+        "accumulated_active_mean": 2.609,
+        "infer_mean_ms": 1.314
+      },
+      {
+        "phase": "after",
+        "window_ms": 5000.976,
+        "aiming_ratio": 1.0,
+        "vision_active_hz": 165.968,
+        "accumulated_active_mean": 1.083,
+        "infer_mean_ms": 1.175
+      },
+      {
+        "phase": "after",
+        "window_ms": 5000.99,
+        "aiming_ratio": 1.0,
+        "vision_active_hz": 166.367,
+        "accumulated_active_mean": 1.081,
+        "infer_mean_ms": 1.148
+      },
+      {
+        "phase": "after",
+        "window_ms": 5000.985,
+        "aiming_ratio": 1.0,
+        "vision_active_hz": 166.967,
+        "accumulated_active_mean": 1.077,
+        "infer_mean_ms": 1.16
+      },
+      {
+        "phase": "after",
+        "window_ms": 5001.005,
+        "aiming_ratio": 1.0,
+        "vision_active_hz": 166.766,
+        "accumulated_active_mean": 1.077,
+        "infer_mean_ms": 1.172
+      },
+      {
+        "phase": "after",
+        "window_ms": 5001.005,
+        "aiming_ratio": 1.0,
+        "vision_active_hz": 166.567,
+        "accumulated_active_mean": 1.079,
+        "infer_mean_ms": 1.149
+      }
+    ],
+    "target_fps_unchanged": 180
+  }
+}

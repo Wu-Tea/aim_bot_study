@@ -14,21 +14,10 @@
 namespace vision_native {
 namespace {
 
-constexpr float kAimRegionShrinkX = 0.22f;
-constexpr float kAimRegionHalfHeightRatio = 0.18f;
-constexpr float kWideLowAimRegionHalfHeightRatio = 0.22f;
 constexpr float kFireShrinkX = 0.12f;
 constexpr float kFireShrinkTop = 0.05f;
 constexpr float kFireShrinkBottom = 0.15f;
-constexpr float kMinPickupHeightRatio = 0.08f;
-constexpr float kMinTrackingHeightRatio = 0.06f;
-constexpr float kMinPickupAreaRatio = 0.003f;
-constexpr float kMinTrackingAreaRatio = 0.002f;
-constexpr float kMinAspectRatio = 0.85f;
-constexpr float kMinWideLowAspectRatio = 0.30f;
-constexpr float kWideLowAspectThreshold = 0.65f;
 constexpr float kCrouchedHeightRatio = 0.24f;
-constexpr float kMaxAspectRatio = 4.50f;
 constexpr float kConfidenceScoreScale = 400.0f;
 constexpr float kTrackingSwitchMargin = 80.0f;
 constexpr float kDistanceScoreScale = 800.0f;
@@ -211,7 +200,7 @@ float aspect_ratio_h_over_w(float box_w, float box_h) {
 }
 
 bool is_wide_low_pose(float box_w, float box_h) {
-    return aspect_ratio_h_over_w(box_w, box_h) < kWideLowAspectThreshold;
+    return pipeline_contract::wide_low_body_shape(box_w, box_h);
 }
 
 bool is_crouched_pose(float box_w, float box_h, int frame_height) {
@@ -998,17 +987,9 @@ VisionTargetSelector::Rect VisionTargetSelector::to_rect(const Detection& detect
 }
 
 std::pair<float, float> VisionTargetSelector::target_point(const Rect& box) const {
-    const float box_w = rect_width(box);
-    const float box_h = rect_height(box);
-    float target_ratio = target_height_ratio_;
-    if (is_wide_low_pose(box_w, box_h)) {
-        target_ratio = target_wide_low_height_ratio_;
-    }
-
-    return {
-        (box.left + box.right) * 0.5f,
-        box.top + (box_h * target_ratio),
-    };
+    const auto geometry = pipeline_contract::body_aim_geometry(box.left, box.top, box.right, box.bottom,
+        target_height_ratio_, target_wide_low_height_ratio_);
+    return {geometry.aim_x, geometry.aim_y};
 }
 
 VisionTargetSelector::Rect VisionTargetSelector::fallback_aim_region(const Rect& box) const {
@@ -1016,19 +997,9 @@ VisionTargetSelector::Rect VisionTargetSelector::fallback_aim_region(const Rect&
     // rather than relabelling most of the detector box as upper chest/head.
     // This owner can later be replaced by a calibrated body/pose estimator
     // without changing the downstream I/R/D/T control contract.
-    const float box_w = rect_width(box);
-    const float box_h = rect_height(box);
-    const auto point = target_point(box);
-    const float half_height = box_h * (
-        is_wide_low_pose(box_w, box_h)
-            ? kWideLowAimRegionHalfHeightRatio
-            : kAimRegionHalfHeightRatio);
-    return {
-        box.left + (box_w * kAimRegionShrinkX),
-        std::max(box.top, point.second - half_height),
-        box.right - (box_w * kAimRegionShrinkX),
-        std::min(box.bottom, point.second + half_height),
-    };
+    const auto geometry = pipeline_contract::body_aim_geometry(box.left, box.top, box.right, box.bottom,
+        target_height_ratio_, target_wide_low_height_ratio_);
+    return {geometry.left, geometry.top, geometry.right, geometry.bottom};
 }
 
 VisionTargetSelector::Rect VisionTargetSelector::fire_zone(const Rect& box) const {
@@ -1241,15 +1212,7 @@ bool VisionTargetSelector::update_auto_fire(const TargetState* target) {
 }
 
 bool VisionTargetSelector::passes_geometry_gate(float box_w, float box_h, bool tracking_candidate) const {
-    const float aspect_ratio = aspect_ratio_h_over_w(box_w, box_h);
-    const float min_aspect = is_wide_low_pose(box_w, box_h) ? kMinWideLowAspectRatio : kMinAspectRatio;
-    if (aspect_ratio < min_aspect || aspect_ratio > kMaxAspectRatio) {
-        return false;
-    }
-
-    const float min_height = frame_height_ * (tracking_candidate ? kMinTrackingHeightRatio : kMinPickupHeightRatio);
-    const float min_area = (frame_width_ * frame_height_) * (tracking_candidate ? kMinTrackingAreaRatio : kMinPickupAreaRatio);
-    return box_h >= min_height && (box_w * box_h) >= min_area;
+    return pipeline_contract::body_geometry_admitted(box_w, box_h, frame_width_, frame_height_, tracking_candidate);
 }
 
 bool VisionTargetSelector::passes_confidence_gate(

@@ -186,6 +186,7 @@ AutoFireBlockReason AutoFireGate::block_reason_for_input(
     if (auto_fire_config_.aim_only && !input.aiming) {
         return AutoFireBlockReason::NotAiming;
     }
+    if (!input.ads_min_elapsed) return AutoFireBlockReason::AdsPressDelay;
     if (auto_fire_config_.require_aim_ready && !aim_ready) {
         return AutoFireBlockReason::AimNotReady;
     }
@@ -249,6 +250,7 @@ double AutoFireGate::manual_takeover_total_seconds() const {
 const char* auto_fire_block_reason_name(AutoFireBlockReason reason) {
     switch (reason) {
     case AutoFireBlockReason::Disabled: return "disabled";
+    case AutoFireBlockReason::AdsPressDelay: return "ads_press_delay";
     case AutoFireBlockReason::NotAiming: return "not_aiming";
     case AutoFireBlockReason::AimNotReady: return "aim_not_ready";
     case AutoFireBlockReason::NotRequested: return "not_requested";

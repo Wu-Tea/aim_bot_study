@@ -12,6 +12,16 @@ MUTED = '#9ca5b4'
 ACCENT = '#89baff'
 RAIL = '#20242b'
 
+# Dense desktop forms use one grid and one spacing ramp. Values are Tk pixels
+# at the app's normal desktop scale; font growth may increase row height.
+FORM_VALUE_WIDTH = 88
+FORM_UNIT_WIDTH = 24
+FORM_LABEL_WIDTH = 144
+FORM_LABEL_GAP = 12
+FORM_ROW_PADDING = 2
+FORM_GROUP_GAP = 8
+FORM_COLUMN_GAP = 24
+
 
 def configure_theme():
     style = ttk.Style()
@@ -24,13 +34,14 @@ def configure_theme():
     style.configure('Muted.TLabel', foreground=MUTED, font=('Microsoft YaHei UI', 9))
     style.configure('Accent.TLabel', foreground=ACCENT, font=('Microsoft YaHei UI', 11, 'bold'))
     style.configure('TButton', padding=(10, 5), borderwidth=0, background=BACKGROUND)
+    style.configure('Disclosure.TButton',padding=(10,3),anchor='w')
     style.map('TButton', background=[('active', '#394351'), ('disabled', RAIL)], foreground=[('disabled', '#626b78')])
     style.configure('Primary.TButton', background=ACCENT, foreground=SURFACE, padding=(16, 6), font=('Microsoft YaHei UI', 10, 'bold'))
     style.map('Primary.TButton', background=[('disabled', '#526178'), ('active', ACCENT)], foreground=[('disabled', '#bdc8d8')])
     style.configure('Nav.TButton', background=SURFACE, foreground=MUTED, padding=(13, 8))
     style.configure('Selected.Nav.TButton', background=RAIL, foreground=INK)
     style.configure('Link.TButton', background=SURFACE, foreground=ACCENT, padding=(6, 2), font=('Microsoft YaHei UI', 9))
-    style.configure('TEntry', padding=(7, 4), fieldbackground=BACKGROUND, bordercolor='#343a45', lightcolor='#343a45', darkcolor='#343a45', insertcolor=INK)
+    style.configure('TEntry', padding=(8, 3), fieldbackground=BACKGROUND, bordercolor='#343a45', lightcolor='#343a45', darkcolor='#343a45', insertcolor=INK)
     style.map('TEntry', bordercolor=[('invalid', '#f49090'), ('focus', ACCENT)])
     style.configure('TCombobox', padding=(7, 4), fieldbackground=BACKGROUND, background=BACKGROUND, bordercolor='#343a45', arrowsize=13)
     style.map('TCombobox', fieldbackground=[('readonly', SURFACE)], foreground=[('readonly', INK)])
@@ -58,10 +69,10 @@ class ScrollSurface(ttk.Frame):
         self.canvas.configure(yscrollcommand=scroll_extent)
         scrollbar.pack(side='right', fill='y')
         self.canvas.pack(side='left', fill='both', expand=True)
-        self.content = ttk.Frame(self.canvas, padding=(0, 4, 14, 8))
-        window = self.canvas.create_window((0, 0), window=self.content, anchor='nw')
-        self.content.bind('<Configure>', lambda _: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
-        self.canvas.bind('<Configure>', lambda event: self.canvas.itemconfigure(window, width=event.width))
+        self.content = ttk.Frame(self.canvas, padding=(0, 8, 0, 8))
+        self.window = self.canvas.create_window((0, 0), window=self.content, anchor='nw')
+        self.content.bind('<Configure>', self.update_extent)
+        self.canvas.bind('<Configure>', self.resize)
         self.bind_ids = [(event, root.bind(event, callback, add='+')) for event, callback in
                          (('<FocusIn>', self.reveal),)]
         self.root = root
@@ -73,6 +84,16 @@ class ScrollSurface(ttk.Frame):
         self.content.bind('<Map>', lambda _: self.install_wheel(), add='+')
         self.bind_ids.append(('<Map>', root.bind('<Map>', self.on_map, add='+')))
         self.bind('<Destroy>', self.dispose, add='+')
+
+    def resize(self,event):
+        self.canvas.itemconfigure(self.window,width=event.width)
+        self.update_extent()
+
+    def update_extent(self,_=None):
+        # Tk can scroll a short region above zero to align its lower edge.
+        # Own a top-anchored region at least as tall as the viewport instead.
+        self.canvas.configure(scrollregion=(0,0,self.canvas.winfo_width(),
+            max(self.canvas.winfo_height(),self.content.winfo_reqheight())))
 
     def on_map(self, event):
         if self.owns(event.widget):
@@ -118,9 +139,124 @@ class ScrollSurface(ttk.Frame):
             self.wheel_owner.deletecommand(self.wheel_binding)
 
 
+class SegmentedInput(ttk.Frame):
+    """Visible, keyboard-accessible choices for a small mutually exclusive set."""
+    def __init__(self,parent,variable,choices,labels):
+        super().__init__(parent)
+        self.variable=variable
+        self.buttons={}
+        for i,value in enumerate(choices):
+            button=ttk.Button(self,text=labels[value],command=lambda v=value:variable.set(v))
+            button.grid(row=0,column=i,sticky='ew',padx=(0,2))
+            self.columnconfigure(i,weight=1)
+            self.buttons[value]=button
+        self.trace=variable.trace_add('write',self.refresh)
+        self.bind('<Destroy>',self.dispose,add='+')
+        self.refresh()
+
+    def refresh(self,*_):
+        for value,button in self.buttons.items():
+            button.configure(style='Primary.TButton' if value==self.variable.get() else 'TButton')
+
+    def state(self,spec=None):
+        if spec is not None:
+            for button in self.buttons.values():button.state(spec)
+        return super().state(spec)
+
+    def dispose(self,event):
+        if event.widget==self:
+            self.variable.trace_remove('write',self.trace)
+            self.variable=None
+
+
+class DisclosureButton(ttk.Button):
+    """Expand retained content; the arrow describes visibility, not a setting."""
+    def __init__(self,parent,variable,label,command=None,**kwargs):
+        self.variable,self.label,self.on_change=variable,label,command
+        kwargs.setdefault('style','Disclosure.TButton')
+        super().__init__(parent,command=self.toggle,**kwargs)
+        self.trace=variable.trace_add('write',self.refresh)
+        self.bind('<Destroy>',self.dispose,add='+')
+        self.refresh()
+
+    def refresh(self,*_):
+        self.configure(text=('▾ ' if self.variable.get() else '▸ ')+self.label)
+
+    def toggle(self):
+        self.variable.set(not self.variable.get())
+        if self.on_change:self.on_change()
+
+    def dispose(self,event):
+        if event.widget==self:
+            self.variable.trace_remove('write',self.trace)
+            self.variable=self.on_change=None
+
+
+class NumberRail(ttk.Frame):
+    """Fixed value column and reserved unit slot, shared with slider inputs."""
+    def __init__(self,parent,variable,unit=''):
+        super().__init__(parent)
+        self.columnconfigure(0,minsize=FORM_VALUE_WIDTH)
+        self.columnconfigure(1,minsize=FORM_UNIT_WIDTH+4)
+        self.entry=ttk.Entry(self,textvariable=variable,justify='right',width=1)
+        self.entry.grid(row=0,column=0,sticky='ew')
+        self.unit=ttk.Label(self,text=unit,style='Muted.TLabel')
+        self.unit.grid(row=0,column=1,sticky='w',padx=(4,0))
+
+
+class UnitNumberInput(ttk.Frame):
+    """Display a unit while keeping the profile's canonical numeric variable."""
+    def __init__(self,parent,variable,scale=1,unit='',**kwargs):
+        super().__init__(parent,**kwargs)
+        self.variable,self.scale,self.syncing=variable,scale,False
+        self.display=tk.StringVar(master=self)
+        self.columnconfigure(0,weight=1)
+        self.rail=NumberRail(self,self.display,unit)
+        self.rail.grid(row=0,column=1,sticky='e')
+        self.entry=self.rail.entry
+        self.raw_trace=variable.trace_add('write',self.sync)
+        self.display_trace=self.display.trace_add('write',self.edit)
+        self.bind('<Destroy>',self.dispose,add='+')
+        self.sync()
+
+    def sync(self,*_):
+        if self.syncing:return
+        value=self.variable.get()
+        try:
+            number=float(value)
+            if math.isfinite(number):value=format(number*self.scale,'.15g')
+        except ValueError:pass
+        self.syncing=True
+        try:
+            if self.display.get()!=value:self.display.set(value)
+        finally:self.syncing=False
+
+    def edit(self,*_):
+        if self.syncing:return
+        value=self.display.get()
+        try:
+            number=float(value)
+            if math.isfinite(number):value=format(number/self.scale,'.15g')
+        except ValueError:pass
+        self.syncing=True
+        try:
+            if self.variable.get()!=value:self.variable.set(value)
+        finally:self.syncing=False
+
+    def state(self,statespec=None):
+        if statespec is not None:self.entry.state(statespec)
+        return super().state(statespec)
+
+    def dispose(self,event):
+        if event.widget==self:
+            self.variable.trace_remove('write',self.raw_trace)
+            self.display.trace_remove('write',self.display_trace)
+            self.variable=self.display=None
+
+
 class StrengthInput(ttk.Frame):
     """A precise entry with a slider. Invalid text stays visible for validation."""
-    def __init__(self, parent, variable, limits):
+    def __init__(self, parent, variable, limits, unit='', display_scale=1):
         super().__init__(parent)
         self.variable = variable
         self.syncing = False
@@ -130,12 +266,17 @@ class StrengthInput(ttk.Frame):
         except ValueError:
             number = limits[0]
         self.knob = tk.DoubleVar(value=number)
+        self.columnconfigure(0,weight=1)
         self.scale = ValueSlider(self, limits, self.knob, self.drag)
-        self.scale.pack(side='left', fill='x', expand=True, padx=(0, 8))
-        self.entry = ttk.Entry(self, textvariable=variable, width=7, justify='right')
-        self.entry.pack(side='right')
+        self.scale.grid(row=0,column=0,sticky='ew',padx=(0,8))
+        self.rail=UnitNumberInput(self,variable,display_scale,unit)
+        self.rail.grid(row=0,column=1,sticky='e')
+        self.entry=self.rail.entry
         self.trace_id = variable.trace_add('write', self.sync)
         self.bind('<Destroy>', self.dispose, add='+')
+
+    @property
+    def display(self):return self.rail.display
 
     def drag(self, value):
         if not self.syncing:
@@ -177,19 +318,34 @@ def section(parent, title, description):
 
 class ChoiceInput(ttk.Button):
     """A deliberate selection menu: hover never edits or focuses the field."""
-    def __init__(self, parent, variable, choices, labels=None, **kwargs):
+    def __init__(self, parent, variable, choices, labels=None, ellipsize=False, **kwargs):
         self.variable = variable
         self.choices = list(choices)
         self.labels = labels or {}
+        self.ellipsize = ellipsize
         self.popup = None
         super().__init__(parent, command=self.open, **kwargs)
         self.trace = variable.trace_add('write', self.refresh)
         self.refresh()
         self.bind('<Destroy>', self.dispose, add='+')
+        if ellipsize:self.bind('<Configure>',self.refresh,add='+')
 
     def refresh(self, *_):
         value = self.variable.get()
-        self.configure(text=self.labels.get(value, value) + '  ▾')
+        text=self.labels.get(value, value)
+        suffix='  ▾'
+        if self.ellipsize and self.winfo_width()>1:
+            font=ttk.Style(self).lookup(self.cget('style') or 'TButton','font') or 'TkDefaultFont'
+            available=max(0,self.winfo_width()-24)
+            measure=lambda value:int(self.tk.call('font','measure',font,value))
+            if measure(text+suffix)>available:
+                lo,hi=0,len(text)
+                while lo<hi:
+                    mid=(lo+hi+1)//2
+                    if measure(text[:mid]+'…'+suffix)<=available:lo=mid
+                    else:hi=mid-1
+                text=text[:lo]+'…'
+        if self.cget('text')!=text+suffix:self.configure(text=text+suffix)
 
     def open(self, position=None, return_focus=None):
         if self.instate(['disabled']) or self.popup:
@@ -272,7 +428,7 @@ class ChoiceInput(ttk.Button):
 
 class ValueSlider(tk.Canvas):
     def __init__(self,parent,limits,variable,command):
-        super().__init__(parent,height=26,width=110,background=SURFACE,highlightthickness=0,takefocus=True)
+        super().__init__(parent,height=26,width=72,background=SURFACE,highlightthickness=0,takefocus=True)
         self.limits,self.variable,self.command=limits,variable,command
         self.enabled=True
         self.trace=variable.trace_add('write',lambda *_:self.draw())

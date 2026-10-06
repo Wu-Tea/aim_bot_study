@@ -12,6 +12,7 @@
 #include "log_session_manager.h"
 #include "person_detection_gesture.h"
 #include "perf_logger.h"
+#include "frame_rate_counter.h"
 #include "runtime_telemetry.h"
 #include "telemetry_collectors.h"
 #include "vision_service.h"
@@ -65,6 +66,7 @@ private:
     std::uint64_t vision_policy_revision_ = 0;
     std::uint64_t last_learning_publish_ms_ = 0;
     PerfLogger perf_logger_;
+    FrameRateCounter frame_rates_;
     PerfSummaryLogger perf_summary_logger_;
     LogSessionManager log_session_manager_;
     RuntimeTelemetry telemetry_;

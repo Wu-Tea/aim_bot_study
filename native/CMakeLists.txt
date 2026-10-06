@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+include(cmake/EditableParameters.cmake)
 
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES 89)
@@ -76,6 +77,7 @@ enable_testing()
 
 function(cod_native_defaults target)
     target_include_directories(${target} PRIVATE
+        ${PROJECT_BINARY_DIR}/generated
         ${PROJECT_SOURCE_DIR}/vision_native/include
         ${PROJECT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/controller_native)

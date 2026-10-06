@@ -1,0 +1,13 @@
+F
+======================================================================
+FAIL: test_small_distance_cannot_use_large_force_at_fastest_timing (test_desktop_ads_geometry.NativeGeometryParityTests.test_small_distance_cannot_use_large_force_at_fastest_timing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\work\AI\yolo-study-001\python\tests\test_desktop_ads_geometry.py", line 13, in test_small_distance_cannot_use_large_force_at_fastest_timing
+    self.assertLessEqual(result['stick'][0],.080001)
+AssertionError: 0.5370495915412903 not less than or equal to 0.080001
+
+----------------------------------------------------------------------
+Ran 1 test in 0.052s
+
+FAILED (failures=1)

@@ -66,6 +66,7 @@ void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     cue_continuation_active_ = false;
+    observation_gap_active_ = false;
 }
 
 void TargetCoordinator::adopt_candidate_geometry(
@@ -391,6 +392,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     float reliability = latest_.reliability;
     float normalized_size = latest_.normalized_size;
     if (candidate != nullptr) {
+        observation_gap_active_ = false;
         // A candidate exists only for an accepted fresh selector result. The
         // old acquisition can therefore resume without replaying stale output.
         pipeline_contract::Vec2f observed_aim_px = candidate->aim_px;
@@ -614,8 +616,26 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             observations.selector_target_generation ==
                 selector_target_generation_;
 
-        const auto disposition = ads_lifecycle_reducer_.missing({
-            pipeline_contract::owns_ads_task(intent.activation), true, fresh_no_target, source_expired, same_generation_miss}, now_seconds);
+        // User-authorized short miss policy: original capture time owns the
+        // deadline. Missing frames cannot renew it or train observations.
+        if (fresh_no_target) {
+            observation_gap_active_ = config_.missing_observation_grace_ms > 0.f && same_generation_miss &&
+                observations.rejected_friendly_count == 0 &&
+                observations.rejected_low_reliability_count == 0;
+        }
+        const bool can_bridge = config_.missing_observation_grace_ms > 0.f &&
+            observation_gap_active_ && !source_expired &&
+            source_age_ms <= config_.missing_observation_grace_ms &&
+            pipeline_contract::requests_target_search(intent.activation) &&
+            intent.right_purpose != pipeline_contract::UserAimIntentPurpose::HandoverTarget &&
+            !latest_.manual_exit_requested &&
+            feedback.continuation_valid &&
+            pipeline_contract::finite(feedback.continuation_offset_px);
+        const auto disposition = can_bridge ? AdsTargetDisposition::Retain :
+            ads_lifecycle_reducer_.missing({
+                pipeline_contract::owns_ads_task(intent.activation), true, fresh_no_target,
+                source_expired || observation_gap_active_, same_generation_miss}, now_seconds);
+        if (!can_bridge) observation_gap_active_ = false;
         if (disposition == AdsTargetDisposition::Wait) {
             settled_frames_ = 0;
             last_update_seconds_ = now_seconds;
@@ -633,6 +653,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             enemy_identity_confirmed_ = false;
             enemy_cue_checked_ = false;
             cue_continuation_active_ = false;
+            observation_gap_active_ = false;
             source_id_ = 0;
             geometry_reducer_.reset();
             desired_point_reducer_.reset();
@@ -685,6 +706,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         ? 0 : candidate != nullptr ? source_id_ : 0;
     plan.target_id = target_lifecycle_reducer_.snapshot().target_id;
     plan.lifecycle = lifecycle;
+    plan.observation_gap = observation_gap_active_;
     plan.direct_person_observation = accepted_fresh_capture &&
         candidate != nullptr && !cue_continuation_candidate &&
         candidate->source_id != 0 && observations.frame_id != 0 &&
@@ -703,7 +725,13 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.manual_boundary_x = desired.manual_boundary_x;
     plan.manual_boundary_y = desired.manual_boundary_y;
     plan.manual_exit_requested = desired.manual_exit_requested;
-    plan.error_px = subtract(desired.position, center);
+    if (plan.observation_gap) {
+        const auto offset = feedback.continuation_offset_px;
+        plan.aim_px = add_scaled(plan.aim_px, offset, 1.f);
+        plan.source_aim_px = add_scaled(plan.source_aim_px, offset, 1.f);
+        plan.aim_region_px.x += offset.x;plan.aim_region_px.y += offset.y;
+    }
+    plan.error_px = subtract(plan.aim_px, center);
     const pipeline_contract::Vec2f screen_velocity = velocity_;
     plan.velocity_px_per_sec = screen_velocity;
     plan.acceleration_px_per_sec2 = acceleration_;
@@ -829,6 +857,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     const float bodylock_continuation_radius = target_scaled_radius(
         config_.bodylock_activation_radius_px,
         observed_body_size);
+    plan.position_arrival_radius_px = config_.settle_radius_px;
+    plan.position_response_radius_px = plan.mode == pipeline_contract::ControlMode::AdsAcquire
+        ? target_scaled_radius(config_.ads_pickup_base_radius_px, observed_body_size)
+        : bodylock_continuation_radius;
     const bool bodylock_outside_activation_range =
         plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
         error_length > bodylock_continuation_radius;
@@ -891,8 +923,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     } else {
         plan.motion = pipeline_contract::TargetMotion::Steady;
     }
-    plan.fire_authority = observed_fire_eligible_ && !plan.cue_continuation;
-    plan.fire_requested = fire_requested_;
+    plan.fire_authority = observed_fire_eligible_ && !plan.cue_continuation && !plan.observation_gap;
+    plan.fire_requested = fire_requested_ && !plan.observation_gap;
     plan.fire_suppression = plan.fire_authority
         ? pipeline_contract::FireSuppressionReason::None
         : lifecycle == pipeline_contract::TargetLifecycle::CueContinuation
@@ -910,6 +942,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
 void TargetCoordinator::begin_ads_epoch(
     std::uint64_t epoch, double now_seconds) noexcept {
     cue_continuation_active_ = false;
+    observation_gap_active_ = false;
     ads_lifecycle_reducer_.begin_epoch(epoch, now_seconds);
 }
 
@@ -945,6 +978,7 @@ void TargetCoordinator::reset() noexcept {
     fire_requested_ = false;
     observed_fire_eligible_ = false;
     cue_continuation_active_ = false;
+    observation_gap_active_ = false;
     selector_target_generation_ = 0;
     frame_width_px_ = 480.0f;
     frame_height_px_ = 416.0f;

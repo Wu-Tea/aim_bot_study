@@ -6,10 +6,8 @@
 namespace controller_native {
 
 namespace {
-pipeline_contract::AxisIntentState gamepad_stick_intent(float raw) noexcept {
-    constexpr float kBegin = 0.15f;
-    constexpr float kFull = 0.30f;
-    const float t = std::clamp((std::fabs(raw) - kBegin) / (kFull - kBegin), 0.0f, 1.0f);
+pipeline_contract::AxisIntentState gamepad_stick_intent(float raw, float begin, float full) noexcept {
+    const float t = std::clamp((std::fabs(raw) - begin) / (full - begin), 0.0f, 1.0f);
     const float weight = t * t * (3.0f - 2.0f * t);
     // D receives a continuously attenuated correction. The final arbiter uses
     // this same weight on raw manual authority, so it must not attenuate twice.
@@ -114,8 +112,8 @@ pipeline_contract::IntentState IntentFilter::update(
     result.left_x = update_axis(left_x_, raw_left.x);
     result.left_y = update_axis(left_y_, raw_left.y);
     if (config_.gamepad_right_stick_curve) {
-        result.right_x = gamepad_stick_intent(raw_right.x);
-        result.right_y = gamepad_stick_intent(raw_right.y);
+        result.right_x = gamepad_stick_intent(raw_right.x, config_.gamepad_intent_begin, config_.gamepad_intent_full);
+        result.right_y = gamepad_stick_intent(raw_right.y, config_.gamepad_intent_begin, config_.gamepad_intent_full);
     } else {
         result.right_x = update_axis(right_x_, raw_right.x, right_deadzone, dt);
         result.right_y = update_axis(right_y_, raw_right.y, right_deadzone, dt);

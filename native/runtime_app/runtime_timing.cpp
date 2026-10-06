@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <thread>
 #include <vector>
+#include <stdexcept>
 
 namespace runtime_app {
 namespace {
@@ -166,6 +167,51 @@ PrecisionSchedulerMode PrecisionTickScheduler::mode() const { return mode_; }
 
 const char* PrecisionTickScheduler::mode_name() const {
     return mode_ == PrecisionSchedulerMode::WaitableTimer ? "waitable_timer" : "legacy_fallback";
+}
+
+InterruptibleDeadlineWait::InterruptibleDeadlineWait() {
+#ifdef _WIN32
+    timer_ = CreateWaitableTimerExW(nullptr, nullptr,
+        kCreateWaitableTimerHighResolution, TIMER_ALL_ACCESS);
+    event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!timer_ || !event_) {
+        if (timer_) CloseHandle(timer_);
+        if (event_) CloseHandle(event_);
+        throw std::runtime_error("high-resolution Vision wait initialization failed");
+    }
+#endif
+}
+InterruptibleDeadlineWait::~InterruptibleDeadlineWait() {
+#ifdef _WIN32
+    CloseHandle(event_);CloseHandle(timer_);
+#endif
+}
+void InterruptibleDeadlineWait::notify() noexcept {
+#ifdef _WIN32
+    SetEvent(event_);
+#else
+    { std::lock_guard<std::mutex> lock(mutex_);notified_=true; }
+    condition_.notify_one();
+#endif
+}
+void InterruptibleDeadlineWait::wait_until(std::chrono::steady_clock::time_point deadline) {
+#ifdef _WIN32
+    const auto remaining=deadline-std::chrono::steady_clock::now();
+    if (remaining<=std::chrono::steady_clock::duration::zero()) return;
+    LARGE_INTEGER due{};
+    due.QuadPart=-std::max<long long>(1,
+        (std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count()+99)/100);
+    if (!SetWaitableTimerEx(timer_, &due, 0, nullptr, nullptr, nullptr, 0))
+        throw std::runtime_error("Vision deadline timer arm failed");
+    const HANDLE handles[]{event_,timer_};
+    const DWORD result=WaitForMultipleObjects(2,handles,FALSE,INFINITE);
+    if (result!=WAIT_OBJECT_0 && result!=WAIT_OBJECT_0+1)
+        throw std::runtime_error("Vision deadline wait failed");
+#else
+    std::unique_lock<std::mutex> lock(mutex_);
+    condition_.wait_until(lock,deadline,[this]{return notified_;});
+    notified_=false;
+#endif
 }
 
 HighResolutionTimerPeriod::HighResolutionTimerPeriod(unsigned int period_ms)

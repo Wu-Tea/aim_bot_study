@@ -20,6 +20,7 @@ enum class AutoFireBlockReason : std::uint8_t {
     ManualFire,
     ManualTakeoverGuard,
     Disabled,
+    AdsPressDelay,
 };
 
 const char* auto_fire_block_reason_name(AutoFireBlockReason reason);

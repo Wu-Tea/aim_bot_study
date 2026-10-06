@@ -1,4 +1,6 @@
 #include "bodylock_follow_controller.h"
+#include "ads_acquisition_controller.h"
+#include "point_boundary_simulation.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -7,6 +9,8 @@
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
+#include <random>
+#include <vector>
 
 namespace {
 
@@ -21,6 +25,7 @@ bool near(float left, float right, float tolerance = 0.0001f) {
 pipeline_contract::TargetPlan active_plan(float error_x, float error_y) {
     pipeline_contract::TargetPlan plan;
     plan.target_id = 1;
+    plan.position_response_radius_px = 150.f;
     plan.mode = pipeline_contract::ControlMode::BodyLockFollow;
     plan.lifecycle = pipeline_contract::TargetLifecycle::Observed;
     plan.error_px = {error_x, error_y};
@@ -262,9 +267,305 @@ void test_center_crossing_incident(const native_test::TestContext& context) {
                  "BodyLock crossing/noise contract failed; see measured incident artifact");
 }
 
+void test_feedback_distance_delay_noise_sweep(const native_test::TestContext& context) {
+    // A component-level ideal game plant, not live-game acceptance. The real
+    // controller solves at 1 kHz; sampled observations have explicit delay,
+    // noise and cadence. No Vision/identity/manual/weapon model is invented.
+    std::filesystem::create_directories(context.artifact_directory);
+    std::ofstream report(context.artifact_path("follow-response-sweep.csv"));
+    require_true(report.good(), "response diagnostic artifact must be writable");
+    report << "seed,case,ms,delay_ms,capture_ms,noise_px,plant_scale,moving,curve,distance_px,force,mean_abs_error_px,rms_error_px,peak_error_px,center_crossings\n";
+    for (unsigned seed : {5071u,90439u}) {
+        std::mt19937 random(seed);
+        auto unit=[&]() { return static_cast<float>(random()%10001)/10000.f; };
+        for (int scenario=0;scenario<20;++scenario) {
+            const int duration=scenario%2 ? 5000 : 1000;
+            const int delay=4+random()%21, cadence=4+random()%9;
+            const float noise=.02f+unit()*.98f, plant=500.f*(.8f+unit()*.4f);
+            const bool moving=scenario%3!=0;
+            const float amplitude=6.f+unit()*14.f, frequency=.7f+unit()*1.6f;
+            for (auto curve : {controller_native::AimResponseCurveAlgorithm::Linear,
+                               controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut,
+                               controller_native::AimResponseCurveAlgorithm::CustomLut}) {
+                for (float distance : {1.f,6.f,18.f,36.f}) {
+                    for (float force : {.3f,.6f,1.f}) {
+                        // Reuse precisely the same observation-noise stream
+                        // across parameter candidates for each scenario.
+                        std::mt19937 sensor(seed+scenario*101);
+                        controller_native::BodylockFollowControllerConfig config;
+                        config.feedback_range_x_px=config.feedback_range_y_px=distance;
+                        config.max_force_x=force; config.max_force_y=force*.8f;
+                        config.response_curve.algorithm=curve;
+                        if (curve==controller_native::AimResponseCurveAlgorithm::CustomLut) {
+                            config.response_curve.custom_count=4;
+                            config.response_curve.custom_stick={0,.2f,.5f,1};
+                            config.response_curve.custom_response={0,.08f,.37f,1};
+                        }
+                        controller_native::BodylockFollowController controller(config);
+                        pipeline_contract::Vec2f camera{};
+                        std::vector<pipeline_contract::Vec2f> history;
+                        auto plan=active_plan(8,4);
+                        double sum=0,squares=0; float peak=0; unsigned measured=0,crossings=0;
+                        int last_sign=1;
+                        for (int tick=0;tick<duration;++tick) {
+                            const float t=tick*.001f, phase=t*frequency;
+                            const pipeline_contract::Vec2f target{8+(moving ? amplitude*std::sin(phase) : 0),
+                                4+(moving ? amplitude*.4f*std::sin(phase*.7f) : 0)};
+                            const pipeline_contract::Vec2f error{target.x-camera.x,target.y-camera.y};
+                            history.push_back(error);
+                            if (tick%cadence==0) {
+                                const auto observed=history[std::max(0,tick-delay)];
+                                auto jitter=[&]() { return (static_cast<float>(sensor()%10001)/5000.f-1)*noise; };
+                                plan.error_px={observed.x+jitter(),observed.y+jitter()};
+                                plan.bodylock_target_motion_valid=true;
+                                const float observed_t=std::max(0,tick-delay)*.001f;
+                                plan.bodylock_target_motion_px_per_sec={
+                                    moving ? amplitude*frequency*std::cos(observed_t*frequency) : 0,
+                                    moving ? amplitude*.4f*frequency*.7f*std::cos(observed_t*frequency*.7f) : 0};
+                            }
+                            const auto out=controller.compute_detailed(plan,{},.001f);
+                            const float ellipse=std::hypot(out.stick.x/force,out.stick.y/(force*.8f));
+                            require_true(std::isfinite(out.stick.x) && std::isfinite(out.stick.y) && ellipse<=1.00001f,
+                                         "every response candidate must obey finite joint force limits");
+                            const auto effective=controller_native::forward_aim_response_curve(out.stick,config.response_curve);
+                            camera.x+=effective.x*plant*.001f;
+                            camera.y-=effective.y*plant*.001f;
+                            if (tick>=duration/5) {
+                                const float magnitude=std::hypot(error.x,error.y);
+                                sum+=magnitude;squares+=magnitude*magnitude;peak=std::max(peak,magnitude);++measured;
+                                const int sign=error.x>.05f ? 1 : error.x<-.05f ? -1 : 0;
+                                if (sign && sign!=last_sign) { ++crossings;last_sign=sign; }
+                            }
+                        }
+                        report << seed << ',' << scenario << ',' << duration << ',' << delay << ',' << cadence << ','
+                               << noise << ',' << plant << ',' << moving << ',' << static_cast<int>(curve) << ','
+                               << distance << ',' << force << ',' << sum/measured << ',' << std::sqrt(squares/measured)
+                               << ',' << peak << ',' << crossings << '\n';
+                    }
+                }
+            }
+        }
+    }
+}
+
 }  // namespace
 
 void register_bodylock_follow_controller_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock","continuous_point_braking_without_floor_override", [] {
+        using namespace controller_native;
+        for (float radius : {2.f,12.f}) {
+            ResponseModelAimRequest r;
+            r.range_position_response=true;r.position_range_px=150;
+            r.minimum_position_stick=.3f;r.arrival_radius_px=radius;
+            r.response_px_per_stick_second=1600;r.arrival_horizon_seconds=.04f;
+            r.error_px={radius-.001f,0};const auto a=solve_response_model_aim(r).stick;
+            r.error_px={radius+.001f,0};const auto b=solve_response_model_aim(r).stick;
+            require_true(std::abs(b.x-a.x)<.001f,"point radius cannot introduce a force step");
+            r.error_px={.01f,0};
+            require_true(solve_response_model_aim(r).stick.x<.001f,"pursuit floor must yield at the actual point");
+            r.error_px={0,0};r.relative_velocity_px_per_sec={90,0};r.motion_is_sustaining_target_motion=true;
+            require_true(near(solve_response_model_aim(r).stick.x,90.f/1600),"centered moving target retains sustaining speed");
+        }
+    });
+    registry.add_case("BaseBodyLock","range_envelope_survives_curves_and_preserves_motion", [] {
+        using namespace controller_native;
+        ResponseModelAimRequest request;
+        request.range_position_response=true;request.position_range_px=150;
+        request.arrival_horizon_seconds=.005f;request.max_force={.8f,.6f};
+        for(auto curve : {AimResponseCurveAlgorithm::Linear,AimResponseCurveAlgorithm::CodDynamicLegacyLut,AimResponseCurveAlgorithm::CustomLut}) {
+            request.response_curve.algorithm=curve;
+            request.response_curve.custom_count=3;
+            request.response_curve.custom_stick={0,.5f,1};request.response_curve.custom_response={0,.02f,1};
+            float previous=0;
+            for(float ratio : {0.f,.0001f,.001f,.01f,.05f,.1f,.25f,.5f,1.f}) {
+                request.error_px={150*ratio,0};
+                const auto output=solve_response_model_aim(request);
+                require_true(output.stick.x<=.8f*std::sqrt(ratio)+1e-6f && output.stick.x>=previous-1e-6f,
+                    "fast timing and nonlinear curves cannot bypass distance envelope or reverse monotonicity");
+                previous=output.stick.x;
+            }
+            request.error_px={0,0};request.relative_velocity_px_per_sec={100,0};
+            request.motion_is_sustaining_target_motion=true;
+            const auto moving=solve_response_model_aim(request);
+            require_true(moving.stick.x>0,"confirmed moving target still needs motion at the center");
+            request.motion_is_sustaining_target_motion=false;
+            require_true(solve_response_model_aim(request).stick.x==0,"unconfirmed rate cannot own centered force");
+            request.relative_velocity_px_per_sec={};
+        }
+        request.response_curve.algorithm=AimResponseCurveAlgorithm::Linear;
+        request.minimum_position_stick=.15f;request.arrival_radius_px=2;request.arrival_horizon_seconds=1;
+        for(float error : {30.f,10.f,3.f,2.01f}) {
+            request.error_px={error,0};
+            require_true(solve_response_model_aim(request).stick.x>0,"continue toward the point with a bounded final approach");
+        }
+        for(float error : {2.f,1.f,0.f,-1.f,-2.f}) {
+            request.error_px={error,0};
+            const float actual=solve_response_model_aim(request).stick.x;
+            require_true(error==0 ? actual==0 : actual*error>0,"point neighborhood tapers continuously toward the actual point");
+        }
+        request.error_px={3,0};request.relative_velocity_px_per_sec={-100,0};
+        request.motion_is_error_rate_lookahead=true;
+        require_true(solve_response_model_aim(request).stick.x==0,
+            "pursuit floor must not override a complete stopping lookahead");
+        request.minimum_position_stick=0;
+        require_true(solve_response_model_aim(request).stick.x==0,
+            "zero low-speed reference must preserve full lookahead cancellation");
+        request.minimum_position_stick=.15f;
+        request.error_px={2,0};
+        require_true(solve_response_model_aim(request).stick.x==0,
+            "lookahead must stop at the point radius");
+        request.motion_is_error_rate_lookahead=false;
+        request.motion_is_sustaining_target_motion=true;request.relative_velocity_px_per_sec={100,0};
+        require_true(solve_response_model_aim(request).stick.x>0,
+            "point arrival retains verified moving target feedforward");
+        request.motion_is_sustaining_target_motion=false;request.relative_velocity_px_per_sec={};
+        request.minimum_position_stick=0;request.arrival_radius_px=0;request.arrival_horizon_seconds=.005f;
+        request.response_curve.algorithm=AimResponseCurveAlgorithm::Linear;request.error_px={15,0};
+        request.position_range_px=150;const float near=solve_response_model_aim(request).stick.x;
+        request.position_range_px=300;const float wider=solve_response_model_aim(request).stick.x;
+        require_true(std::abs(wider/near-std::sqrt(.5f))<1e-5f,"real range changes must reach the solver");
+    });
+    registry.add_case("BaseBodyLock","bounded_position_and_ai_deadzone_boundaries", [] {
+        controller_native::ResponseModelAimRequest request;
+        request.response_curve.algorithm=controller_native::AimResponseCurveAlgorithm::Linear;
+        request.range_position_response=true;request.position_range_px=150.f;request.arrival_horizon_seconds=.08f;
+        request.max_force={.8f,.8f};request.error_px={32,0};
+        const auto output=controller_native::solve_response_model_aim(request);
+        require_true(near(output.stick.x,.8f*std::sqrt(32.f/150.f)),"32 px / 80 ms must not hit the 80 percent cap");
+        request.error_px={150,0};
+        require_true(near(controller_native::solve_response_model_aim(request).stick.x,.8f),"far position retains full configured force");
+        request.max_force={0,.8f};request.error_px={10000,1};
+        const auto disabled=controller_native::solve_response_model_aim(request);
+        require_true(disabled.stick.x==0 && near(disabled.stick.y,-.025f),
+            "disabled horizontal axis must not attenuate the vertical position response");
+        for(float sign : {-1.f,1.f}) {
+            for(float value : {0.f,.029f,.03f,.030001f,.3f,1.f}) {
+                const auto input=pipeline_contract::Vec2f{sign*value,-sign*.2f};
+                const auto actual=controller_native::filter_ai_input(input,.03f);
+                require_true(actual.x==(value<=.03f ? 0.f : input.x) && actual.y==input.y,
+                    "threshold is inclusive per axis and does not stretch surviving input");
+                require_true(controller_native::filter_ai_input(input,0).x==input.x,"zero disables filtering");
+            }
+        }
+        controller_native::AdsAcquisitionControllerConfig ads;
+        ads.range_position_response=true;ads.arrival_horizon_seconds=.08f;ads.force_headroom=1;
+        ads.response_curve.algorithm=controller_native::AimResponseCurveAlgorithm::Linear;
+        auto plan=active_plan(10,-5);plan.mode=pipeline_contract::ControlMode::AdsAcquire;
+        plan.normalized_size=.01f;
+        const auto small=controller_native::AdsAcquisitionController(ads).compute(plan,{},.001f);
+        plan.normalized_size=.9f;
+        const auto large=controller_native::AdsAcquisitionController(ads).compute(plan,{},.001f);
+        require_true(near(small.x,large.x) && near(small.y,large.y),"explicit ADS time cannot shrink with size");
+        plan.error_px.y=5;
+        const auto below=controller_native::AdsAcquisitionController(ads).compute(plan,{},.001f);
+        require_true(near(small.y,-below.y),"explicit ADS time is direction independent");
+    });
+    registry.add_context_case("BaseBodyLock","range_response_delayed_plant_sweep", [](const native_test::TestContext& context) {
+        std::ofstream report(context.artifact_path("range-response-plant.csv"));
+        report << "seed,case,ticks,time_ms,cap,delay_ms,noise_px,initial_px,final_px,peak_overshoot_px,first_within_8_ms,radius_px,minimum_stick,first_within_2_ms\n";
+        bool all_long_arrived=true;
+        for(unsigned seed : {100621u,915731u}) {
+            std::mt19937 rng(seed);std::uniform_real_distribution<float> unit(0,1);
+            for(int scenario=0;scenario<80;++scenario) {
+                const int ticks=scenario%2 ? 12000 : 2000;
+                const int delay=(scenario%4)*10;
+                const float time=.02f+unit(rng)*.33f,cap=.2f+unit(rng)*.8f,noise=unit(rng)*.4f;
+                float error=20+unit(rng)*180,overshoot=0;const float initial=error;
+                std::vector<float> history(delay+1,0);int arrival=-1,point_arrival=-1;
+                controller_native::ResponseModelAimRequest request;
+                request.response_curve.algorithm=controller_native::AimResponseCurveAlgorithm::Linear;
+                request.range_position_response=true;request.position_range_px=250.f;request.minimum_position_stick=.10f+.05f*(scenario%3);request.arrival_radius_px=2;request.arrival_horizon_seconds=time;request.max_force={cap,cap};
+                for(int tick=0;tick<ticks;++tick) {
+                    request.error_px={error+(unit(rng)*2-1)*noise,0};
+                    const auto aim=controller_native::filter_ai_input(controller_native::solve_response_model_aim(request).stick,.03f);
+                    require_true(std::isfinite(aim.x) && std::abs(aim.x)<=cap+1e-6f &&
+                        (aim.x==0 || std::abs(aim.x)>.03f),"random delayed plant obeys caps and deadzone");
+                    require_true(aim.x*request.error_px.x>=0,
+                        "continuous position approach cannot push away from the observed point");
+                    const int slot=tick%history.size();const float delivered=history[slot];history[slot]=aim.x;
+                    error-=delivered*500*.001f;overshoot=std::max(overshoot,-error);
+                    if(arrival<0 && std::abs(error)<=8)arrival=tick;
+                    if(point_arrival<0 && std::abs(error)<=2)point_arrival=tick;
+                }
+                report << seed << ',' << scenario << ',' << ticks << ',' << time*1000 << ',' << cap << ',' << delay << ','
+                    << noise << ',' << initial << ',' << error << ',' << overshoot << ',' << arrival << ',' << request.position_range_px << ',' << request.minimum_position_stick << ',' << point_arrival << '\n';
+                if(ticks>2000) all_long_arrived = all_long_arrived && point_arrival>=0;
+            }
+        }
+        require_true(all_long_arrived,"long runs must reach the target; short-run deadlines remain reported explicitly");
+    });
+
+    registry.add_context_case("BaseBodyLock", "independent_limits_and_response_randomized", [](const native_test::TestContext& context) {
+        std::ofstream report(context.artifact_path("independent-assist-parameters.csv"));
+        require_true(report.good(),"parameter scenario report must open");
+        report << "seed,scenario,ticks,cap_x,cap_y,time_x_ms,time_y_ms,max_follow_ellipse,max_ads_ellipse\n";
+        // Independent development/validation seeds; short and long streams.
+        for (unsigned seed : {61006u, 817193u}) {
+            std::mt19937 random(seed);
+            std::uniform_real_distribution<float> unit(0.f,1.f);
+            for (int scenario=0;scenario<80;++scenario) {
+                controller_native::BodylockFollowControllerConfig config;
+                config.range_position_response=true;
+                config.minimum_position_stick=0;
+                config.response_curve.algorithm=scenario%2 ? controller_native::AimResponseCurveAlgorithm::Linear : controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+                config.max_force_x=.02f+.98f*unit(random);
+                config.max_force_y=.02f+.98f*unit(random);
+                config.response_time_x_seconds=.005f+.995f*unit(random);
+                config.response_time_y_seconds=.005f+.995f*unit(random);
+                controller_native::BodylockFollowController controller(config);
+                controller_native::AdsAcquisitionControllerConfig ads_config;
+                ads_config.force_headroom=1.f;
+                ads_config.range_position_response=true;
+                ads_config.minimum_position_stick=0;
+                ads_config.response_curve=config.response_curve;
+                ads_config.max_force_x=config.max_force_x;
+                ads_config.max_force_y=config.max_force_y;
+                ads_config.arrival_horizon_seconds=.06f+.29f*unit(random);
+                controller_native::AdsAcquisitionController ads(ads_config);
+                const int ticks=scenario%2 ? 2400 : 128;
+                float follow_peak=0,ads_peak=0;
+                for (int tick=0;tick<ticks;++tick) {
+                    auto plan=active_plan((unit(random)-.5f)*640,(unit(random)-.5f)*512);
+                    plan.position_response_radius_px=1.f+1999.f*unit(random);
+                    plan.aim_authority=unit(random);
+                    plan.reliability=unit(random);
+                    plan.normalized_size=unit(random);
+                    plan.response_scale=80.f+3920.f*unit(random);
+                    plan.error_rate_px_per_sec={(unit(random)-.5f)*1000,(unit(random)-.5f)*1000};
+                    if (tick%29==0) plan.lifecycle=pipeline_contract::TargetLifecycle::None;
+                    const auto result=controller.compute_detailed(plan,{},.001f);
+                    follow_peak=std::max(follow_peak,std::hypot(result.stick.x/config.max_force_x,result.stick.y/config.max_force_y));
+                    require_true(std::isfinite(result.stick.x) && std::isfinite(result.stick.y) &&
+                        std::abs(result.stick.x)<=config.max_force_x+1e-6f &&
+                        std::abs(result.stick.y)<=config.max_force_y+1e-6f,"follow must honor independent normalized limits");
+                    if(plan.lifecycle!=pipeline_contract::TargetLifecycle::None) {
+                        require_true(near(result.response_horizon_seconds,config.response_time_x_seconds) &&
+                            near(result.response_horizon_y_seconds,config.response_time_y_seconds),"time is independent of limit, error, reliability and plant response");
+                    } else require_true(result.stick.x==0 && result.stick.y==0,"inactive follow must remain neutral");
+                    const float fraction=std::sqrt(std::min(1.f,std::hypot(plan.error_px.x,plan.error_px.y)/plan.position_response_radius_px));
+                    require_true(std::hypot(result.stick.x/config.max_force_x,result.stick.y/config.max_force_y)<=fraction+1e-5f,
+                        "unconfirmed follow demand stays inside the geometry budget after the response curve");
+                    plan.mode=pipeline_contract::ControlMode::AdsAcquire;
+                    const auto acquisition=ads.compute(plan,{},.001f);
+                    require_true(std::hypot(acquisition.x/config.max_force_x,acquisition.y/config.max_force_y)<=fraction+1e-5f,
+                        "ADS demand stays inside the geometry budget after the response curve");
+                    ads_peak=std::max(ads_peak,std::hypot(acquisition.x/config.max_force_x,acquisition.y/config.max_force_y));
+                    require_true(std::abs(acquisition.x)<=config.max_force_x+1e-6f &&
+                        std::abs(acquisition.y)<=config.max_force_y+1e-6f,"ADS must not multiply explicit limits by hidden headroom");
+                }
+                require_true(follow_peak<=1.00001f && ads_peak<=1.00001f,"both stages retain joint ellipse bounds");
+                report << seed << ',' << scenario << ',' << ticks << ',' << config.max_force_x << ',' << config.max_force_y << ','
+                    << config.response_time_x_seconds*1000 << ',' << config.response_time_y_seconds*1000 << ',' << follow_peak << ',' << ads_peak << '\n';
+                const auto before=controller.compute_detailed(active_plan(.01f,.01f),{},.001f);
+                controller.set_force_limits(1.f,1.f);
+                const auto after=controller.compute_detailed(active_plan(.01f,.01f),{},.001f);
+                require_true(near(before.position_stick.x,after.position_stick.x) &&
+                    near(before.position_stick.y,after.position_stick.y),"changing a cap must not change unsaturated position demand");
+            }
+        }
+    });
+    registry.add_context_case("BaseBodyLock", "point_boundary_closed_loop_diagnostic", simulate_point_boundary);
+    registry.add_context_case("BaseBodyLock", "feedback_distance_delay_noise_sweep", test_feedback_distance_delay_noise_sweep);
     registry.add_context_case("BaseBodyLock", "center_crossing_incident", test_center_crossing_incident);
     registry.add_case("BaseBodyLock", "inactive_plan_is_neutral", test_inactive_plan_is_neutral);
     registry.add_case("BaseBodyLock", "current_error_owns_position_proposal", test_current_error_owns_position_proposal);

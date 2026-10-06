@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iomanip>
 #include <stdexcept>
+#include <random>
 
 namespace {
 
@@ -357,6 +358,74 @@ void test_carried_axis_release_continuity(const native_test::TestContext& contex
 }  // namespace
 
 void register_intent_filter_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "configurable_intent_band_randomized_and_hot_reload", [] {
+        using namespace controller_native;
+        for (auto seed : {314159u, 271828u}) {
+            std::mt19937 rng(seed);
+            std::uniform_real_distribution<float> unit(0, 1);
+            for (int scenario = 0; scenario < 60; ++scenario) {
+                GamepadRuntimeConfig config;
+                const auto change_band = [&] {
+                    config.ai_aim.manual_intent_begin = unit(rng) * .8f;
+                    config.ai_aim.manual_intent_full = config.ai_aim.manual_intent_begin + .02f +
+                        unit(rng) * (.98f - config.ai_aim.manual_intent_begin);
+                };
+                change_band();
+                double now = 10;
+                NativeGamepadController controller(config, &now);
+                PhysicalGamepadState physical{};
+                physical.connected = true; physical.left_trigger = 1;
+                std::uint64_t scope_epoch = 0;
+                const int count = scenario % 2 ? 100 : 2000;
+                for (int tick = 0; tick < count; ++tick) {
+                    if (tick && tick % 73 == 0) {
+                        change_band();
+                        controller.apply_hot_config(config, true);
+                    }
+                    const float begin = config.ai_aim.manual_intent_begin;
+                    const float full = config.ai_aim.manual_intent_full;
+                    const float boundary[] = {0, begin, (begin + full) / 2, full, 1};
+                    physical.right_x = tick % 8 < 5 ? boundary[tick % 8] : unit(rng);
+                    if (tick % 2) physical.right_x = -physical.right_x;
+                    physical.right_y = unit(rng) * 2 - 1;
+                    now += .0005 + unit(rng) * .004;
+                    const auto preparation = controller.begin_tick(physical);
+                    if (!tick) scope_epoch = preparation.scope.scope_epoch;
+                    require_true(preparation.scope.scope_epoch == scope_epoch,
+                                 "threshold reload must preserve physical scope lifecycle");
+                    const auto expected = [&](float raw) {
+                        const double t = std::clamp((static_cast<double>(std::fabs(raw)) - begin) / (full - begin), 0.0, 1.0);
+                        return static_cast<float>(t * t * (3 - 2 * t));
+                    };
+                    require_near(preparation.intent.right_x.activity, expected(physical.right_x), 3e-6f,
+                                 "configured x authority must follow the requested smooth band");
+                    require_near(preparation.intent.filtered_right.y, physical.right_y * expected(physical.right_y), 3e-6f,
+                                 "configured y correction must use its own axis exactly once");
+                    const auto output = controller.build_output_from_sampled_input();
+                    require_true(output.right_x == physical.right_x && output.right_y == physical.right_y,
+                                 "configurable AI-only intent must preserve native raw passthrough");
+                }
+            }
+        }
+        GamepadRuntimeConfig config;
+        config.ai_aim.adapter_direct_mouse_manual = true;
+        config.ai_aim.manual_intent_begin = .8f;
+        config.ai_aim.manual_intent_full = .9f;
+        double now = 1;
+        NativeGamepadController mouse(config, &now);
+        PhysicalGamepadState physical{}; physical.connected = true; physical.right_x = .04f;
+        require_true(mouse.begin_tick(physical).intent.filtered_right.x > .03f,
+                     "user-configured gamepad band must leave mouse policy unchanged");
+        IntentFilterConfig filter_config; filter_config.gamepad_right_stick_curve = true;
+        IntentFilter filter(filter_config);
+        filter.update({}, {.8f, 0}, true, false, 1, true);
+        filter_config.gamepad_intent_begin = .1f; filter_config.gamepad_intent_full = .2f;
+        filter.reconfigure(filter_config);
+        const auto continued = filter.update({}, {.8f, 0}, true, false, 1.001, true);
+        require_true(continued.right_phase == pipeline_contract::StickPhase::Sustained &&
+                     continued.right_purpose == pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget,
+                     "reload must retain active gesture phase and purpose");
+    });
     registry.add_case("BaseContracts", "gamepad_intent_transition_curve", test_gamepad_intent_transition_curve);
     registry.add_context_case("BaseBodyLock", "gamepad_authority_curve_continuity", test_gamepad_authority_curve_continuity);
     registry.add_case("BaseContracts", "gamepad_raw_passthrough_ai_intent_floor", test_gamepad_raw_passthrough_with_fifteen_percent_ai_intent_floor);

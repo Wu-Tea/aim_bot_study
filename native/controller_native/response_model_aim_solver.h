@@ -5,6 +5,9 @@
 
 namespace controller_native {
 
+inline constexpr float kArrivalHorizonMinimumSeconds = 0.005f;
+inline constexpr float kArrivalHorizonMaximumSeconds = 1.0f;
+
 enum class ResponseModelConstraintReason : unsigned char {
     None,
     PositionRadialMotionBound,
@@ -30,6 +33,14 @@ struct ResponseModelAimRequest {
     pipeline_contract::Vec2f max_force{1.0f, 1.0f};
     float authority = 1.0f;
     float authority_budget_scale = 1.0f;
+    // Canonical gamepad correction uses point distance, range and low-speed reference.
+    bool range_position_response = false;
+    float position_range_px = 0.0f;
+    // Pursuit reference in final stick units; the continuous point brake may
+    // reduce it near the target. Verified sustaining motion is independent.
+    float minimum_position_stick = 0.0f;
+    // Smooth final-approach scale, not a position deadband.
+    float arrival_radius_px = 0.0f;
     AimResponseCurveConfig response_curve{};
 };
 
@@ -47,6 +58,13 @@ struct ResponseModelAimOutput {
     ResponseModelConstraintReason radial_motion_bound_reason =
         ResponseModelConstraintReason::None;
 };
+
+// AI-only input boundary. No rescaling, hysteresis, or manual/recoil state.
+inline pipeline_contract::Vec2f filter_ai_input(pipeline_contract::Vec2f value, float deadzone) noexcept {
+    if (std::fabs(value.x) <= deadzone) value.x = 0.0f;
+    if (std::fabs(value.y) <= deadzone) value.y = 0.0f;
+    return value;
+}
 
 ResponseModelAimOutput solve_response_model_aim(
     const ResponseModelAimRequest& request) noexcept;

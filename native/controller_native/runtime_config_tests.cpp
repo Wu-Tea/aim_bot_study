@@ -703,6 +703,150 @@ void test_scalar_config_rejects_invalid_tokens() {
 }
 
 void register_runtime_config_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "bodylock_direct_distance_and_legacy_conversion", [] {
+        for (float legacy : {0.f,1.f,8.f,12.f,18.f,24.f,2000.f}) {
+            TempConfig file("cod_follow_legacy.toml", "[gamepad.bodylock]\ntolerance_px="+std::to_string(legacy)+"\n");
+            const auto config=controller_native::load_runtime_config(file.path());
+            require(config.diagnostics.empty() &&
+                    config.gamepad.ai_aim.body_lock_feedback_distance_px==std::max(18.f,legacy*1.5f),
+                    "old profiles must retain their effective feedback distance");
+        }
+        TempConfig old_alias("cod_follow_alias.toml", "[gamepad.ai_aim]\nbody_lock_box_tolerance_px=8\n");
+        require(controller_native::load_runtime_config(old_alias.path()).gamepad.ai_aim.body_lock_feedback_distance_px==18,
+                "the older ai_aim alias must retain its effective distance");
+        TempConfig canonical("cod_follow_canonical.toml", "[gamepad.bodylock]\ntolerance_px=8\nfeedback_distance_px=1\nvertical_strength=0.35\n");
+        const auto config=controller_native::load_runtime_config(canonical.path());
+        require(config.diagnostics.empty() && config.gamepad.ai_aim.body_lock_feedback_distance_px==1 &&
+                config.gamepad.ai_aim.body_lock_max_ai_force_y==.35f,
+                "an explicit one-pixel distance must override legacy settings without conversion");
+        TempConfig override("cod_follow_override.toml", "[gamepad.bodylock]\ntolerance_px=8\n[games.apex.gamepad.bodylock]\nfeedback_distance_px=1\n");
+        require(controller_native::load_runtime_config(override.path(),"","apex").gamepad.ai_aim.body_lock_feedback_distance_px==1,
+                "canonical game overrides must resolve before legacy conversion");
+        TempConfig before("cod_follow_before.toml", "[gamepad.bodylock]\ntolerance_px=8\n");
+        TempConfig equivalent("cod_follow_equivalent.toml", "[gamepad.bodylock]\nfeedback_distance_px=18\n");
+        require(runtime_app::hot_reload_restrictions(controller_native::load_runtime_config(before.path()),
+                    controller_native::load_runtime_config(equivalent.path())).empty(),
+                "equivalent legacy migration must not reset or alter runtime behavior");
+        TempConfig force("cod_follow_force.toml", "[gamepad.bodylock]\ntolerance_px=8\nstrength=0.4\nvertical_strength=0.5\n");
+        require(runtime_app::hot_reload_restrictions(controller_native::load_runtime_config(before.path()),
+                    controller_native::load_runtime_config(force.path())).empty(),
+                "both force limits must remain hot reloadable");
+    });
+    registry.add_case("BaseContracts", "editable_catalog_boundaries_and_relationships", [] {
+#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) \
+        { TempConfig valid("cod_catalog_valid.toml", "[" SECTION "]\n" KEY "=" + std::to_string(DEFAULT) + "\n"); \
+          const auto parsed = controller_native::load_runtime_config(valid.path()); \
+          require(parsed.diagnostics.empty() && std::fabs(parsed.gamepad.MEMBER - DEFAULT) < 1e-6f, "catalog defaults must parse at their native owner"); \
+          for (float bad : {MIN - 1.f, MAX + 1.f}) { \
+            TempConfig invalid("cod_catalog_invalid.toml", "[" SECTION "]\n" KEY "=" + std::to_string(bad) + "\n"); \
+            bool rejected = false; try { (void)controller_native::load_runtime_config(invalid.path()); } catch (const std::exception&) { rejected = true; } \
+            require(rejected, "every catalog field needs native range rejection"); } }
+#include "editable_float_parameters.inc"
+#undef NATIVE_EDITABLE_FLOAT
+        for (const auto& body : {"[gamepad.ai_aim]\nmanual_intent_begin=0.3\nmanual_intent_full=0.3\n",
+                               "[gamepad.ai_aim]\nmanual_intent_begin=0.4\nmanual_intent_full=0.2\n",
+                               "[gamepad.auto_fire]\npulse_width_ms=100\npulse_period_ms=99\n",
+                               "[gamepad.ads]\nactivation_trigger=0.8\nscope_ready_trigger=0.8\n"}) {
+            TempConfig invalid("cod_catalog_relation.toml", body);
+            bool rejected=false;
+            try { (void)controller_native::load_runtime_config(invalid.path()); } catch (const std::exception&) { rejected=true; }
+            require(rejected, "relations must fail before a degenerate curve or pulse reaches control");
+        }
+        TempConfig before("cod_catalog_before.toml", "");
+        TempConfig after("cod_catalog_after.toml", "[gamepad.ai_aim]\nmanual_intent_begin=0.1\nmanual_intent_full=0.25\n[gamepad.auto_fire]\npulse_width_ms=20\npulse_period_ms=80\n");
+        const auto a=controller_native::load_runtime_config(before.path()), b=controller_native::load_runtime_config(after.path());
+        require(runtime_app::hot_reload_restrictions(a,b).empty() && runtime_app::preserve_response_learning_on_reload(a,b),
+                "intent and pulse changes must hot reload without discarding learned game response");
+        TempConfig l2("cod_catalog_l2.toml","[gamepad.ads]\nactivation_trigger=0.1\nscope_ready_trigger=0.7\n");
+        const auto l2_config=controller_native::load_runtime_config(l2.path());
+        require(runtime_app::hot_reload_restrictions(a,l2_config).empty() && runtime_app::preserve_response_learning_on_reload(a,l2_config),
+                "both L2 thresholds must reload through their input owner without erasing response learning");
+        TempConfig radius("cod_catalog_radius.toml","[gamepad.ads]\npickup_base_radius_px=180\n");
+        require(!runtime_app::hot_reload_restrictions(a,controller_native::load_runtime_config(radius.path())).empty(),
+                "preview radius must not pretend to update the Vision selector during controller-only reload");
+        TempConfig follow("cod_catalog_follow.toml","[gamepad.bodylock]\nactivation_range_px=220.5\ntolerance_px=24.25\n");
+        const auto follow_config=controller_native::load_runtime_config(follow.path());
+        require(follow_config.gamepad.ai_aim.body_lock_activation_box_px==220.5f &&
+                follow_config.gamepad.ai_aim.body_lock_box_tolerance_px==24.25f,
+                "BodyLock fields must persist at their existing control owners");
+        const auto restart=runtime_app::hot_reload_restrictions(a,follow_config);
+        require(restart.find("gamepad.bodylock.activation_range_px")!=std::string::npos &&
+                restart.find("gamepad.bodylock.feedback_distance_px")!=std::string::npos,
+                "cached follow geometry and feedback settings must truthfully require restart");
+    });
+    registry.add_case("BaseContracts", "ads_fire_delay_config_and_hot_reload", [] {
+        for (const std::string value : {"0","125.5","5000"}) {
+            TempConfig file("cod_ads_fire_delay.toml", "[gamepad.auto_fire]\nads_press_delay_ms="+value+"\n");
+            const auto config=controller_native::load_runtime_config(file.path());
+            require(config.diagnostics.empty() && config.gamepad.auto_fire.ads_press_delay_ms==std::stof(value),
+                "native delay accepts the GUI range without clamping user input");
+        }
+        for (const std::string value : {"-1","5000.1","nan","inf"}) {
+            TempConfig file("cod_ads_fire_delay_invalid.toml", "[gamepad.auto_fire]\nads_press_delay_ms="+value+"\n");
+            bool rejected=false;
+            try { (void)controller_native::load_runtime_config(file.path()); }
+            catch (const std::exception&) { rejected=true; }
+            require(rejected,"invalid fire delays must fail at config ownership boundary");
+        }
+        TempConfig before("cod_ads_fire_delay_before.toml","[gamepad.auto_fire]\nads_press_delay_ms=0\n");
+        TempConfig after("cod_ads_fire_delay_after.toml","[gamepad.auto_fire]\nads_press_delay_ms=125.5\n");
+        require(runtime_app::hot_reload_restrictions(controller_native::load_runtime_config(before.path()),
+            controller_native::load_runtime_config(after.path())).empty(),"fire delay must be a supported hot parameter");
+    });
+    registry.add_case("BaseContracts", "editable_values_no_silent_floors", [] {
+        for (float value : {0.f,.01f,.03f,.5f,1.f}) {
+            TempConfig f("cod_deadzone_value.toml", "[gamepad.assist]\ninput_deadzone="+std::to_string(value)+"\n[gamepad.recoil]\nfeedback_amount="+std::to_string(value)+"\n");
+            const auto config=controller_native::load_runtime_config(f.path());
+            require(config.gamepad.ai_aim.ai_input_deadzone==value && config.gamepad.recoil.output_amount==value,
+                "deadzone and legacy recoil must retain explicitly requested values");
+        }
+        for (const std::string text : {
+                "[gamepad.assist]\ninput_deadzone=1.01\n", "[gamepad.assist]\ninput_deadzone=-0.01\n",
+                "[gamepad.bodylock]\nactivation_range_px=1\n", "[runtime.input]\ncontroller_index=4\n",
+                "[runtime.vision]\ntarget_height_ratio=0.009\n", "[runtime.vision]\ntarget_height_ratio=0.991\n",
+                "[runtime.vision]\ntarget_wide_low_height_ratio=0.009\n", "[runtime.vision]\ntarget_wide_low_height_ratio=0.991\n",
+                "[gamepad.tracker]\naim_height_ratio=1.1\n", "[gamepad.tracker]\nmax_observation_age_ms=251\n"}) {
+            TempConfig f("cod_no_silent_floor.toml",text);
+            bool rejected=false;try {controller_native::load_runtime_config(f.path());}catch(...){rejected=true;}
+            require(rejected,"invalid settings must be rejected instead of silently replaced");
+        }
+        TempConfig defaults("cod_deadzone_defaults.toml", "");
+        require(controller_native::load_runtime_config(defaults.path()).gamepad.ai_aim.ai_input_deadzone==.03f,
+            "default AI input deadzone is exactly three percent");
+    });
+    registry.add_case("BaseContracts", "normalized_assist_parameters", [] {
+        TempConfig old("cod_assist_legacy.toml","[gamepad.ads]\nstrength_scale=0.2\n[gamepad.bodylock]\nstrength=2\nvertical_strength=0.3\nfeedback_distance_px=27\n");
+        const auto legacy=controller_native::load_runtime_config(old.path());
+        require(std::abs(legacy.gamepad.ai_aim.ads_output_limit_x-.2828427f)<1e-6f &&
+            legacy.gamepad.ai_aim.bodylock_output_limit_x==1.f &&
+            std::abs(legacy.gamepad.ai_aim.bodylock_response_time_x_ms-27.f)<1e-5f,
+            "legacy conversion separates saturated caps from response timing");
+        TempConfig explicit_values("cod_assist_explicit.toml","[gamepad.ads]\nstrength_scale=2\noutput_limit_x=0.2\nresponse_time_ms=90\n[gamepad.bodylock]\nstrength=2\noutput_limit_x=0.4\nresponse_time_x_ms=250\n");
+        const auto next=controller_native::load_runtime_config(explicit_values.path());
+        require(next.gamepad.ai_aim.ads_output_limit_x==.2f && next.gamepad.ai_aim.ads_response_time_ms==90.f &&
+            next.gamepad.ai_aim.bodylock_output_limit_x==.4f && next.gamepad.ai_aim.bodylock_response_time_x_ms==250.f,
+            "canonical settings take precedence without hidden multipliers");
+        for(const auto* value : {"-0.01","1.01","nan"}) {
+            TempConfig bad("cod_assist_invalid.toml",std::string("[gamepad.ads]\noutput_limit_x=")+value+"\n");
+            bool rejected=false;try {controller_native::load_runtime_config(bad.path());} catch (...) {rejected=true;}
+            require(rejected,"normalized limits reject values outside actual stick range");
+        }
+        TempConfig first("cod_assist_hot_first.toml","[gamepad.ads]\noutput_limit_x=0.3\n[gamepad.bodylock]\nresponse_time_x_ms=120\n");
+        TempConfig second("cod_assist_hot_second.toml","[gamepad.ads]\noutput_limit_x=0.7\n[gamepad.bodylock]\nresponse_time_x_ms=240\n");
+        const auto a=controller_native::load_runtime_config(first.path()), b=controller_native::load_runtime_config(second.path());
+        require(runtime_app::hot_reload_restrictions(a,b).empty() && runtime_app::preserve_response_learning_on_reload(a,b),
+            "independent limits and timing reload without discarding response learning");
+    });
+    registry.add_case("BaseContracts", "named_input_device_config", [] {
+        TempConfig file("cod_named_input.toml", "[runtime.input]\ndevice_id=\"path:abcdef\"\ndevice_name=\"DualSense Wireless Controller\"\n");
+        const auto config=controller_native::load_runtime_config(file.path());
+        require(config.diagnostics.empty() && config.gamepad.input_device_id=="path:abcdef" &&
+            config.gamepad.input_device_name=="DualSense Wireless Controller", "named input selection must be owned by the native loader");
+        TempConfig changed("cod_named_input_changed.toml", "[runtime.input]\ndevice_id=\"path:012345\"\ndevice_name=\"DualSense Wireless Controller\"\n");
+        const auto next=controller_native::load_runtime_config(changed.path());
+        require(runtime_app::hot_reload_restrictions(config,next).find("runtime.input.device_id")!=std::string::npos,
+            "changing input device requires restart rather than pretending to apply live");
+    });
     registry.add_case("BaseContracts", "config_rejects_malformed_lines", test_config_rejects_malformed_lines);
     registry.add_case("BaseContracts", "scalar_config_rejects_invalid_tokens", test_scalar_config_rejects_invalid_tokens);
     registry.add_case("BaseContracts", "custom_curve_config_and_randomized_roundtrip", test_custom_curve_config_and_roundtrip);

@@ -290,6 +290,15 @@ void test_hot_binding_cancels_old_pulse_and_readiness() {
 }
 
 void register_auto_fire_gate_tests(native_test::Registry& registry) {
+    registry.add_case("FeatureAutoFireAndMarker", "ads_delay_applies_without_readiness_gate", [] {
+        controller_native::GamepadAutoFireConfig config;
+        config.require_aim_ready=false;
+        controller_native::AutoFireGate gate(config,{});
+        auto input=ready_input(100,1);input.ads_min_elapsed=false;
+        require_false(gate.evaluate(input).should_fire,"ADS delay must block synthetic fire even with readiness disabled");
+        input.ads_min_elapsed=true;input.now_seconds=100.2;input.vision_state=strong_target(input.now_seconds);
+        require_true(gate.evaluate(input).should_fire,"elapsed ADS delay should permit an otherwise authorized pulse");
+    });
     registry.add_case("FeatureAutoFireAndMarker", "hot_binding_cancels_old_pulse", test_hot_binding_cancels_old_pulse_and_readiness);
     registry.add_case("FeatureAutoFireAndMarker", "device_adapter_disables_fire", test_device_adapter_can_disable_synthetic_fire);
     registry.add_case("FeatureAutoFireAndMarker", "ready_frames_gate_before_firing", test_ready_frames_gate_before_firing);

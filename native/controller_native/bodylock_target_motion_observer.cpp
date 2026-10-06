@@ -4,14 +4,6 @@
 #include <cmath>
 
 namespace controller_native {
-namespace {
-
-float median(float a, float b, float c) noexcept {
-    return a + b + c - std::min({a, b, c}) - std::max({a, b, c});
-}
-
-}  // namespace
-
 BodylockTargetMotionObserver::BodylockTargetMotionObserver(
     BodylockTargetMotionObserverConfig config) noexcept
     : config_(config) {}
@@ -64,6 +56,7 @@ bool BodylockTargetMotionObserver::update(
         measured_motion_stick.y, -maximum_motion, maximum_motion);
 
     measurements_[measurement_write_index_] = measured_motion_stick;
+    intervals_[measurement_write_index_] = observation.interval_seconds;
     measurement_write_index_ =
         (measurement_write_index_ + 1) % measurements_.size();
     measurement_count_ = std::min(
@@ -119,6 +112,7 @@ BodylockTargetMotionEstimate BodylockTargetMotionObserver::estimate(
 void BodylockTargetMotionObserver::begin_target(
     std::uint64_t target_id) noexcept {
     measurements_ = {};
+    intervals_ = {};
     measurement_count_ = 0;
     measurement_write_index_ = 0;
     filtered_motion_stick_ = {};
@@ -137,23 +131,19 @@ void BodylockTargetMotionObserver::reset() noexcept {
 pipeline_contract::Vec2f
 BodylockTargetMotionObserver::robust_measurement() const noexcept {
     if (measurement_count_ == 0) return {};
-    if (measurement_count_ == 1) return measurements_[0];
-    if (measurement_count_ == 2) {
-        return {
-            0.5f * (measurements_[0].x + measurements_[1].x),
-            0.5f * (measurements_[0].y + measurements_[1].y),
-        };
+    // A median of adjacent derivatives destroys their noise cancellation:
+    // +epsilon then -epsilon no longer sums to zero. Integrate the aligned
+    // displacements first; divide by actual elapsed capture time, not ticks.
+    pipeline_contract::Vec2f displacement{};
+    float elapsed=0.f;
+    for (std::size_t age=0; age<measurement_count_ && elapsed<.025f; ++age) {
+        const auto i=(measurement_write_index_+measurements_.size()-1-age)%measurements_.size();
+        const float interval=std::min(intervals_[i],.025f-elapsed);
+        displacement.x+=measurements_[i].x*interval;
+        displacement.y+=measurements_[i].y*interval;
+        elapsed+=interval;
     }
-    return {
-        median(
-            measurements_[0].x,
-            measurements_[1].x,
-            measurements_[2].x),
-        median(
-            measurements_[0].y,
-            measurements_[1].y,
-            measurements_[2].y),
-    };
+    return {displacement.x/elapsed, displacement.y/elapsed};
 }
 
 float BodylockTargetMotionObserver::slew_axis(

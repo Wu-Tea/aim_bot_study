@@ -123,6 +123,19 @@ void test_target_replacement_requires_new_aligned_evidence() {
 }  // namespace
 
 void register_bodylock_target_motion_observer_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "capture_displacement_noise_cancels_before_velocity", [] {
+        controller_native::BodylockTargetMotionObserver observer;
+        float previous=0;
+        for (int frame=1;frame<=200;++frame) {
+            const float position=(frame%3==0 ? .6f : -.6f);
+            const float rate=(position-previous)/.004f;
+            observer.update({1,1.+frame*.004,.004f,{rate,0},{},1600,1,true});
+            const auto estimate=observer.estimate(1,1.+frame*.004);
+            if(frame>20) require_true(estimate.valid && std::abs(estimate.target_motion_stick.x)<.04f,
+                "bounded position noise cannot become a large sustaining motion command");
+            previous=position;
+        }
+    });
     registry.add_case("BaseBodyLock", "camera_work_removed_from_stationary_target", test_camera_work_is_removed_from_stationary_target);
     registry.add_case("BaseBodyLock", "perfect_tracking_recovers_total_command", test_perfect_tracking_recovers_total_target_command_and_y_sign);
     registry.add_case("BaseBodyLock", "speed_step_reaches_total_without_error_debt", test_speed_step_reaches_total_demand_without_error_accumulation);

@@ -30,6 +30,7 @@ struct AimScopeSnapshot {
     std::uint64_t scope_epoch = 0;
     std::uint64_t physical_ads_epoch = 0;
     std::uint64_t manual_fire_epoch = 0;
+    double physical_ads_started_seconds = 0.0;
 };
 
 // Sole owner of aim-scope leases. It consumes typed input facts and never
@@ -43,11 +44,13 @@ public:
         scope_epoch_ = 0;
         physical_ads_epoch_ = 0;
         manual_fire_epoch_ = 0;
+        physical_ads_started_seconds_ = 0.0;
     }
 
     AimScopeSnapshot reduce(
         const InputEdgeSnapshot& input,
-        bool manual_fire_activates_aim) noexcept {
+        bool manual_fire_activates_aim,
+        double now_seconds = 0.0) noexcept {
         AimScopeSnapshot snapshot{};
         snapshot.physical_ads_pressed = input.physical_ads_pressed;
         snapshot.physical_ads_released = input.physical_ads_released;
@@ -56,7 +59,10 @@ public:
             input.physical_ads_ready_pressed;
         snapshot.physical_ads_ready_released =
             input.physical_ads_ready_released;
-        if (snapshot.physical_ads_pressed) ++physical_ads_epoch_;
+        if (snapshot.physical_ads_pressed) {
+            ++physical_ads_epoch_;
+            physical_ads_started_seconds_ = now_seconds;
+        }
         if (manual_fire_activates_aim) {
             snapshot.manual_fire_pressed = input.manual_fire_pressed;
             snapshot.manual_fire_released = input.manual_fire_released;
@@ -64,6 +70,7 @@ public:
         }
 
         physical_ads_active_ = input.physical_ads_active;
+        if (!physical_ads_active_) physical_ads_started_seconds_ = 0.0;
         manual_fire_active_ = manual_fire_activates_aim &&
             input.manual_fire_signal_active;
         const bool assist_active =
@@ -79,6 +86,7 @@ public:
         snapshot.assist_active = assist_active;
         snapshot.scope_epoch = scope_epoch_;
         snapshot.physical_ads_epoch = physical_ads_epoch_;
+        snapshot.physical_ads_started_seconds = physical_ads_started_seconds_;
         snapshot.manual_fire_epoch = manual_fire_epoch_;
         snapshot.source = physical_ads_active_
             ? manual_fire_active_
@@ -98,6 +106,7 @@ private:
     std::uint64_t scope_epoch_ = 0;
     std::uint64_t physical_ads_epoch_ = 0;
     std::uint64_t manual_fire_epoch_ = 0;
+    double physical_ads_started_seconds_ = 0.0;
 };
 
 }  // namespace controller_native

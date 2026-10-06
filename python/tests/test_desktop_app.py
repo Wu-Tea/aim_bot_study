@@ -34,6 +34,36 @@ deadzone = 0.20
 
 
 class DesktopConfigTests(unittest.TestCase):
+    def test_truncated_native_config_cannot_supply_partial_defaults(self):
+        manager=RuntimeManager(Path.cwd())
+        result=Mock(returncode=0,stdout=b'runtime.vision.capture_width=640 source=user\n',stderr=b'')
+        with patch('desktop_app.runtime.subprocess.run',return_value=result), self.assertRaisesRegex(ValueError,'不完整'):
+            manager.inspect_defaults('default')
+
+    def test_catalog_defaults_match_native_and_all_fields_have_metadata(self):
+        from project_paths import PROJECT_ROOT
+        from desktop_app.parameter_catalog import CATALOG, PARAMETERS
+        self.assertEqual(len(PARAMETERS),len(CATALOG['parameters']))
+        values=RuntimeManager(PROJECT_ROOT).inspect_defaults('default','[runtime]\ngame="default"\n')
+        for path,parameter in PARAMETERS.items():
+            with self.subTest(path=path):
+                self.assertIn(path,values)
+                self.assertAlmostEqual(values[path],parameter['default'],places=6)
+                self.assertLessEqual(parameter['min'],parameter['default'])
+                self.assertLessEqual(parameter['default'],parameter['max'])
+                self.assertTrue(parameter['help'])
+    def test_native_device_scan_preserves_names_and_uses_no_profile_directory(self):
+        manager=RuntimeManager(Path.cwd())
+        result=Mock(returncode=0,stdout=json.dumps([{'id':'path:abcd','name':'索尼 DualSense'}],ensure_ascii=False).encode('utf-8'))
+        with patch('desktop_app.runtime.subprocess.run',return_value=result) as run:
+            self.assertEqual(manager.input_devices()[0]['name'],'索尼 DualSense')
+        self.assertEqual(run.call_args.args[0],[str(manager.executable),'--list-input-devices'])
+        self.assertEqual(run.call_args.kwargs['cwd'],manager.executable.parent)
+        self.assertTrue(run.call_args.kwargs['creationflags'])
+        result.stdout=b'[{"id":"same","name":"A"},{"id":"same","name":"B"}]'
+        with patch('desktop_app.runtime.subprocess.run',return_value=result),self.assertRaisesRegex(ValueError,'标识重复'):
+            manager.input_devices()
+
     def test_restore_inheritance_preserves_comments_and_other_games(self):
         before = update_text(CONFIG, {'games.apex.gamepad.ads.strength_scale': .5})
         before = before.replace('strength_scale = 0.5', 'strength_scale = 0.5 # game calibration')

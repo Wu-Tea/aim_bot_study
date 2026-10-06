@@ -9,7 +9,14 @@ namespace controller_native {
 struct BodylockFollowControllerConfig {
     float max_force_x = 0.42f;
     float max_force_y = 0.42f;
+    // Explicit response timing. Negative values are resolved from legacy
+    // distance/force inputs once, at construction, never during a solve.
+    float response_time_x_seconds = -1.0f;
+    float response_time_y_seconds = -1.0f;
     float authority_budget_scale = 1.0f;
+    // Canonical gamepad correction uses point distance, range and low-speed reference.
+    bool range_position_response = false;
+    float minimum_position_stick = 0.20f;
     float feedback_range_x_px = 32.0f;
     float feedback_range_y_px = 32.0f;
     float strafing_feedback_range_x_px = 75.0f;

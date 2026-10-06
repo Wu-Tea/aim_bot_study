@@ -1,0 +1,13 @@
+....F...
+======================================================================
+FAIL: test_near_center_position_does_not_prematurely_saturate (test_desktop_ads_geometry.NativeGeometryParityTests.test_near_center_position_does_not_prematurely_saturate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\work\AI\yolo-study-001\python\tests\test_desktop_ads_geometry.py", line 12, in test_near_center_position_does_not_prematurely_saturate
+    self.assertLess(result['stick'][0],.7)
+AssertionError: 0.800000011920929 not less than 0.7
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.749s
+
+FAILED (failures=1)

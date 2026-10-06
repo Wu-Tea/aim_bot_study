@@ -6,9 +6,14 @@
 
 namespace controller_native {
 
+inline constexpr float kAdsVectorForceHeadroom = 1.41421356237f;
+
 struct AdsAcquisitionControllerConfig {
     float max_force_x = 1.0f;
     float max_force_y = 1.0f;
+    // Legacy adapters can request historical vector headroom explicitly.
+    // User-facing output limits are already normalized and use 1.
+    float force_headroom = kAdsVectorForceHeadroom;
     // Production supplies its nominal horizon from ads_snap_window_ms (135 ms
     // by default). Apparent body height then shortens it continuously for CQB,
     // but keeps enough travel time to avoid a near-instant close transfer;
@@ -16,6 +21,9 @@ struct AdsAcquisitionControllerConfig {
     float arrival_horizon_seconds = 0.160f;
     float arrival_speed = 1.0f;
     float authority_budget_scale = 1.0f;
+    // Canonical gamepad correction uses point distance, range and low-speed reference.
+    bool range_position_response = false;
+    float minimum_position_stick = 0.20f;
     float close_arrival_horizon_seconds = 0.090f;
     float close_target_size_begin = 0.18f;
     float close_target_size_full = 0.40f;

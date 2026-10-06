@@ -386,6 +386,120 @@ void test_hot_reload_randomized_manual_fire_and_recoil() {
 
 void register_control_pipeline_primitives_tests(
     native_test::Registry& registry) {
+    registry.add_case("BaseEndToEnd", "ads_fire_delay_hot_reload_and_manual_passthrough", [] {
+        using namespace controller_native;
+        auto config = incident_fixture::base_config(1000, 260);
+        config.auto_fire.ads_press_delay_ms = 125.5f;
+        config.auto_fire.require_aim_ready = false;
+        config.auto_fire.manual_fire_input = "RT";
+        config.auto_fire.manual_takeover_release_seconds = 0;
+        config.auto_fire.manual_takeover_resume_delay_seconds = 0;
+        double now = 100;
+        NativeGamepadController controller(config, &now);
+        incident_fixture::TargetSpec target;
+        target.observation_id = 901;
+        target.selector_generation = 90;
+        target.fire_authority = target.has_enemy_cue = target.enemy_identity_confirmed = true;
+        std::uint64_t sequence = 1;
+        auto physical = incident_fixture::ads_input();
+        physical.left_trigger = .1f;
+        controller.build_output(physical);
+        physical.left_trigger = 1;
+        auto step = [&](double at) {
+            now = at;
+            auto snapshot = incident_fixture::observed_snapshot(target, sequence++, now, 1, 1);
+            snapshot.state.auto_fire_requested = true;
+            controller.submit_vision_snapshot(snapshot);
+            return controller.build_output(physical);
+        };
+        require_true(!step(100.06).rb, "late target must respect original light L2 press");
+        require_true(controller.last_output_components().auto_fire_block_reason == "ads_press_delay",
+                     "waiting must expose the dedicated fire block reason");
+        const auto identity = controller.last_target_plan().target_id;
+        config.auto_fire.ads_press_delay_ms = 150;
+        controller.apply_hot_config(config);
+        require_true(!step(100.149999).rb, "extended delay must suppress before original deadline");
+        require_true(step(100 + 150.0 / 1000).rb, "fire must become eligible at original deadline");
+        require_true(identity != 0 && controller.last_target_plan().target_id == identity,
+                     "fire delay reload must preserve target identity");
+        config.auto_fire.ads_press_delay_ms = 200;
+        controller.apply_hot_config(config);
+        physical.right_trigger = 1;
+        const auto manual = step(100.16);
+        require_true(manual.right_trigger == 1 && !manual.rb, "manual trigger must bypass automatic fire delay");
+        physical.right_trigger = 0;
+        config.auto_fire.ads_press_delay_ms = 120;
+        controller.apply_hot_config(config);
+        require_true(step(100.17).rb, "shortened expired delay must not start a new window");
+        physical.left_trigger = 0;
+        step(100.180); step(100.181); step(100.182);
+        physical.left_trigger = 1;
+        require_true(!step(100.183).rb && !step(100.25).rb, "fresh L2 press must start a fresh window");
+        require_true(step(100.183 + 120.0 / 1000).rb, "fresh window must end at its own deadline");
+        config.auto_fire.aim_only = false;
+        config.auto_fire.ads_press_delay_ms = 5000;
+        controller.apply_hot_config(config);
+        physical.left_trigger = 0;
+        step(100.304); step(100.305); step(100.306);
+        require_true(controller.last_output_components().auto_fire_block_reason != "ads_press_delay",
+                     "released physical ADS must not impose a permanent hipfire delay");
+    });
+    registry.add_case("BaseEndToEnd", "ads_fire_delay_randomized_short_and_long_sessions", [] {
+        using namespace controller_native;
+        for (auto seed : {9371u, 21893u}) {
+            std::mt19937 rng(seed);
+            for (int scenario = 0; scenario < 80; ++scenario) {
+                auto config = incident_fixture::base_config(1000, 260);
+                config.auto_fire.require_aim_ready = scenario % 2 == 0;
+                config.auto_fire.manual_fire_input = "RT";
+                config.auto_fire.ads_press_delay_ms = static_cast<float>(rng() % 50001) / 10;
+                double now = 10 + scenario;
+                const double press = now;
+                NativeGamepadController controller(config, &now);
+                auto physical = incident_fixture::ads_input(.06f, -.03f);
+                physical.left_trigger = .1f;
+                controller.build_output(physical);
+                physical.left_trigger = 1;
+                incident_fixture::TargetSpec target;
+                target.observation_id = 901;
+                target.selector_generation = 90;
+                target.fire_authority = target.has_enemy_cue = target.enemy_identity_confirmed = true;
+                const int ticks = scenario % 2 ? 250 : 1300;
+                const int target_arrives = rng() % 80;
+                bool fired = false;
+                for (int tick = 1; tick <= ticks; ++tick) {
+                    now += (.5 + rng() % 100 / 10.0) / 1000;
+                    if (tick % 53 == 0) {
+                        config.auto_fire.ads_press_delay_ms = static_cast<float>(rng() % 50001) / 10;
+                        controller.apply_hot_config(config);
+                    }
+                    auto snapshot = tick >= target_arrives
+                        ? incident_fixture::observed_snapshot(target, tick, now, 1, 1)
+                        : incident_fixture::empty_snapshot(target, tick, now);
+                    snapshot.state.auto_fire_requested = true;
+                    controller.submit_vision_snapshot(snapshot);
+                    physical.right_trigger = tick % 37 == 0 ? .72f : 0;
+                    const auto output = controller.build_output(physical);
+                    require_true(output.right_trigger == physical.right_trigger,
+                                 "random delay/reload must preserve physical trigger exactly");
+                    if (now < press + static_cast<double>(config.auto_fire.ads_press_delay_ms) / 1000)
+                        require_true(!output.rb, "random hot reload must use initial physical press deadline");
+                    fired = fired || output.rb;
+                }
+                config.auto_fire.ads_press_delay_ms = 0;
+                controller.apply_hot_config(config);
+                physical.right_trigger = 0;
+                for (int tick = 0; tick < 300; ++tick) {
+                    now += .001;
+                    auto snapshot = incident_fixture::observed_snapshot(target, ticks + tick + 1, now, 1, 1);
+                    snapshot.state.auto_fire_requested = true;
+                    controller.submit_vision_snapshot(snapshot);
+                    fired = controller.build_output(physical).rb || fired;
+                }
+                require_true(fired, "each scenario must demonstrate actual automatic fire after eligibility");
+            }
+        }
+    });
     registry.add_case("BaseEndToEnd", "hipfire_ai_multiplier_keeps_ads_and_manual", [] {
         for (bool ads : {false, true}) for (int direction : {-1, 1}) {
             const auto run = [=](float multiplier) {

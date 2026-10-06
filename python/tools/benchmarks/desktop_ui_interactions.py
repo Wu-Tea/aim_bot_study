@@ -14,6 +14,9 @@ import statistics
 import tempfile
 import time
 import tkinter as tk
+import os
+import sys
+from desktop_app.test_desktop import require_isolated_gui, run_isolated
 
 from desktop_app.gui import AssistantWindow
 from desktop_app.workspace import ProfileRepository
@@ -21,6 +24,9 @@ from project_paths import PROJECT_ROOT
 
 
 def main():
+    if not os.environ.get('AIM_GUI_TEST_DESKTOP'):
+        raise SystemExit(run_isolated([str(Path(__file__).resolve()), *sys.argv[1:]], cwd=PROJECT_ROOT))
+    require_isolated_gui()
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--profile',action='store_true')
@@ -55,7 +61,7 @@ def main():
             pages=('device','feedback','curve','assist')
             measure('navigation_including_first_visits',lambda i:app.show_page(pages[i%4]),16)
             app.show_page('assist');root.update()
-            measure('parameter_edit',lambda i:app.variables['gamepad.ads.strength_scale'].set(str(.71+i*.001)),60)
+            measure('parameter_edit',lambda i:app.variables['gamepad.ads.output_limit_x'].set(str(.71+i*.001)),60)
             app.show_page('curve');root.update()
             measure('curve_edit',lambda i:app.curve_editor.move_point(3,.3,.2+i*.001),60)
             measure('warm_navigation',lambda i:app.show_page(pages[i%4]),40)

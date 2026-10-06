@@ -6,9 +6,8 @@ namespace controller_native {
 
 RecoilReducer::RecoilReducer(const GamepadRecoilConfig& config)
     : enabled_(config.enabled) {
-    const float minimum = std::max(0.0f, config.feedback_min_amount);
-    const float maximum = std::max(minimum, config.feedback_max_amount);
-    amount_ = std::clamp(config.feedback_amount, minimum, maximum);
+    // Legacy amount is an alias, not a second hidden output envelope.
+    amount_ = config.output_amount >= 0.f ? config.output_amount : config.feedback_amount;
     hipfire_multiplier_ = std::clamp(config.hipfire_multiplier, 0.0f, 1.0f);
 }
 

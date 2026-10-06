@@ -8,14 +8,16 @@ from .curve_model import CurveModel
 
 class CurveEditor(tk.Canvas):
     def __init__(self, parent, on_change=None, on_select=None):
-        super().__init__(parent, background=RAIL, highlightthickness=1, highlightbackground='#343a45', height=280, takefocus=True)
+        super().__init__(parent, background=RAIL, highlightthickness=1, highlightbackground='#343a45', height=260, takefocus=True)
         self.model = CurveModel([[i/10,i/10] for i in range(11)])
         self.on_change = on_change or (lambda _: None)
         self.on_select = on_select or (lambda _: None)
         self.on_error = lambda _: self.bell()
+        self.before_edit = lambda: True
         self.baseline = deepcopy(self.points)
         self.enabled, self.snap, self.lock_x = True, False, False
         self.view = [0.,0.,1.]
+        self.probe_x = None
         self.drag_origin = self.pan_origin = None
         self.paint_items = {}
         for sequence, callback in [('<Configure>',lambda _:self.draw()),('<Button-1>',self.pick),('<B1-Motion>',self.drag),
@@ -26,10 +28,12 @@ class CurveEditor(tk.Canvas):
             ('<Control-z>',lambda _:self.undo()),('<Control-y>',lambda _:self.redo()),('<Escape>',self.cancel)]:
             self.bind(sequence,callback)
         self.bind('<Destroy>',self.dispose,add='+')
+        self.bind('<Motion>',self.probe)
+        self.bind('<Leave>',self.clear_probe)
 
     def dispose(self,event):
         if event.widget==self:
-            self.on_change=self.on_select=self.on_error=None
+            self.on_change=self.on_select=self.on_error=self.before_edit=None
 
     @property
     def points(self): return self.model.points
@@ -89,6 +93,13 @@ class CurveEditor(tk.Canvas):
             self.paint(('label-y',i),'text',left-10,y,text=f'{(vy+i/4*span)*100:g}',anchor='e',fill=MUTED,font=('Segoe UI',8))
         self.paint('title-y','text',left,10,text='响应 %',anchor='w',fill=MUTED,font=('Microsoft YaHei UI',8))
         self.paint('title-x','text',right,bottom+30,text='输入 %',anchor='e',fill=MUTED,font=('Microsoft YaHei UI',8))
+        readout='移动鼠标预览输入 → 响应'
+        if self.probe_x is not None:
+            x=self.probe_x
+            a,b=next((a,b) for a,b in zip(self.points,self.points[1:]) if a[0]<=x<=b[0])
+            y=a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0])
+            readout=f'输入 {x*100:.1f}% → 响应 {y*100:.1f}%'
+        self.paint('readout','text',right,10,text=readout,anchor='e',fill=ACCENT,font=('Microsoft YaHei UI',8))
         # Canvas clips to a tagged plot region by drawing only visible segments.
         for series,(points,colour,dash) in enumerate([([[0,0],[1,1]],'#48515f',(3,5)),(self.baseline,'#747e8c',(5,4)),(self.points,ACCENT,())]):
             for segment,(a,b) in enumerate(zip(points,points[1:])):
@@ -105,7 +116,7 @@ class CurveEditor(tk.Canvas):
         for i,p in enumerate(self.points):
             x,y=self.pixel(*p,plot=plot)
             if left<=x<=right and top<=y<=bottom:
-                radius=5 if i==self.selected else 3
+                radius=6 if i==self.selected else 4
                 self.paint(('point',i),'oval',x-radius,y-radius,x+radius,y+radius,fill=INK if i==self.selected else ACCENT,outline=RAIL,width=2)
                 if i==self.selected:
                     self.paint('selection','text',min(right-45,max(left+45,x)),max(top+12,y-18),text=f'{p[0]*100:.3f} / {p[1]*100:.3f}',fill=INK,font=('Segoe UI',8))
@@ -122,19 +133,35 @@ class CurveEditor(tk.Canvas):
         index=min(range(len(distances)),key=distances.__getitem__)
         return index if distances[index]<=13 else None
 
+    def probe(self,event):
+        left,top,right,bottom=self.plot()
+        if left<=event.x<=right and top<=event.y<=bottom:
+            self.probe_x=max(0.,min(1.,self.value(event.x,event.y)[0]))
+            self.configure(cursor='hand2' if self.hit(event) is not None else 'crosshair')
+        else:
+            self.probe_x=None
+            self.configure(cursor='')
+        self.draw()
+
+    def clear_probe(self,_=None):
+        self.probe_x=None
+        self.draw()
+
     def select(self,index):
+        if not self.enabled or not self.before_edit():return 'break'
         self.model.selected=index
         self.draw()
         self.on_select(index)
         return 'break'
 
     def pick(self,event):
-        if not self.enabled:return
+        if not self.enabled or not self.before_edit():return
         self.focus_set()
         index=self.hit(event)
         self.drag_origin=None
         if index is not None:
             self.select(index)
+            if self.selected!=index:return
             self.model.begin()
             self.drag_origin=(event.x,event.y,deepcopy(self.points[index]))
 
@@ -184,7 +211,7 @@ class CurveEditor(tk.Canvas):
             self.changed()
 
     def add(self,event):
-        if not self.enabled:return
+        if not self.enabled or not self.before_edit():return
         self.release()
         if self.hit(event) is not None:
             self.on_select(self.selected)
@@ -197,29 +224,29 @@ class CurveEditor(tk.Canvas):
         return 'break'
 
     def add_midpoint(self):
-        if self.enabled:
+        if self.enabled and self.before_edit():
             i=min(self.selected,len(self.points)-2)
             a,b=self.points[i:i+2]
             self.model.add((a[0]+b[0])/2,(a[1]+b[1])/2)
             self.changed()
 
     def remove(self):
-        if self.enabled and 0<self.selected<len(self.points)-1:
+        if self.enabled and self.before_edit() and 0<self.selected<len(self.points)-1:
             self.model.remove()
             self.changed()
         return 'break'
 
     def nudge(self,amount):
-        if self.enabled:self.move_point(self.selected,self.points[self.selected][0],self.points[self.selected][1]+amount)
+        if self.enabled and self.before_edit():self.move_point(self.selected,self.points[self.selected][0],self.points[self.selected][1]+amount)
         return 'break'
 
     def undo(self):
-        if self.enabled and self.model.undo_stack:
+        if self.enabled and self.before_edit() and self.model.undo_stack:
             self.model.undo();self.changed()
         return 'break'
 
     def redo(self):
-        if self.enabled and self.model.redo_stack:
+        if self.enabled and self.before_edit() and self.model.redo_stack:
             self.model.redo();self.changed()
         return 'break'
 
@@ -244,7 +271,7 @@ class CurveEditor(tk.Canvas):
 
 class ProfileStrip(tk.Canvas):
     def __init__(self,parent,on_select):
-        super().__init__(parent,background=SURFACE,height=62,highlightthickness=0,takefocus=True)
+        super().__init__(parent,background=SURFACE,height=56,highlightthickness=0,takefocus=True)
         self.on_select=on_select
         self.entries=[]
         self.current=None
@@ -272,13 +299,13 @@ class ProfileStrip(tk.Canvas):
         for i,entry in enumerate(self.entries):
             chosen=entry['id']==self.current
             left=i*174+1
-            self.create_rectangle(left,3,left+164,58,fill=RAIL if chosen else SURFACE,outline=ACCENT if chosen else SURFACE,width=1)
+            self.create_rectangle(left,3,left+164,52,fill=RAIL if chosen else SURFACE,outline=ACCENT if chosen else SURFACE,width=1)
             name=entry['name']
-            self.create_text(left+12,21,text=name if len(name)<=13 else name[:12]+'…',anchor='w',fill=INK if chosen else MUTED,
+            self.create_text(left+12,19,text=name if len(name)<=13 else name[:12]+'…',anchor='w',fill=INK if chosen else MUTED,
                              font=('Microsoft YaHei UI',10,'bold' if chosen else 'normal'))
-            self.create_text(left+12,43,text=entry['game'].upper(),anchor='w',fill=MUTED,font=('Segoe UI',8))
+            self.create_text(left+12,39,text=entry['game'].upper(),anchor='w',fill=MUTED,font=('Segoe UI',8))
             if entry.get('dirty'):self.create_oval(left+148,12,left+154,18,fill=ACCENT,outline='')
-        self.configure(scrollregion=(0,0,max(self.winfo_width(),len(self.entries)*174),62))
+        self.configure(scrollregion=(0,0,max(self.winfo_width(),len(self.entries)*174),56))
 
     def pick(self,event):
         self.focus_set()

@@ -11,9 +11,10 @@ import uuid
 
 from .curves import curve_document, decode_points, encode_points, seed_points
 from .fields import COMMON_FIELDS, GAME_FIELDS, field_value, validate_fields
+from .parameter_catalog import configured_value, LEGACY_PATHS
 from .settings import effective, literal, lookup, UiPreferences
 
-FIELDS = [f for f in GAME_FIELDS + COMMON_FIELDS if not f[0].startswith('gamepad.aim_response_curve.')]
+FIELDS = [f for f in GAME_FIELDS + COMMON_FIELDS if not f[0].startswith('gamepad.aim_response_curve.') and f[0] not in LEGACY_PATHS]
 GAMES = {'default': '通用 / COD', 'apex': 'Apex Legends', 'bo3': 'COD · Black Ops III'}
 
 
@@ -65,7 +66,7 @@ def snapshot(config, game, project, defaults=None):
     put(data, 'runtime.game', game)
     validate_fields(data, [game])
     for field in FIELDS:
-        value = lookup(data, field[0], (defaults or {}).get(field[0], field[3]))
+        value = configured_value(data, field[0], (defaults or {}).get(field[0], field[3]))
         put(data, field[0], field_value(field, value))
     algorithm = lookup(data, 'gamepad.aim_response_curve.algorithm', 'linear' if game != 'default' else 'cod_dynamic_legacy_lut')
     if algorithm == 'custom_lut':

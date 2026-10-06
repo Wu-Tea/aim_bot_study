@@ -7,6 +7,9 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <algorithm>
+#include <vector>
 
 namespace {
 
@@ -176,6 +179,27 @@ std::string report_path_from_args(int argc, char** argv) {
 } // namespace
 
 void register_runtime_timing_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseRuntimeFreshness", "interruptible_vision_deadline", [](const native_test::TestContext& context) {
+        using Clock=std::chrono::steady_clock;
+        runtime_app::InterruptibleDeadlineWait wait;
+        wait.notify();const auto begin=Clock::now();
+        wait.wait_until(begin+std::chrono::seconds(2));
+        REQUIRE(Clock::now()-begin<std::chrono::milliseconds(500));
+        std::thread notifier([&]{std::this_thread::sleep_for(std::chrono::milliseconds(5));wait.notify();});
+        const auto interrupt_begin=Clock::now();wait.wait_until(interrupt_begin+std::chrono::seconds(2));
+        notifier.join();REQUIRE(Clock::now()-interrupt_begin<std::chrono::milliseconds(500));
+        std::ofstream report(context.artifact_path("vision-deadline-wait.csv"));
+        report<<"kind,requested_ms,elapsed_ms\n";
+        std::mutex mutex;std::condition_variable condition;
+        for(int kind=0;kind<2;++kind) for(int i=0;i<32;++i) {
+            const auto start=Clock::now();const auto due=start+std::chrono::microseconds(2500);
+            if(kind==0) { std::unique_lock<std::mutex> lock(mutex);condition.wait_until(lock,due,[]{return false;}); }
+            else wait.wait_until(due);
+            const auto end=Clock::now();REQUIRE(end>=due);
+            report<<(kind ? "high_resolution" : "condition_variable")<<",2.5,"<<
+                std::chrono::duration<double,std::milli>(end-start).count()<<'\n';
+        }
+    });
     registry.add_case("BaseRuntimeFreshness", "short_deadline_uses_yield_margin", test_short_deadline_uses_yield_margin_instead_of_one_ms_sleep);
     registry.add_case("BaseRuntimeFreshness", "long_deadline_sleeps_to_precision_margin", test_long_deadline_sleeps_only_until_precision_margin);
     registry.add_case("BaseRuntimeFreshness", "precise_sleep_accepts_custom_margin", test_precise_sleep_accepts_custom_precision_margin);

@@ -6,17 +6,22 @@ int select_sdl_reconnect_device(
     const std::vector<SdlJoystickDevice>& devices,
     const std::string& preferred_name,
     int minimum_axes,
-    int minimum_buttons) {
-    if (preferred_name.empty()) {
+    int minimum_buttons,
+    const std::string& required_id) {
+    if (preferred_name.empty() && required_id.empty()) {
         return -1;
     }
+    int selected = -1;
     for (const SdlJoystickDevice& device : devices) {
-        if (device.opened && device.name == preferred_name &&
+        const bool matches = required_id.empty() ? device.name == preferred_name : device.id == required_id;
+        if (device.opened && matches &&
             device.axes >= minimum_axes && device.buttons >= minimum_buttons) {
-            return device.device_index;
+            if (required_id.empty()) return device.device_index; // Existing automatic reconnect policy.
+            if (selected >= 0) return -1; // Ambiguous identity cannot select an arbitrary controller.
+            selected = device.device_index;
         }
     }
-    return -1;
+    return selected;
 }
 
 IoReconnectThrottle::IoReconnectThrottle(std::chrono::milliseconds retry_interval)

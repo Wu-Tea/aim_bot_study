@@ -58,9 +58,27 @@ void test_retry_throttle_is_immediate_then_bounded() {
     require_true(throttle.should_attempt(start + 501ms), "success should clear retry delay");
 }
 
+void test_explicit_identity_selection() {
+    std::vector<controller_native::SdlJoystickDevice> devices{
+        {3,"DualSense Wireless Controller",6,21,0,true,"path:aaa"},
+        {0,"DualSense Wireless Controller",6,21,0,true,"path:bbb"}};
+    const auto select=[&] { return controller_native::select_sdl_reconnect_device(devices,{},4,0,"path:bbb"); };
+    require_true(select()==0,"selected identity must override enumeration order and equal names");
+    devices[1].device_index=2;
+    require_true(select()==2,"device selection must follow identity after slot reorder");
+    devices.pop_back();
+    require_true(select()==-1,"missing selected identity cannot switch to the other same-name controller");
+    devices.push_back({1,"DualSense Wireless Controller",6,21,0,true,"path:bbb"});
+    devices.push_back({2,"DualSense Wireless Controller",6,21,0,true,"path:bbb"});
+    require_true(select()==-1,"ambiguous identities must never select the first match");
+    devices.pop_back();devices.back().opened=false;
+    require_true(select()==-1,"closed selected devices cannot be admitted");
+}
+
 }  // namespace
 
 void register_io_recovery_policy_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "explicit_input_identity_selection", test_explicit_identity_selection);
     registry.add_case("BaseRuntimeFreshness", "reconnect_selects_original_physical_shape", test_reconnect_selects_only_the_original_physical_shape);
     registry.add_case("BaseRuntimeFreshness", "reconnect_rejects_incompatible_matches", test_reconnect_rejects_unopened_or_incompatible_matches);
     registry.add_case("BaseRuntimeFreshness", "retry_throttle_is_immediate_then_bounded", test_retry_throttle_is_immediate_then_bounded);
