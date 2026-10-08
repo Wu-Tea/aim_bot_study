@@ -273,7 +273,11 @@ void TensorRTEngine::allocate_timing_events() {
     check_cuda(cudaEventCreate(&infer_start_event_), "cudaEventCreate infer_start");
     check_cuda(cudaEventCreate(&infer_end_event_), "cudaEventCreate infer_end");
     check_cuda(cudaEventCreate(&output_copy_start_event_), "cudaEventCreate output_copy_start");
-    check_cuda(cudaEventCreate(&output_copy_end_event_), "cudaEventCreate output_copy_end");
+    // The output event is the final operation before CPU decoding. Sleeping
+    // until it completes avoids spending a CPU core polling GPU progress.
+    // Timing remains enabled for the existing transfer diagnostics.
+    check_cuda(cudaEventCreateWithFlags(&output_copy_end_event_, cudaEventBlockingSync),
+        "cudaEventCreateWithFlags output_copy_end");
 }
 
 void TensorRTEngine::ensure_frame_buffer(size_t bytes) {
@@ -347,7 +351,7 @@ DetectionBatch TensorRTEngine::infer_rgb(
         cudaMemcpyAsync(host_output_, device_output_, output_element_count_ * sizeof(float), cudaMemcpyDeviceToHost, stream),
         "cudaMemcpyAsync output");
     check_cuda(cudaEventRecord(output_copy_end_event_, stream), "cudaEventRecord output_copy_end");
-    check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+    check_cuda(cudaEventSynchronize(output_copy_end_event_), "cudaEventSynchronize output_copy_end");
     const uint64_t output_copy_end = now_ns();
     batch.output_copy_sync_ms = static_cast<float>(output_copy_end - output_copy_start) / 1'000'000.0f;
 
@@ -479,7 +483,7 @@ DetectionBatch TensorRTEngine::infer_bgra_array_roi(
         cudaMemcpyAsync(host_output_, device_output_, output_element_count_ * sizeof(float), cudaMemcpyDeviceToHost, stream),
         "cudaMemcpyAsync output");
     check_cuda(cudaEventRecord(output_copy_end_event_, stream), "cudaEventRecord output_copy_end");
-    check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+    check_cuda(cudaEventSynchronize(output_copy_end_event_), "cudaEventSynchronize output_copy_end");
     const uint64_t output_copy_end = now_ns();
     batch.output_copy_sync_ms = static_cast<float>(output_copy_end - output_copy_start) / 1'000'000.0f;
 
