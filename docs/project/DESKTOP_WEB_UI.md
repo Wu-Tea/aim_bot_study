@@ -51,6 +51,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup_desktop.ps1
 $env:PYTHONPATH = Join-Path (Get-Location) 'python'
 python -m desktop_app.test_desktop
 python -m desktop_app.test_desktop python/tools/benchmarks/desktop_web_host_smoke.py
+python -m desktop_app.test_desktop python/tools/benchmarks/desktop_launcher_smoke.py
 ```
 
 144 项桌面测试通过，其中 13 项桥接测试覆盖独立配置、数据类型与范围、冲突保护、新配置的模型选择、模型规格、保存后失败状态、完整配置往返及原生几何。实际 WebView2 宿主在隔离 Windows 桌面中验证启动、加载、五页默认内容高度、未保存草稿与关闭取消。
@@ -73,3 +74,12 @@ python -m desktop_app.test_desktop python/tools/benchmarks/desktop_web_host_smok
 本次 GUI 提交同时包含启动所需的只读 `--inspect-engine` 接口。范围示例使用 `range-response-v4`；对应原生控制算法与几何策略输出仍属于工作区里的另一组改动，没有随 GUI 提交。上面的 144 项测试是在包含这些原生改动及已构建程序的完整工作区中运行的，不代表单独检出此 GUI 提交后，从旧原生源码构建也能通过。分发或独立重建前需合入匹配的原生改动。`dist` 和 `node_modules` 不入库，使用 `scripts/setup_desktop.ps1` 安装并构建界面。
 
 压枪输出范围（2026-10-08）：开镜压枪输出统一为 1%–50%（配置值 0.01–0.5），默认 20%。关闭使用“固定力度压枪”开关；腰射按保留比例乘算，不抬回最低值。GUI、保存校验和原生加载使用同一参数目录；越界旧值明确报错，不自动钳制或覆盖用户配置。
+
+
+### 双击入口首次不显示窗口（2026-10-08）
+
+根因是 `启动助手.vbs` 使用 `WScript.Shell.Run command, 0, False`：隐藏启动标志会影响 pythonw 创建的首个 GUI 窗口。实际入口在私有桌面复现为约 841 ms 创建窗口，但 30 秒后仍不可见；此前只调用 `web_host.launch` 的测试绕过 VBS，因此没有发现。重复启动时，已有实例唤起逻辑可能通过 ShowWindow 恢复窗口，表现为需要多次双击。
+
+入口改为正常显示（窗口模式 1）。pythonw 自身不创建控制台，无需使用隐藏模式来避免黑框。同时明确传入脚本所在项目的 `--root`，使入口和实例锁使用同一项目路径。实际入口复测约 964 ms 显示；新的隔离入口回归在含中文和空格的临时项目路径上，两次分别约 1090 / 1113 ms 显示并正常关闭。直接宿主的首屏可操作测量约 1.2–1.3 秒。这些是本机测量，不是所有机器的时间保证。
+
+`desktop_launcher_smoke.py` 复制真实入口到临时项目，使用私有 Windows 桌面验证首次启动可见，不读取用户配置或启动控制输出。`desktop_web_host_smoke.py` 继续覆盖桥接加载、五页布局与未保存草稿关闭保护。没有采用试验中无明显收益的浏览器目录复用方案，也没有添加常驻后台或启动延时。

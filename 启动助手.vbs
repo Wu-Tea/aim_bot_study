@@ -10,5 +10,6 @@ If Not fs.FileExists(python) Then
 End If
 shell.Environment("Process")("PYTHONPATH") = fs.BuildPath(project, "python") & ";" & shell.Environment("Process")("PYTHONPATH")
 shell.CurrentDirectory = project
-command = """" & python & """ -m desktop_app.gui"
-shell.Run command, 0, False
+command = """" & python & """ -m desktop_app.gui --root """ & project & """"
+' pythonw already avoids a console. SW_HIDE also hides the first GUI window.
+shell.Run command, 1, False
