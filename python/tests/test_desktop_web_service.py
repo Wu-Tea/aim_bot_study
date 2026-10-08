@@ -75,6 +75,19 @@ class WebServiceTests(unittest.TestCase):
         self.assertFalse(self.service.dispatch('start',self.profile)['ok'])
         self.assertEqual(self.runtime.starts,0)
 
+    def test_recoil_one_to_fifty_percent_matches_schema_and_persistence(self):
+        field=next(f for f in self.call('bootstrap')['fields'] if f['path']=='gamepad.recoil.output_amount')
+        self.assertEqual(tuple(field['limits']),(.01,.5))
+        self.assertEqual(field['scale'],100)
+        p=self.call('reload',{'id':self.profile['id']})
+        for value in (.01,.05,.14,.5):
+            p['values']['gamepad.recoil.output_amount']=value
+            p=self.call('save',p)['profile']
+            self.assertEqual(p['values']['gamepad.recoil.output_amount'],value)
+        for value in (0,.009,.501,1):
+            p['values']['gamepad.recoil.output_amount']=value
+            self.assertFalse(self.service.dispatch('save',p)['ok'])
+
     def test_start_returns_process_identity_without_waiting_for_status_poll(self):
         p=deepcopy(self.profile)
         p['values'].update({'runtime.vision.model_path':'test.engine',

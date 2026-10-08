@@ -120,14 +120,14 @@ class IndependentStorageTests(unittest.TestCase):
         from desktop_app.parameter_catalog import configured_value
         source={'gamepad':{'ads':{'strength_scale':.2,'vertical_strength_scale':.4},
             'bodylock':{'strength':2.,'vertical_strength':.3,'feedback_distance_px':27},
-            'ai_aim':{'hipfire_multiplier':2.},'recoil':{'feedback_amount':0.}}}
+            'ai_aim':{'hipfire_multiplier':2.},'recoil':{'feedback_amount':.01}}}
         before=deepcopy(source)
         converted=snapshot(source,'apex',PROJECT)['config']
         self.assertAlmostEqual(lookup(converted,'gamepad.ads.output_limit_x'),.2*2**.5,places=6)
         self.assertEqual(lookup(converted,'gamepad.bodylock.output_limit_x'),1.)
         self.assertEqual(lookup(converted,'gamepad.bodylock.response_time_x_ms'),27.)
         self.assertEqual(lookup(converted,'gamepad.assist.hipfire_ratio'),1.)
-        self.assertEqual(lookup(converted,'gamepad.recoil.output_amount'),0.)
+        self.assertEqual(lookup(converted,'gamepad.recoil.output_amount'),.01)
         self.assertEqual(source,before)
         converted['gamepad']['bodylock']['output_limit_x']=.2
         self.assertEqual(configured_value(converted,'gamepad.bodylock.response_time_x_ms'),27.)

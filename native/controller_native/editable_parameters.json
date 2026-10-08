@@ -356,8 +356,8 @@
       "constant": "RecoilOutputAmount",
       "label": "开镜压枪输出",
       "default": 0.2,
-      "min": 0,
-      "max": 1,
+      "min": 0.01,
+      "max": 0.5,
       "group": "开火与压枪",
       "advanced": false,
       "editor": "slider",
@@ -365,7 +365,7 @@
       "unit": "%",
       "hot_reload": true,
       "preserve_learning": true,
-      "help": "开火时向下施加的固定摇杆量。0% 为零，100% 为满幅；腰射再乘保留比例，不再经过隐藏的最低压枪量。"
+      "help": "开火时向下施加的固定摇杆量。可设置 1%–50%，填写多少就输出多少；腰射再乘保留比例。需要零输出时关闭“固定力度压枪”，不设隐藏最低力度。"
     },
     {
       "path": "gamepad.assist.input_deadzone",

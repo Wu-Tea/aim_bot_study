@@ -77,7 +77,7 @@ void register_recoil_reducer_tests(native_test::Registry& registry) {
         controller_native::GamepadRecoilConfig config;
         config.feedback_amount=.2f;
         config.hipfire_multiplier=.5f;
-        for (float value : {0.f,.01f,.14f,.2f,.34f,.8f,1.f}) {
+        for (float value : {0.f,.01f,.14f,.2f,.34f,.5f,.8f,1.f}) {
             config.output_amount=value;
             controller_native::RecoilReducer reducer(config);
             require(std::abs(reducer.reduce(true,true,0).stick_delta.y+value)<1e-6f,

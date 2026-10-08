@@ -795,10 +795,21 @@ void register_runtime_config_tests(native_test::Registry& registry) {
     });
     registry.add_case("BaseContracts", "editable_values_no_silent_floors", [] {
         for (float value : {0.f,.01f,.03f,.5f,1.f}) {
-            TempConfig f("cod_deadzone_value.toml", "[gamepad.assist]\ninput_deadzone="+std::to_string(value)+"\n[gamepad.recoil]\nfeedback_amount="+std::to_string(value)+"\n");
-            const auto config=controller_native::load_runtime_config(f.path());
-            require(config.gamepad.ai_aim.ai_input_deadzone==value && config.gamepad.recoil.output_amount==value,
-                "deadzone and legacy recoil must retain explicitly requested values");
+            TempConfig f("cod_deadzone_value.toml", "[gamepad.assist]\ninput_deadzone="+std::to_string(value)+"\n");
+            require(controller_native::load_runtime_config(f.path()).gamepad.ai_aim.ai_input_deadzone==value,
+                "deadzone must retain explicitly requested values");
+        }
+        for (const std::string key : {"output_amount", "feedback_amount"}) {
+            for (float value : {.01f,.03f,.14f,.5f}) {
+                TempConfig f("cod_recoil_value.toml", "[gamepad.recoil]\n"+key+"="+std::to_string(value)+"\n");
+                require(controller_native::load_runtime_config(f.path()).gamepad.recoil.output_amount==value,
+                    "recoil must retain one through fifty percent without a hidden floor");
+            }
+            for (float value : {0.f,.009f,.501f,1.f}) {
+                TempConfig f("cod_recoil_invalid.toml", "[gamepad.recoil]\n"+key+"="+std::to_string(value)+"\n");
+                bool rejected=false;try {controller_native::load_runtime_config(f.path());}catch(...){rejected=true;}
+                require(rejected,"recoil outside one through fifty percent must be rejected");
+            }
         }
         for (const std::string text : {
                 "[gamepad.assist]\ninput_deadzone=1.01\n", "[gamepad.assist]\ninput_deadzone=-0.01\n",
