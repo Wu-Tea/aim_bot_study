@@ -15,28 +15,28 @@ namespace controller_native {
 #undef NATIVE_EDITABLE_FLOAT
 
 struct VisionRuntimeConfig {
-    int capture_width = 480;
-    int capture_height = 416;
+    int capture_width = 640;
+    int capture_height = 512;
     int tensor_width = 480;
-    int tensor_height = 416;
+    int tensor_height = 384;
     bool require_isotropic_resize = true;
     bool friendly_filter_enabled = true;
     float target_height_ratio = 0.40f;
     float target_wide_low_height_ratio = 0.65f;
     bool dynamic_viewport_enabled = false;
-    int viewport_precision_width = 360;
-    int viewport_precision_height = 312;
+    int viewport_precision_width = 320;
+    int viewport_precision_height = 256;
     int viewport_normal_width = 480;
-    int viewport_normal_height = 416;
-    int viewport_rescue_width = 600;
-    int viewport_rescue_height = 520;
+    int viewport_normal_height = 384;
+    int viewport_rescue_width = 640;
+    int viewport_rescue_height = 512;
     float viewport_prediction_ms = 100.0f;
-    int capture_fps = 140;
+    int capture_fps = 200;
     int idle_capture_fps = 60;
     bool keepwarm_when_idle = true;
     int aim_release_hold_ms = 0;
     std::string color_readback_mode = "pageable";
-    std::string model_path = "models/candidates/body_union_manual_core_x2_neg_e6_480x416.engine";
+    std::string model_path = "models/best_480x384.engine";
     std::string fallback_model_path = "models/best.pt";
     // Compatibility-only config field. Native runtime termination is window-only.
     std::string quit_key;
