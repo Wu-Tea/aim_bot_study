@@ -417,7 +417,11 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            std::cout << "],\"parameter_semantics\":\"range-response-v3\",\"independent_examples\":[";
+            std::cout << "],\"parameter_semantics\":\"range-response-v4\""
+                << ",\"velocity_feedback_minimum_seconds\":" << controller_native::kVelocityFeedbackMinimumSeconds
+                << ",\"velocity_feedback_delay_margin\":" << controller_native::kVelocityFeedbackDelayMargin
+                << ",\"follow_effect_delay_seconds\":" << controller_native::BodylockFollowControllerConfig{}.response_effect_delay_seconds
+                << ",\"independent_examples\":[";
             first=true;
             for (float minimum_stick : {0.f,.1f,.15f,.2f}) for (float radius : {75.f,150.f,300.f}) for (float time_ms : {60.f,135.f,350.f}) {
                 for (auto caps : {Vec2f{0,0},{0,.8f},{.8f,0},{.1f,.2f},{.3f,.42f},{1,1}}) {

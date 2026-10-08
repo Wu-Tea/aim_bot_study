@@ -7,6 +7,10 @@ namespace controller_native {
 
 inline constexpr float kArrivalHorizonMinimumSeconds = 0.005f;
 inline constexpr float kArrivalHorizonMaximumSeconds = 1.0f;
+// Keep feedback bandwidth below the observed sensor + actuator delay. These
+// are controller design margins, not an extra delay applied to the output.
+inline constexpr float kVelocityFeedbackMinimumSeconds = 0.025f;
+inline constexpr float kVelocityFeedbackDelayMargin = 2.0f;
 
 enum class ResponseModelConstraintReason : unsigned char {
     None,
@@ -35,6 +39,10 @@ struct ResponseModelAimRequest {
     float authority_budget_scale = 1.0f;
     // Canonical gamepad correction uses point distance, range and low-speed reference.
     bool range_position_response = false;
+    // Canonical BodyLock uses bounded velocity feedback. ADS retains its
+    // capture-specific position/lookahead policy.
+    bool delay_aware_velocity_response = false;
+    float feedback_delay_seconds = 0.0f;
     float position_range_px = 0.0f;
     // Pursuit reference in final stick units; the continuous point brake may
     // reduce it near the target. Verified sustaining motion is independent.

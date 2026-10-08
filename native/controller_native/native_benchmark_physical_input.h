@@ -4,12 +4,14 @@
 #include "sustained_aimlab_simulator.h"
 
 #include <algorithm>
+#include <string_view>
 
 namespace controller_native::benchmark_adapter {
 
 inline void apply_benchmark_physical_input(
     const sustained_aimlab::ControllerObservation& input,
-    PhysicalGamepadState& physical) noexcept {
+    PhysicalGamepadState& physical,
+    std::string_view fire_binding = "RT") noexcept {
     physical.left_x = static_cast<float>(
         std::clamp(input.left_x, -1.0, 1.0));
     physical.left_y = 0.0f;
@@ -17,7 +19,10 @@ inline void apply_benchmark_physical_input(
         std::clamp(input.manual_stick.x, -1.0, 1.0));
     physical.right_y = static_cast<float>(
         std::clamp(input.manual_stick.y, -1.0, 1.0));
-    physical.right_trigger = input.fire_action ? 1.0f : 0.0f;
+    // A firing scenario must exercise the configured ingress. Otherwise an
+    // RB profile silently skips recoil and every firing-specific policy.
+    physical.rb = input.fire_action && fire_binding == "RB";
+    physical.right_trigger = input.fire_action && fire_binding != "RB" ? 1.0f : 0.0f;
 }
 
 }  // namespace controller_native::benchmark_adapter

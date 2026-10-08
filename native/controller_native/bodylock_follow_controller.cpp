@@ -49,7 +49,8 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     result.response_horizon_seconds = config_.response_time_x_seconds;
     result.response_horizon_y_seconds = config_.response_time_y_seconds;
     result.response_envelope_valid = true;
-    result.response_envelope_source = "bodylock_response_model";
+    result.response_envelope_source = config_.range_position_response
+        ? "bodylock_delay_aware_velocity" : "bodylock_response_model";
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
     request.point_tolerance_px = config_.bodylock_point_tolerance_px;
@@ -69,6 +70,9 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     request.authority_budget_scale = config_.authority_budget_scale;
     request.response_curve = config_.response_curve;
     request.range_position_response = config_.range_position_response;
+    request.delay_aware_velocity_response = config_.range_position_response;
+    request.feedback_delay_seconds = std::max(0.f, plan.source_capture_age_ms) * .001f +
+        config_.response_effect_delay_seconds;
     request.position_range_px = plan.position_response_radius_px;
     request.minimum_position_stick = config_.minimum_position_stick;
     request.arrival_radius_px = plan.position_arrival_radius_px;

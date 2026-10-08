@@ -420,6 +420,35 @@ void high_rate_source_keeps_response_learning(const native_test::TestContext& co
 }
 
 void register_startup_response_prior_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock","motion_observation_keeps_220hz_freshness", [] {
+        auto config=incident_fixture::base_config(100,200);
+        config.ai_aim.ads_completion_fresh_frames=1;
+        config.ai_aim.aim_response_effect_delay_ms=0;
+        config.ai_aim.aim_response_learning_enabled=false;
+        double now=10;
+        NativeGamepadController controller(config,&now);
+        incident_fixture::TargetSpec spec;
+        spec.observation_id=spec.selector_generation=1;spec.has_enemy_cue=true;
+        float previous=0;int changes=0,observations=0;
+        for(int frame=0;frame<220;++frame){
+            now=10+static_cast<double>(frame)/220;
+            const float x=2.f*std::sin(static_cast<float>(now-10)*3.f);
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,frame+1,now,x,0));
+            controller.begin_tick(incident_fixture::ads_input());
+            OutputComposer composer;
+            require(composer.compose(controller.resolve_control_frame())==OutputComposeStatus::Ok,"cadence test must compose output");
+            controller.observe_composed_output(*composer.finalized_output());
+            controller.observe_delivered_output({},true,now);
+            const auto& plan=controller.last_target_plan();
+            if(frame>50){
+                require(plan.bodylock_target_motion_valid,"continuous observations must retain valid motion");
+                ++observations;
+                changes+=std::fabs(plan.bodylock_target_motion_px_per_sec.x-previous)>1e-5f;
+            }
+            previous=plan.bodylock_target_motion_px_per_sec.x;
+        }
+        require(changes>observations*.95,"response-learning interval must not halve fresh motion updates at220Hz");
+    });
     registry.add_case("BaseBodyLock","gap_uses_actual_delivery_and_never_becomes_observation", [] {
         GamepadRuntimeConfig config;config.ai_aim.normalized_assist_parameters=true;
         config.ai_aim.aim_response_effect_delay_ms=0;config.recoil.enabled=false;

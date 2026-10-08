@@ -14,9 +14,11 @@ struct BodylockFollowControllerConfig {
     float response_time_x_seconds = -1.0f;
     float response_time_y_seconds = -1.0f;
     float authority_budget_scale = 1.0f;
-    // Canonical gamepad correction uses point distance, range and low-speed reference.
+    // Canonical gamepad correction uses delay-aware velocity feedback;
+    // target search geometry remains coordinator-owned.
     bool range_position_response = false;
     float minimum_position_stick = 0.20f;
+    float response_effect_delay_seconds = 0.009f;
     float feedback_range_x_px = 32.0f;
     float feedback_range_y_px = 32.0f;
     float strafing_feedback_range_x_px = 75.0f;

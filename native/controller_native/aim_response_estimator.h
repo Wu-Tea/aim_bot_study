@@ -3,6 +3,8 @@
 #include "pipeline_contract/target_plan.h"
 
 #include <cstdint>
+#include <array>
+#include <cstddef>
 
 namespace controller_native {
 
@@ -66,6 +68,14 @@ public:
 
 private:
     struct RegionState {
+        struct Evidence {
+            float excitation = 0;
+            float correlation = 0;
+            float rate_energy = 0;
+        };
+        std::array<Evidence, 8> evidence{};
+        std::size_t evidence_count = 0;
+        std::size_t evidence_next = 0;
         AimResponseInterval previous{};
         float learned_scale = 500.0f;
         float confidence = 0.0f;

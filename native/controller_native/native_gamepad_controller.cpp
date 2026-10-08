@@ -176,6 +176,8 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
         result.max_force_y = config.ai_aim.bodylock_output_limit_y;
         result.response_time_x_seconds = config.ai_aim.bodylock_response_time_x_ms / 1000.0f;
         result.response_time_y_seconds = config.ai_aim.bodylock_response_time_y_ms / 1000.0f;
+        result.response_effect_delay_seconds = std::clamp(
+            config.ai_aim.aim_response_effect_delay_ms, 0.f, 30.f) / 1000.f;
     }
     result.feedforward_gain = 0.72f;
     if (config.ai_aim.adapter_direct_mouse_manual)
@@ -332,6 +334,7 @@ void NativeGamepadController::reset() {
     last_aim_response_motion_anchor_error_px_ = {};
     has_last_aim_response_motion_anchor_ = false;
     has_last_aim_response_observation_ = false;
+    motion_observation_anchor_ = {};
     sampled_physical_ = {};
     sampled_intent_ = {};
     last_tick_preparation_ = {};
@@ -372,6 +375,8 @@ void NativeGamepadController::clear_learning() noexcept {
     last_aim_response_motion_anchor_error_px_ = {};
     has_last_aim_response_motion_anchor_ = false;
     has_last_aim_response_observation_ = false;
+    motion_observation_anchor_ = {};
+    bodylock_target_motion_observer_.reset();
     // ACKs, frame pairs and excitation anchors from the old configuration may
     // not become samples for the new one. Target and ADS state stay owned.
 }
@@ -1033,17 +1038,42 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                         manual_ambiguous,
                     });
                 }
-                bodylock_target_motion_observer_.update({
-                    plan.target_id,
-                    capture_seconds,
-                    static_cast<float>(interval_seconds),
-                    observed_error_rate,
-                    average_tracking_stick,
-                    plan.response_scale,
-                    plan.reliability,
-                    plan.direct_person_observation,
-                });
             }
+        }
+        // Use a motion-owned capture pair. Response identification deliberately
+        // accumulates longer evidence, but it must not halve motion updates at
+        // 220 Hz merely because 1/220 s is shorter than its 5 ms window.
+        auto& motion_anchor = motion_observation_anchor_;
+        const bool same_motion_target = motion_anchor.valid &&
+            plan.target_id != 0 && motion_anchor.target_id == plan.target_id;
+        const double motion_interval = capture_seconds-motion_anchor.capture_seconds;
+        const bool advance_motion_anchor = !same_motion_target ||
+            !std::isfinite(motion_interval) || motion_interval <= 0.0 ||
+            static_cast<float>(motion_interval) >=
+                BodylockTargetMotionObserverConfig{}.minimum_interval_seconds;
+        if (same_motion_target && advance_motion_anchor &&
+            std::isfinite(motion_interval) && motion_interval > 0.0) {
+            pipeline_contract::Vec2f delivered{}, tracking{};
+            bool ambiguous = false;
+            if (average_aim_response_command(
+                    motion_anchor.capture_seconds-aim_response_effect_delay_seconds_,
+                    capture_seconds-aim_response_effect_delay_seconds_,
+                    &delivered, &tracking, &ambiguous)) {
+                const bool pixel_pair = has_motion_anchor && motion_anchor.has_motion_anchor;
+                const auto current = pixel_pair ? motion_anchor_error_px : source_error_px;
+                const auto previous = pixel_pair ? motion_anchor.motion_anchor_error_px : motion_anchor.source_error_px;
+                bodylock_target_motion_observer_.update({
+                    plan.target_id, capture_seconds, static_cast<float>(motion_interval),
+                    {static_cast<float>((current.x-previous.x)/motion_interval),
+                     static_cast<float>((current.y-previous.y)/motion_interval)},
+                    tracking, plan.response_scale, plan.reliability, plan.direct_person_observation});
+            }
+        }
+        if (advance_motion_anchor) {
+            motion_anchor = {plan.target_id, capture_seconds, source_error_px,
+                motion_anchor_error_px, has_motion_anchor,
+                plan.target_id != 0 && plan.direct_person_observation &&
+                std::isfinite(capture_seconds) && pipeline_contract::finite(source_error_px)};
         }
         last_aim_response_frame_id_ = observations.frame_id;
         if (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
@@ -1064,6 +1094,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     if (plan.target_id == 0 ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
         bodylock_target_motion_observer_.reset();
+        motion_observation_anchor_ = {};
         nonfiring_pov_motion_snapshot_ = {};
         nonfiring_pov_error_snapshot_ = {};
         nonfiring_pov_motion_target_id_ = 0;
@@ -1540,6 +1571,7 @@ void NativeGamepadController::observe_delivered_output(
         // No reliable camera-work interval may cross a failed publication.
         aim_response_history_begin_ = aim_response_history_count_ = 0;
         bodylock_target_motion_observer_.reset();
+        motion_observation_anchor_ = {};
         nonfiring_pov_motion_snapshot_ = {};
         return;
     }

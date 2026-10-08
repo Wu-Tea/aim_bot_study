@@ -60,7 +60,11 @@ public:
     void reset() noexcept;
 
 private:
-    static constexpr std::size_t kHistoryWindow = 5;
+    // Cover the full 25 ms integration horizon even at the accepted 4 ms
+    // minimum interval, including the partially used oldest interval. Five
+    // slots silently shortened smoothing when fresh motion updates exceeded
+    // 200 Hz, amplifying noise precisely when observation cadence improved.
+    static constexpr std::size_t kHistoryWindow = 8;
 
     pipeline_contract::Vec2f robust_measurement() const noexcept;
     float slew_axis(float current, float target, float dt_seconds) const noexcept;

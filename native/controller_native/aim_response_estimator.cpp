@@ -76,6 +76,7 @@ bool AimResponseEstimator::update_region(
     RegionState& region,
     const AimResponseInterval& interval) noexcept {
     if (!region.has_previous) {
+        region.evidence_count = region.evidence_next = 0;
         region.previous = interval;
         region.has_previous = true;
         return false;
@@ -90,26 +91,64 @@ bool AimResponseEstimator::update_region(
     const float excitation = dot(delta_stick, delta_stick);
     const float minimum_excitation = config_.minimum_command_delta *
         config_.minimum_command_delta;
-    if (excitation < minimum_excitation) return false;
+    const float correlation_sample = -dot(delta_rate, delta_stick);
+    const float rate_energy_sample = dot(delta_rate, delta_rate);
+    if (!std::isfinite(excitation) || excitation <= 0.f ||
+        !std::isfinite(correlation_sample) || !std::isfinite(rate_energy_sample) ||
+        excitation < minimum_excitation) return false;
 
-    float sample_scale = -dot(delta_rate, delta_stick) / excitation;
+    // Pool signed evidence BEFORE deciding whether a response is plausible.
+    // Accepting positive adjacent slopes while discarding negative ones lets
+    // uncorrelated noise/time-misaligned camera motion build false confidence.
+    region.evidence[region.evidence_next] = {
+        excitation, correlation_sample, rate_energy_sample};
+    region.evidence_next = (region.evidence_next+1)%region.evidence.size();
+    region.evidence_count = std::min(region.evidence_count+1, region.evidence.size());
+    if (region.evidence_count < 4) return false;
+    double command_energy=0, correlation=0, rate_energy=0;
+    std::array<float, 8> slopes{};
+    for (std::size_t i=0;i<region.evidence_count;++i) {
+        command_energy+=region.evidence[i].excitation;
+        correlation+=region.evidence[i].correlation;
+        rate_energy+=region.evidence[i].rate_energy;
+        slopes[i]=region.evidence[i].correlation/region.evidence[i].excitation;
+    }
+    // Measure how much of the observed change the camera model explains in
+    // both axes. Confidence follows fit quality, not merely sample count.
+    const double explained = correlation*correlation;
+    if (correlation <= 0 || rate_energy <= 0) return false;
+    std::sort(slopes.begin(),slopes.begin()+region.evidence_count);
+    float sample_scale = slopes[region.evidence_count/2];
+    // An isolated acceleration/outlier must not bias all subsequent window
+    // updates. Down-weight disagreement around the robust slope, including
+    // contrary evidence (which was never filtered out of this window).
+    const float spread=slopes[region.evidence_count*3/4]-slopes[region.evidence_count/4];
     if (!std::isfinite(sample_scale) ||
         sample_scale < config_.minimum_scale ||
         sample_scale > config_.maximum_scale) {
         return false;
     }
+    const float quality=static_cast<float>(std::clamp(
+        explained/(command_energy*rate_energy),0.0,1.0)) *
+        sample_scale*sample_scale/(sample_scale*sample_scale+spread*spread);
     const float relative = std::clamp(
         config_.maximum_relative_sample_change, 0.05f, 1.0f);
     sample_scale = std::clamp(
         sample_scale,
         region.learned_scale * (1.0f - relative),
         region.learned_scale * (1.0f + relative));
-    region.learned_scale += std::clamp(config_.scale_alpha, 0.0f, 1.0f) *
+    // Preserve the existing coefficients at the 5 ms reference interval.
+    // Accepted observations at a higher cadence must not accelerate learning
+    // just because more updates fit into the same elapsed time.
+    const float exposure = interval.dt_seconds/.005f;
+    const float scale_alpha = 1.f-std::pow(1.f-std::clamp(config_.scale_alpha,0.f,1.f),exposure);
+    const float confidence_alpha = 1.f-std::pow(1.f-std::clamp(config_.confidence_alpha,0.f,1.f),exposure);
+    region.learned_scale += scale_alpha * quality *
         (sample_scale - region.learned_scale);
     region.learned_scale = std::clamp(
         region.learned_scale, config_.minimum_scale, config_.maximum_scale);
-    region.confidence += std::clamp(config_.confidence_alpha, 0.0f, 1.0f) *
-        (1.0f - region.confidence);
+    region.confidence += confidence_alpha *
+        (quality - region.confidence);
     ++region.accepted_samples;
     return true;
 }

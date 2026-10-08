@@ -2,6 +2,7 @@
 
 #include "common_native/authority_types.h"
 #include "native_benchmark_physical_input.h"
+#include "input_edge_reducer.h"
 #include "pipeline_contract/target_snapshot.h"
 
 #include <algorithm>
@@ -152,7 +153,7 @@ ControllerStepResult NativeReplayAdapter::step(
     } else {
         physical_.left_trigger = 1.0f;
     }
-    apply_benchmark_physical_input(input, physical_);
+    apply_benchmark_physical_input(input, physical_, config_.auto_fire.manual_fire_input);
     if (input.fresh_vision) {
         controller_.submit_vision_snapshot(snapshot_from(
             input,
@@ -174,7 +175,8 @@ ControllerStepResult NativeReplayAdapter::step(
     }
     if (coverage_) {
         coverage_->total_frames += 1;
-        if (physical_.right_trigger > 0.5f) coverage_->firing_frames += 1;
+        if (physical_fire_active(physical_, config_.auto_fire.manual_fire_input))
+            coverage_->firing_frames += 1;
         if (components.operation_class == "recoil_pull") {
             coverage_->recoil_pull_frames += 1;
         }

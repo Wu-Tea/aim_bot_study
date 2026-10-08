@@ -112,6 +112,37 @@ ResponseModelAimOutput solve_response_model_aim(
         return std::copysign(bounded_magnitude, motion);
     };
 
+    bool feedback_limited = false;
+    if (request.range_position_response && request.delay_aware_velocity_response) {
+        if (!std::isfinite(request.position_range_px) || request.position_range_px <= 0.f)
+            return {};
+        const float feedback_time = std::max(kVelocityFeedbackMinimumSeconds,
+            kVelocityFeedbackDelayMargin * std::max(0.f, request.feedback_delay_seconds));
+        const float hx = std::max(horizon, feedback_time);
+        const float hy = std::max(horizon_y, feedback_time);
+        pipeline_contract::Vec2f velocity{control_error.x / hx, control_error.y / hy};
+        const float distance = std::hypot(control_error.x, control_error.y);
+        const float nominal_speed = std::hypot(velocity.x, velocity.y);
+        // Work in calibrated camera-velocity coordinates. A minimum stick
+        // reference becomes a smooth pursuit preference, not a positive lower
+        // bound that repeatedly drives through a delayed stationary point.
+        const float reference_speed = response * forward_aim_response_curve(
+            {std::max(0.f, request.minimum_position_stick), 0.f}, request.response_curve).x;
+        const float approach_distance = std::hypot(reference_speed * feedback_time,
+            std::max(0.f, request.arrival_radius_px));
+        const float pursuit_speed = reference_speed > 0.f
+            ? reference_speed * std::tanh(distance / approach_distance) : 0.f;
+        const float requested_speed = std::max(nominal_speed, pursuit_speed);
+        const float speed = std::min(requested_speed, distance / feedback_time);
+        if (nominal_speed > 0.f) {
+            velocity.x *= speed / nominal_speed;
+            velocity.y *= speed / nominal_speed;
+        }
+        output.position_stick = {velocity.x / response, velocity.y / response};
+        feedback_limited = requested_speed > speed || hx > horizon || hy > horizon_y;
+    }
+    // Arbitrate motion against the correction that will actually be sent,
+    // including its delay limit; nominal gain must not grant extra motion.
     bool position_motion_bound_applied = false;
     output.bounded_motion_stick = {
         bound_opposing_axis(output.position_stick.x, output.motion_stick.x,
@@ -144,8 +175,8 @@ ResponseModelAimOutput solve_response_model_aim(
         std::max(0.0f, request.max_force.y), authority_budget);
     if (max_x <= 0.0f) output.unclamped_stick.x = 0.0f;
     if (max_y <= 0.0f) output.unclamped_stick.y = 0.0f;
-    bool range_limited = false;
-    if (request.range_position_response) {
+    bool range_limited = feedback_limited;
+    if (request.range_position_response && !request.delay_aware_velocity_response) {
         // A canonical active plan must carry its coordinator-owned range.
         // Missing geometry cannot manufacture an unrestricted correction.
         if (!std::isfinite(request.position_range_px) || request.position_range_px <= 0.0f)

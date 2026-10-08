@@ -123,6 +123,21 @@ void test_target_replacement_requires_new_aligned_evidence() {
 }  // namespace
 
 void register_bodylock_target_motion_observer_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "motion_noise_window_keeps_wall_time_at_220hz", [] {
+        for(int hz:{180,220,250}){
+            controller_native::BodylockTargetMotionObserver observer;
+            const float dt=1.f/hz;
+            for(int i=1;i<=100;++i){
+                const float interval_mid=(i-.5f)*dt;
+                const float motion=.1f+.3f*interval_mid;
+                observer.update({1,1.+double(i)/hz,dt,{motion*1600,0},{},1600,1,true});
+            }
+            const auto estimate=observer.estimate(1,1.+100./hz);
+            const float expected=.1f+.3f*(100.f/hz-.025f/2);
+            require_true(estimate.valid && std::fabs(estimate.target_motion_stick.x-expected)<.00012f,
+                "increased observation rate must not shorten the25ms noise integration horizon");
+        }
+    });
     registry.add_case("BaseBodyLock", "capture_displacement_noise_cancels_before_velocity", [] {
         controller_native::BodylockTargetMotionObserver observer;
         float previous=0;

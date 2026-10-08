@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -317,6 +318,33 @@ void test_independent_region_priors() {
 }  // namespace
 
 void register_aim_response_estimator_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "response_evidence_remains_finite_at_numeric_boundary", [] {
+        AimResponseEstimatorConfig config;
+        config.minimum_command_delta=0;
+        AimResponseEstimator estimator(config);
+        for(int i=0;i<16;++i) estimator.update(interval(7,.2f,500));
+        for(int i=0;i<16;++i){
+            auto sample=interval(7,i%2?.6f:.2f,500);
+            sample.observed_error_rate_px_per_sec={std::numeric_limits<float>::max(),0};
+            estimator.update(sample);
+        }
+        train(estimator,750);
+        const auto result=estimator.estimate();
+        require(std::isfinite(result.scale_px_per_stick_second)&&std::isfinite(result.confidence),
+            "zero excitation or overflowing evidence must not poison subsequent valid learning");
+        require_near(result.scale_px_per_stick_second,750,25,"valid evidence must recover after numeric boundary inputs");
+    });
+    registry.add_case("BaseBodyLock", "inconsistent_camera_evidence_does_not_build_response_confidence", [] {
+        AimResponseEstimator estimator;
+        for (int i=0;i<256;++i) {
+            auto sample=interval(7,i%2 ? .60f:.25f,500);
+            constexpr float unexplained_rates[]{120,-150,-120,150};
+            sample.observed_error_rate_px_per_sec.x=unexplained_rates[i%4];
+            estimator.update(sample);
+        }
+        require(estimator.estimate().confidence<.2f,
+            "mutually inconsistent positive and negative response evidence must not become confident learning");
+    });
     registry.add_case("BaseBodyLock", "independent_region_priors_randomized", test_independent_region_priors);
     registry.add_case("BaseBodyLock", "configured_prior_retains_learning", test_configured_prior_retains_learning);
     registry.add_case("BaseBodyLock", "response_fallback_and_convergence", test_fallback_and_convergence_across_response_scales);

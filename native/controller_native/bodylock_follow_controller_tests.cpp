@@ -4,6 +4,7 @@
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
+#include <deque>
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
@@ -351,6 +352,96 @@ void test_feedback_distance_delay_noise_sweep(const native_test::TestContext& co
 }  // namespace
 
 void register_bodylock_follow_controller_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "velocity_feedback_delay_curve_and_geometry_ownership", [] {
+        using namespace controller_native;
+        for (auto curve : {AimResponseCurveAlgorithm::Linear, AimResponseCurveAlgorithm::CodDynamicLegacyLut}) {
+            BodylockFollowControllerConfig config;
+            config.range_position_response = true;
+            config.response_time_x_seconds = config.response_time_y_seconds = .005f;
+            config.response_curve.algorithm = curve;
+            config.max_force_x = config.max_force_y = .8f;
+            BodylockFollowController controller(config);
+            auto plan = active_plan(1, 0);
+            plan.response_scale = 1600;
+            plan.position_arrival_radius_px = 2;
+            const auto fresh = controller.compute(plan, {}, .001f);
+            plan.source_capture_age_ms = 40;
+            const auto delayed = controller.compute(plan, {}, .001f);
+            const auto speed = forward_aim_response_curve(delayed, config.response_curve);
+            const float budget_seconds = 2.f * (.040f + config.response_effect_delay_seconds);
+            require_true(speed.x * plan.response_scale <= 1.f / budget_seconds + .001f,
+                "the nonlinear inverse cannot bypass the delayed camera-velocity budget");
+            require_true(delayed.x > 0 && delayed.x < fresh.x,
+                "older feedback lowers correction gain without adding an output wait");
+            plan.position_response_radius_px = 300;
+            require_true(near(controller.compute(plan, {}, .001f).x, delayed.x),
+                "search geometry is not a hidden BodyLock velocity gain");
+            plan.error_px = {};
+            plan.bodylock_target_motion_valid = true;
+            plan.bodylock_target_motion_px_per_sec = {90, 0};
+            const auto following = forward_aim_response_curve(controller.compute(plan, {}, .001f), config.response_curve);
+            require_true(near(following.x * plan.response_scale, 90, .002f),
+                "feedback damping does not slow confirmed centered target motion");
+            plan.bodylock_target_motion_valid = false;
+            plan.error_rate_px_per_sec = {500, 500};
+            const auto unconfirmed = controller.compute(plan, {}, .001f);
+            require_true(unconfirmed.x == 0 && unconfirmed.y == 0,
+                "unconfirmed screen rate cannot create centered motion authority");
+            plan.error_px = {.3f, 0};
+            plan.error_rate_px_per_sec = {-100, 0};
+            require_true(controller.compute(plan, {}, .001f).x >= 0,
+                "unconfirmed motion must not reverse the delay-limited position correction");
+        }
+    });
+    registry.add_case("BaseBodyLock", "delayed_stationary_target_converges_without_limit_cycle", [] {
+        using namespace controller_native;
+        BodylockFollowControllerConfig config;
+        config.range_position_response = true;
+        config.response_time_x_seconds = config.response_time_y_seconds = .180f;
+        config.max_force_x = config.max_force_y = .30f;
+        config.minimum_position_stick = .20f;
+        BodylockFollowController controller(config);
+        AimDynamicsShaper shaper;
+        auto plan = active_plan(30, 0);
+        plan.response_scale = 938;
+        plan.position_arrival_radius_px = 2;
+        plan.bodylock_target_motion_valid = true;
+        struct Capture { int tick; float error; };
+        std::deque<Capture> pending;
+        std::vector<float> outputs(4000);
+        float camera = 0, last_nonzero = 0;
+        int next_capture = 0, capture_tick = -1, reversals = 0;
+        double error_sum = 0;
+        for (int tick = 0; tick < 4000; ++tick) {
+            if (tick > 23) camera += outputs[tick-24] * 938.f * .001f;
+            if (tick * 90 >= next_capture * 1000) {
+                pending.push_back({tick, 30-camera});
+                ++next_capture;
+            }
+            while (!pending.empty() && pending.front().tick + 17 <= tick) {
+                capture_tick = pending.front().tick;
+                plan.error_px = {pending.front().error, 0};
+                pending.pop_front();
+            }
+            if (capture_tick < 0) continue;
+            plan.source_capture_age_ms = static_cast<float>(tick-capture_tick);
+            const auto request = controller.compute(plan, {}, .001f);
+            const auto value = filter_ai_input(shaper.shape(request, {}, plan, .001f), .03f);
+            const float quantizer = value.x >= 0 ? 127.f : 128.f;
+            outputs[tick] = std::round(value.x * quantizer) / quantizer;
+            require_true(std::isfinite(outputs[tick]) && std::abs(outputs[tick]) <= .305f,
+                "delayed loop must respect the quantized output envelope");
+            if (tick >= 3000) {
+                error_sum += std::abs(30-camera);
+                if (outputs[tick] != 0) {
+                    reversals += last_nonzero * outputs[tick] < 0;
+                    last_nonzero = outputs[tick];
+                }
+            }
+        }
+        require_true(error_sum / 1000 < 2 && reversals <= 2,
+            "a stationary noiseless target must settle instead of sustained delay-induced oscillation");
+    });
     registry.add_case("BaseBodyLock","continuous_point_braking_without_floor_override", [] {
         using namespace controller_native;
         for (float radius : {2.f,12.f}) {
@@ -543,8 +634,8 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
                             near(result.response_horizon_y_seconds,config.response_time_y_seconds),"time is independent of limit, error, reliability and plant response");
                     } else require_true(result.stick.x==0 && result.stick.y==0,"inactive follow must remain neutral");
                     const float fraction=std::sqrt(std::min(1.f,std::hypot(plan.error_px.x,plan.error_px.y)/plan.position_response_radius_px));
-                    require_true(std::hypot(result.stick.x/config.max_force_x,result.stick.y/config.max_force_y)<=fraction+1e-5f,
-                        "unconfirmed follow demand stays inside the geometry budget after the response curve");
+                    require_true(std::hypot(result.stick.x/config.max_force_x,result.stick.y/config.max_force_y)<=1.f+1e-5f,
+                        "velocity feedback stays inside the configured joint actuator budget");
                     plan.mode=pipeline_contract::ControlMode::AdsAcquire;
                     const auto acquisition=ads.compute(plan,{},.001f);
                     require_true(std::hypot(acquisition.x/config.max_force_x,acquisition.y/config.max_force_y)<=fraction+1e-5f,

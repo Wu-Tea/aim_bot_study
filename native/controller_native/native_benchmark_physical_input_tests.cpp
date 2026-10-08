@@ -1,4 +1,5 @@
 #include "native_benchmark_physical_input.h"
+#include "input_edge_reducer.h"
 
 #include <cmath>
 #include <iostream>
@@ -41,12 +42,32 @@ void test_clamps_out_of_range_synthetic_input() {
             "synthetic physical inputs must stay in unit range");
 }
 
+void test_firing_uses_configured_binding_and_releases_both_inputs() {
+    PhysicalGamepadState physical;
+    ControllerObservation input;
+    for (const auto binding : {"RB", "RT", "both"}) {
+        input.fire_action = true;
+        apply_benchmark_physical_input(input, physical, binding);
+        require(controller_native::physical_fire_active(physical, binding),
+                "firing fixture must reach the configured production ingress");
+        require(binding == std::string("RB")
+                    ? physical.rb && physical.right_trigger == 0
+                    : !physical.rb && physical.right_trigger == 1,
+                "binding changes must not leave an old firing input pressed");
+        input.fire_action = false;
+        apply_benchmark_physical_input(input, physical, binding);
+        require(!physical.rb && physical.right_trigger == 0,
+                "release must clear both synthetic firing inputs");
+    }
+}
+
 }  // namespace
 
 int main() {
     try {
         test_maps_full_scale_left_and_manual_right_sticks();
         test_clamps_out_of_range_synthetic_input();
+        test_firing_uses_configured_binding_and_releases_both_inputs();
         std::cout << "native_benchmark_physical_input_tests PASS\n";
         return 0;
     } catch (const std::exception& error) {
