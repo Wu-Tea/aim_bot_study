@@ -41,22 +41,6 @@ constexpr int kButtonDpadDown = 12;
 constexpr int kButtonDpadLeft = 13;
 constexpr int kButtonDpadRight = 14;
 constexpr int kControllerButtonTouchpad = 20;
-constexpr int kControllerBindButton = 1;
-// SDL_GameControllerButtonBind ABI. A semantic controller button can map to
-// a raw button, axis, or hat; only a digital button binding is used here.
-struct SdlControllerButtonBind {
-    int type;
-    union {
-        int button;
-        int axis;
-        struct { int hat; int mask; } hat;
-    } value;
-};
-static_assert(sizeof(SdlControllerButtonBind) == 12, "SDL button binding ABI");
-constexpr std::uint8_t kSdlHatUp = 0x01;
-constexpr std::uint8_t kSdlHatRight = 0x02;
-constexpr std::uint8_t kSdlHatDown = 0x04;
-constexpr std::uint8_t kSdlHatLeft = 0x08;
 
 template <typename Fn>
 bool load_proc(HMODULE library, const char* name, Fn& out) {
@@ -92,11 +76,6 @@ float normalize_sdl_axis(std::int16_t value) {
     return std::min(1.0f, static_cast<float>(value) / 32767.0f);
 }
 
-float trigger_to_unit(float value) {
-    const float clamped = std::max(-1.0f, std::min(1.0f, value));
-    return std::max(0.0f, std::min(1.0f, (clamped + 1.0f) * 0.5f));
-}
-
 std::string safe_name(const char* value) {
     if (value == nullptr || value[0] == '\0') {
         return "unknown";
@@ -129,14 +108,13 @@ struct SdlApi {
     using SdlJoystickUpdate = void (*)();
     using SdlJoystickGetAttached = int (*)(void*);
     using SdlJoystickNumAxes = int (*)(void*);
-    using SdlJoystickGetAxis = std::int16_t (*)(void*, int);
     using SdlJoystickNumButtons = int (*)(void*);
-    using SdlJoystickGetButton = std::uint8_t (*)(void*, int);
     using SdlJoystickNumHats = int (*)(void*);
-    using SdlJoystickGetHat = std::uint8_t (*)(void*, int);
     using SdlGameControllerOpen = void* (*)(int);
     using SdlGameControllerClose = void (*)(void*);
-    using SdlGameControllerGetBindForButton = SdlControllerButtonBind (*)(void*, int);
+    using SdlGameControllerGetAxis = std::int16_t (*)(void*, int);
+    using SdlGameControllerGetButton = std::uint8_t (*)(void*, int);
+    using SdlIsGameController = int (*)(int);
     using SdlGameControllerGetNumTouchpadFingers = int (*)(void*, int);
 
     HMODULE library = nullptr;
@@ -154,14 +132,13 @@ struct SdlApi {
     SdlJoystickUpdate joystick_update = nullptr;
     SdlJoystickGetAttached joystick_get_attached = nullptr;
     SdlJoystickNumAxes joystick_num_axes = nullptr;
-    SdlJoystickGetAxis joystick_get_axis = nullptr;
     SdlJoystickNumButtons joystick_num_buttons = nullptr;
-    SdlJoystickGetButton joystick_get_button = nullptr;
     SdlJoystickNumHats joystick_num_hats = nullptr;
-    SdlJoystickGetHat joystick_get_hat = nullptr;
     SdlGameControllerOpen game_controller_open = nullptr;
     SdlGameControllerClose game_controller_close = nullptr;
-    SdlGameControllerGetBindForButton game_controller_button_bind = nullptr;
+    SdlGameControllerGetAxis game_controller_axis = nullptr;
+    SdlGameControllerGetButton game_controller_button = nullptr;
+    SdlIsGameController is_game_controller = nullptr;
     SdlGameControllerGetNumTouchpadFingers game_controller_num_fingers = nullptr;
     SdlTouchpadFingerReader game_controller_finger = nullptr;
 
@@ -194,14 +171,13 @@ struct SdlApi {
         ok = load_proc(library, "SDL_JoystickUpdate", joystick_update) && ok;
         ok = load_proc(library, "SDL_JoystickGetAttached", joystick_get_attached) && ok;
         ok = load_proc(library, "SDL_JoystickNumAxes", joystick_num_axes) && ok;
-        ok = load_proc(library, "SDL_JoystickGetAxis", joystick_get_axis) && ok;
         ok = load_proc(library, "SDL_JoystickNumButtons", joystick_num_buttons) && ok;
-        ok = load_proc(library, "SDL_JoystickGetButton", joystick_get_button) && ok;
         ok = load_proc(library, "SDL_JoystickNumHats", joystick_num_hats) && ok;
-        ok = load_proc(library, "SDL_JoystickGetHat", joystick_get_hat) && ok;
         ok = load_proc(library, "SDL_GameControllerOpen", game_controller_open) && ok;
         ok = load_proc(library, "SDL_GameControllerClose", game_controller_close) && ok;
-        ok = load_proc(library, "SDL_GameControllerGetBindForButton", game_controller_button_bind) && ok;
+        ok = load_proc(library, "SDL_GameControllerGetAxis", game_controller_axis) && ok;
+        ok = load_proc(library, "SDL_GameControllerGetButton", game_controller_button) && ok;
+        ok = load_proc(library, "SDL_IsGameController", is_game_controller) && ok;
         // Optional on older SDL DLLs: missing touch support must not disable
         // the existing axes/buttons or synthesize a touch request.
         load_proc(library, "SDL_GameControllerGetNumTouchpadFingers", game_controller_num_fingers);
@@ -242,7 +218,6 @@ struct SdlGamepadReader::Backend {
     int axes = 0;
     int buttons = 0;
     int hats = 0;
-    int touchpad_button = -1;
     int touchpad_fingers = 0;
 
     ~Backend() {
@@ -267,6 +242,9 @@ struct SdlGamepadReader::Backend {
 
     bool open(int device_index) {
         close();
+        // Mapping owns the meaning of every control. Unknown raw layouts
+        // cannot safely be presented as a connected gamepad.
+        if (!api.is_game_controller(device_index)) return false;
         joystick = api.joystick_open(device_index);
         if (joystick == nullptr) {
             return false;
@@ -274,19 +252,13 @@ struct SdlGamepadReader::Backend {
         axes = std::max(0, api.joystick_num_axes(joystick));
         buttons = std::max(0, api.joystick_num_buttons(joystick));
         hats = std::max(0, api.joystick_num_hats(joystick));
-        // Resolve once per open/reconnect. SDL's semantic TOUCHPAD is 20,
-        // but Sony HIDAPI binds it to raw button 15 (16 is the PS5 mute key).
-        // Query the actual mapping instead of guessing from button count.
         controller = api.game_controller_open(device_index);
-        if (controller != nullptr) {
-            const auto binding = api.game_controller_button_bind(
-                controller, kControllerButtonTouchpad);
-            if (binding.type == kControllerBindButton) {
-                touchpad_button = binding.value.button;
-            }
-            if (api.game_controller_num_fingers && api.game_controller_finger) {
-                touchpad_fingers = std::clamp(api.game_controller_num_fingers(controller, 0), 0, 2);
-            }
+        if (controller == nullptr) {
+            close();
+            return false;
+        }
+        if (api.game_controller_num_fingers && api.game_controller_finger) {
+            touchpad_fingers = std::clamp(api.game_controller_num_fingers(controller, 0), 0, 2);
         }
         return true;
     }
@@ -313,7 +285,7 @@ struct SdlGamepadReader::Backend {
             device.device_index = index;
             device.name = safe_name(api.joystick_name_for_index(index));
             if (void* candidate = api.joystick_open(index)) {
-                device.opened = true;
+                device.opened = api.is_game_controller(index) != 0;
                 device.axes = std::max(0, api.joystick_num_axes(candidate));
                 device.buttons = std::max(0, api.joystick_num_buttons(candidate));
                 device.hats = std::max(0, api.joystick_num_hats(candidate));
@@ -338,7 +310,6 @@ struct SdlGamepadReader::Backend {
         axes = 0;
         buttons = 0;
         hats = 0;
-        touchpad_button = -1;
     }
 
     bool attached() const {
@@ -346,18 +317,17 @@ struct SdlGamepadReader::Backend {
             api.joystick_get_attached(joystick) != 0;
     }
 
-    float axis_or(int index, float fallback) const {
-        if (joystick == nullptr || index < 0 || index >= axes) {
-            return fallback;
-        }
-        return normalize_sdl_axis(api.joystick_get_axis(joystick, index));
+    float axis(int index) const {
+        return normalize_sdl_axis(api.game_controller_axis(controller, index));
+    }
+
+    float trigger(int index) const {
+        // SDL's mapped triggers are already 0..32767, with zero at rest.
+        return std::clamp(float(api.game_controller_axis(controller, index)) / 32767.f, 0.f, 1.f);
     }
 
     bool button(int index) const {
-        if (joystick == nullptr || index < 0 || index >= buttons) {
-            return false;
-        }
-        return api.joystick_get_button(joystick, index) != 0;
+        return api.game_controller_button(controller, index) != 0;
     }
 };
 
@@ -417,7 +387,6 @@ bool SdlGamepadReader::reconnect() {
         return false;
     }
     device_index_ = selected;
-    trigger_initialized_ = false;
     return true;
 }
 
@@ -445,22 +414,12 @@ PhysicalGamepadState SdlGamepadReader::read() {
         return state;
     }
     state.connected = true;
-    state.left_x = backend_->axis_or(0, 0.0f);
-    state.left_y = -backend_->axis_or(1, 0.0f);
-    state.right_x = backend_->axis_or(2, 0.0f);
-    state.right_y = -backend_->axis_or(3, 0.0f);
-
-    float raw_left_trigger = backend_->axis_or(LEFT_TRIGGER_AXIS_INDEX, -1.0f);
-    float raw_right_trigger = backend_->axis_or(RIGHT_TRIGGER_AXIS_INDEX, -1.0f);
-    if (!trigger_initialized_ && (raw_left_trigger != 0.0f || raw_right_trigger != 0.0f)) {
-        trigger_initialized_ = true;
-    }
-    if (!trigger_initialized_) {
-        raw_left_trigger = -1.0f;
-        raw_right_trigger = -1.0f;
-    }
-    state.left_trigger = trigger_to_unit(raw_left_trigger);
-    state.right_trigger = trigger_to_unit(raw_right_trigger);
+    state.left_x = backend_->axis(0);
+    state.left_y = -backend_->axis(1);
+    state.right_x = backend_->axis(2);
+    state.right_y = -backend_->axis(3);
+    state.left_trigger = backend_->trigger(LEFT_TRIGGER_AXIS_INDEX);
+    state.right_trigger = backend_->trigger(RIGHT_TRIGGER_AXIS_INDEX);
 
     state.a = backend_->button(kButtonA);
     state.b = backend_->button(kButtonB);
@@ -469,7 +428,7 @@ PhysicalGamepadState SdlGamepadReader::read() {
     state.back = backend_->button(kButtonBack);
     state.guide = backend_->button(kButtonGuide);
     state.start = backend_->button(kButtonStart);
-    state.touchpad = backend_->button(backend_->touchpad_button);
+    state.touchpad = backend_->button(kControllerButtonTouchpad);
     state.touchpad_fingers = read_sdl_touchpad_fingers(
         backend_->controller, backend_->touchpad_fingers,
         backend_->api.game_controller_finger);
@@ -478,18 +437,10 @@ PhysicalGamepadState SdlGamepadReader::read() {
     state.lb = backend_->button(kButtonLeftShoulder);
     state.rb = backend_->button(kButtonRightShoulder);
 
-    if (backend_->hats > 0) {
-        const std::uint8_t hat = backend_->api.joystick_get_hat(backend_->joystick, 0);
-        state.dpad_up = (hat & kSdlHatUp) != 0;
-        state.dpad_down = (hat & kSdlHatDown) != 0;
-        state.dpad_left = (hat & kSdlHatLeft) != 0;
-        state.dpad_right = (hat & kSdlHatRight) != 0;
-    } else {
-        state.dpad_up = backend_->button(kButtonDpadUp);
-        state.dpad_down = backend_->button(kButtonDpadDown);
-        state.dpad_left = backend_->button(kButtonDpadLeft);
-        state.dpad_right = backend_->button(kButtonDpadRight);
-    }
+    state.dpad_up = backend_->button(kButtonDpadUp);
+    state.dpad_down = backend_->button(kButtonDpadDown);
+    state.dpad_left = backend_->button(kButtonDpadLeft);
+    state.dpad_right = backend_->button(kButtonDpadRight);
     return state;
 }
 

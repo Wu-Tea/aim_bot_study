@@ -14,7 +14,7 @@ struct SdlJoystickDevice {
     int axes = 0;
     int buttons = 0;
     int hats = 0;
-    bool opened = false;
+    bool opened = false; // Accessible joystick with an SDL GameController mapping.
     // Independent of enumeration order. Prefer serial, then driver path;
     // name-only identity is accepted only when the matching device is unique.
     std::string id;
@@ -48,7 +48,6 @@ private:
     std::string required_id_;
     int expected_axes_ = 0;
     int expected_buttons_ = 0;
-    bool trigger_initialized_ = false;
 };
 
 }  // namespace controller_native
