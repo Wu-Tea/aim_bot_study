@@ -37,6 +37,7 @@ class AdsEnvelopePreview(ttk.Frame):
         self.feedback_summary=tk.StringVar()
         self.example_output=tk.StringVar()
         self.traces=[]
+        self.redraw_job=None
         self.mode_button=SegmentedInput(self,self.mode,['acquire','follow'],
             {'acquire':'① ADS Snap · 抓取','follow':'② BodyLock · 跟随'})
         self.mode_button.pack(fill='x',pady=(0,8))
@@ -82,12 +83,22 @@ class AdsEnvelopePreview(ttk.Frame):
         self.summary_label.pack(side='bottom',anchor='w',pady=(4,8))
         self.canvas.pack(fill='both',expand=True)
         for variable in [variables[p] for p in self.PATHS]+[self.pose,self.height,self.mode,self.compare]:
-            self.traces.append((variable,variable.trace_add('write',lambda *_:self.redraw())))
+            self.traces.append((variable,variable.trace_add('write',self.request_redraw)))
+        self.bind('<Map>',self.request_redraw,add='+')
         self.bind('<Destroy>',self.destroyed,add='+')
         self.bind('<Configure>',lambda _:self.fit_height(self.available_height),add='+')
 
+    def request_redraw(self,*_):
+        if self.winfo_ismapped() and self.redraw_job is None:
+            self.redraw_job=self.after_idle(self.flush_redraw)
+
+    def flush_redraw(self):
+        self.redraw_job=None
+        if self.winfo_ismapped():self.redraw()
+
     def destroyed(self,event):
         if event.widget is not self:return
+        if self.redraw_job is not None:self.after_cancel(self.redraw_job)
         for variable,trace in self.traces:variable.trace_remove('write',trace)
         self.traces.clear()
         self.pose=self.height=self.mode=self.compare=None
@@ -139,7 +150,7 @@ class AdsEnvelopePreview(ttk.Frame):
         if self.policy is None:
             self.summary.set('构建更新的原生程序后可读取实际触发规则。')
             return
-        if self.policy.get('parameter_semantics')!='range-response-v3':
+        if self.policy.get('parameter_semantics')!='range-response-v4':
             self.geometry=None
             for item in self.items.values():self.canvas.itemconfigure(item,state='hidden')
             self.summary.set('请构建支持独立输出上限与响应时间的原生程序。')
@@ -278,7 +289,7 @@ class AdsEnvelopePreview(ttk.Frame):
         explanation=stopped or f"{stage} · 低速参考 {geometry['example']['minimum_stick']*100:g}% · 瞄点收尾 {geometry['example']['arrival_radius_px']:g}px"
         if not stopped and geometry['example'].get('arrived'):
             explanation=f"{stage} · 已到瞄点，停止位置纠偏"
-        self.feedback_summary.set(explanation)
+        self.feedback_summary.set(explanation+'\n静止、线性响应示意；实际跟随会根据图像延迟调整。')
 
     def drag(self,event):
         if self.geometry is None:return

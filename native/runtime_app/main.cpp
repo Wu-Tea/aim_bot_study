@@ -5,6 +5,7 @@
 
 #include "controller_native/runtime_config.h"
 #include "pipeline_contract/target_acquisition.h"
+#include "vision_native/tensorrt_engine.h"
 
 #include <Windows.h>
 
@@ -37,6 +38,7 @@ struct CliOptions {
     bool probe_input = false;
     bool list_input_devices = false;
     bool describe_ads_geometry = false;
+    std::optional<std::string> inspect_engine;
     std::optional<std::string> profile;
     std::string game;
     std::optional<int> capture_fps;
@@ -62,6 +64,8 @@ CliOptions parse_args(int argc, char** argv) {
             options.list_input_devices = true;
         } else if (arg == "--describe-ads-geometry") {
             options.describe_ads_geometry = true;
+        } else if (arg == "--inspect-engine" && index + 1 < argc) {
+            options.inspect_engine = argv[++index];
         } else if (arg == "--profile" && index + 1 < argc) {
             options.profile = argv[++index];
         } else if (arg == "--game" && index + 1 < argc) {
@@ -280,6 +284,14 @@ int main(int argc, char** argv) {
     try {
         SetConsoleCtrlHandler(handle_console_signal, TRUE);
         const CliOptions options = parse_args(argc, argv);
+        if (options.inspect_engine) {
+            // Load through the production engine owner, before input/output,
+            // capture, shared channels or runtime configuration are created.
+            vision_native::TensorRTEngine engine(*options.inspect_engine);
+            std::cout << "{\"input_width\":" << engine.input_width()
+                      << ",\"input_height\":" << engine.input_height() << "}\n";
+            return 0;
+        }
         if (options.describe_ads_geometry) {
             // Pure geometry: no configuration, engine, input scan or output.
             using namespace pipeline_contract;

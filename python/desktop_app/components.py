@@ -59,15 +59,21 @@ class ScrollSurface(ttk.Frame):
     def __init__(self, parent, root):
         super().__init__(parent)
         self.canvas = tk.Canvas(self, background=SURFACE, highlightthickness=0, borderwidth=0)
-        scrollbar = ttk.Scrollbar(self, orient='vertical', command=self.canvas.yview)
+        # Reserve the gutter even when content fits: showing the thumb must
+        # never resize the form or trigger a wrap/scrollbar feedback loop.
+        gutter = ttk.Frame(self)
+        gutter.pack(side='right', fill='y')
+        gutter.pack_propagate(False)
+        scrollbar = ttk.Scrollbar(gutter, orient='vertical', command=self.canvas.yview)
+        gutter.configure(width=scrollbar.winfo_reqwidth())
         def scroll_extent(start,end):
             scrollbar.set(start,end)
             if float(start)<=0 and float(end)>=1:
                 scrollbar.pack_forget()
             elif not scrollbar.winfo_manager():
-                scrollbar.pack(side='right',fill='y',before=self.canvas)
+                scrollbar.pack(fill='both',expand=True)
         self.canvas.configure(yscrollcommand=scroll_extent)
-        scrollbar.pack(side='right', fill='y')
+        scrollbar.pack(fill='both',expand=True)
         self.canvas.pack(side='left', fill='both', expand=True)
         self.content = ttk.Frame(self.canvas, padding=(0, 8, 0, 8))
         self.window = self.canvas.create_window((0, 0), window=self.content, anchor='nw')
@@ -81,8 +87,6 @@ class ScrollSurface(ttk.Frame):
         # this surface lives in a Toplevel. Release through the same owner.
         self.wheel_owner = root._root()
         self.wheel_binding = self.wheel_owner.bind_class(self.wheel_tag, '<MouseWheel>', self.scroll)
-        self.content.bind('<Map>', lambda _: self.install_wheel(), add='+')
-        self.bind_ids.append(('<Map>', root.bind('<Map>', self.on_map, add='+')))
         self.bind('<Destroy>', self.dispose, add='+')
 
     def resize(self,event):

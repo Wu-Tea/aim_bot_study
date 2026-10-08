@@ -303,7 +303,7 @@ class ProfileStrip(tk.Canvas):
             name=entry['name']
             self.create_text(left+12,19,text=name if len(name)<=13 else name[:12]+'…',anchor='w',fill=INK if chosen else MUTED,
                              font=('Microsoft YaHei UI',10,'bold' if chosen else 'normal'))
-            self.create_text(left+12,39,text=entry['game'].upper(),anchor='w',fill=MUTED,font=('Segoe UI',8))
+            self.create_text(left+12,39,text='未保存修改' if entry.get('dirty') else '已保存',anchor='w',fill=MUTED,font=('Segoe UI',8))
             if entry.get('dirty'):self.create_oval(left+148,12,left+154,18,fill=ACCENT,outline='')
         self.configure(scrollregion=(0,0,max(self.winfo_width(),len(self.entries)*174),56))
 

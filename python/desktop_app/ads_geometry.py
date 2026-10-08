@@ -16,7 +16,8 @@ def validate_policy(policy):
           'wide_region_half_height','release_hysteresis','ready_hysteresis',
           'pickup_min_height','tracking_min_height','pickup_min_area','tracking_min_area',
           'min_aspect','wide_min_aspect','max_aspect','default_completion_radius',
-          'feedback_minimum_px','feedback_multiplier','feedback_calibration','horizon_min','horizon_max')
+          'feedback_minimum_px','feedback_multiplier','feedback_calibration','horizon_min','horizon_max',
+          'velocity_feedback_minimum_seconds','velocity_feedback_delay_margin','follow_effect_delay_seconds')
     if not isinstance(policy,dict) or policy.get('schema_version')!=3 or any(
         type(policy.get(key)) not in (int,float) or not math.isfinite(policy[key]) or policy[key]<0 for key in keys):
         raise ValueError('原生几何预览格式无效。')
@@ -127,18 +128,35 @@ def filter_ai_input(stick,deadzone):
     return tuple(0. if abs(f32(v))<=f32(deadzone) else v for v in stick)
 
 
-def follow_response_example(policy,time_x_ms,time_y_ms,limit_x,limit_y,error_x,error_y,*,radius_px,minimum_stick=.20,arrival_radius_px=2.):
-    """Independent planning times and normalized limits; no force-derived time."""
+def follow_response_example(policy,time_x_ms,time_y_ms,limit_x,limit_y,error_x,error_y,*,radius_px,minimum_stick=.20,arrival_radius_px=2.,observation_age_ms=0.):
+    """Stationary linear plant illustration of native delayed velocity feedback."""
     values=(time_x_ms,time_y_ms,limit_x,limit_y,error_x,error_y)
     if not all(math.isfinite(v) for v in values) or min(time_x_ms,time_y_ms)<=0 or not all(0<=v<=1 for v in (limit_x,limit_y)):
         raise ValueError('响应时间或输出上限无效。')
     times=[max(policy['horizon_min'],min(policy['horizon_max'],f32(f32(v)/1000))) for v in (time_x_ms,time_y_ms)]
     limits=tuple(map(f32,(limit_x,limit_y)))
-    demands=[f32(f32(error)/f32(t*f32(policy['feedback_calibration']))) if limit>0 else 0.
-             for error,t,limit in zip((error_x,-error_y),times,limits)]
-    result=range_position_example(demands,(error_x,error_y),limits,radius_px,minimum_stick,arrival_radius_px,policy['feedback_calibration'])
-    result['times']=times
-    return result
+    if not all(math.isfinite(v) for v in (minimum_stick,arrival_radius_px,observation_age_ms)) or not 0<=minimum_stick<=1 or not 0<=arrival_radius_px<=64 or observation_age_ms<0:
+        raise ValueError('跟随参考力度、收尾半径或观测延迟无效。')
+    position_fraction(error_x,error_y,limits,radius_px)  # Admission geometry must be known.
+    response=f32(policy['feedback_calibration'])
+    age=f32(f32(observation_age_ms)*f32(.001))
+    feedback_time=max(f32(policy['velocity_feedback_minimum_seconds']),
+        f32(f32(policy['velocity_feedback_delay_margin'])*f32(age+f32(policy['follow_effect_delay_seconds']))))
+    effective=[max(t,feedback_time) for t in times]
+    error=[f32(e) if cap>0 else 0. for e,cap in zip((error_x,-error_y),limits)]
+    velocity=[f32(e/t) for e,t in zip(error,effective)]
+    distance=f32(math.hypot(*error));nominal=f32(math.hypot(*velocity))
+    reference=f32(response*f32(minimum_stick))
+    approach=f32(math.hypot(f32(reference*feedback_time),f32(arrival_radius_px)))
+    pursuit=f32(reference*f32(math.tanh(f32(distance/approach)))) if reference>0 else 0.
+    speed=min(max(nominal,pursuit),f32(distance/feedback_time))
+    scale=f32(speed/nominal) if nominal>0 else 0.
+    demand=[f32(f32(v*scale)/response) for v in velocity]
+    ellipse=f32(math.hypot(*(f32(v/c) if c>0 else 0. for v,c in zip(demand,limits))))
+    scale=f32(1/ellipse) if ellipse>1 else 1.
+    return {'stick':tuple(f32(v*scale) for v in demand),'caps':limits,'times':times,
+            'limited':ellipse>1 or effective!=times,'position_fraction':1.,'arrived':distance==0,
+            'minimum_stick':minimum_stick,'arrival_radius_px':arrival_radius_px}
 
 
 

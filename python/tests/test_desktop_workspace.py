@@ -28,6 +28,66 @@ PRODUCTION=PROJECT/'native/build/Release/cod_native_runtime.exe'
 
 
 class IndependentStorageTests(unittest.TestCase):
+    def test_free_profile_crud_and_native_projection(self):
+        manager=RuntimeManager(PROJECT)
+        with tempfile.TemporaryDirectory() as folder:
+            repo=ProfileRepository(folder,curve_source=PROJECT)
+            p=repo.create('任意训练 / 我的配置',validate=lambda path:manager.validate(path,['custom']))
+            self.assertEqual(p['game'],'custom')
+            self.assertEqual(p['curve']['algorithm'],'linear')
+            expected=repo.path(p['id']).read_bytes()
+            p['name']='自由重命名'
+            expected=repo.save(p,expected)
+            q=repo.duplicate(p,'独立副本')
+            self.assertNotEqual(p['id'],q['id'])
+            archive=repo.delete(p,expected)
+            self.assertEqual([x['id'] for x in repo.entries()],[q['id']])
+            self.assertFalse(repo.runtime_path(p).exists())
+            restored=repo.import_file(archive/repo.path(p['id']).name,'恢复','custom')
+            self.assertEqual(restored['config'],p['config'])
+            self.assertNotEqual(restored['id'],p['id'])
+            arbitrary=repo.create('另一个场景','training_range_42',validate=lambda path:manager.validate(path,['training_range_42']))
+            self.assertEqual(repo.read(repo.path(arbitrary['id']))[0]['game'],'training_range_42')
+
+    def test_import_choices_come_from_file_and_delete_rejects_external_changes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo=ProfileRepository(folder,curve_source=PROJECT)
+            legacy=Path(folder)/'legacy.toml'
+            legacy.write_text('[games.training]\n[games.other_title]\n',encoding='utf-8')
+            self.assertEqual(repo.import_choices(legacy),['default','training','other_title'])
+            p=repo.create('自由配置')
+            self.assertEqual(repo.import_choices(repo.path(p['id'])),['custom'])
+            expected=repo.path(p['id']).read_bytes()
+            repo.runtime_path(p).write_text('# external',encoding='utf-8')
+            with self.assertRaises(ValueError):repo.delete(p,expected)
+            self.assertEqual(repo.path(p['id']).read_bytes(),expected)
+            self.assertEqual(repo.runtime_path(p).read_text(encoding='utf-8'),'# external')
+
+    def test_new_game_defaults_roundtrip_with_coherent_vision_geometry(self):
+        from desktop_app.workspace import FIELDS
+        manager=RuntimeManager(PROJECT)
+        with tempfile.TemporaryDirectory() as folder:
+            repo=ProfileRepository(folder,curve_source=PROJECT)
+            for game in ('default','apex','bo3'):
+                defaults=manager.inspect_defaults(game,f'[runtime]\ngame="{game}"\n')
+                defaults['runtime.vision.model_path']=''
+                profile=repo.create('默认规格检查 '+game,game,defaults,
+                    validate=lambda path:manager.validate(path,[game]))
+                document=projection(profile)
+                vision=document['runtime']['vision']
+                self.assertEqual((vision['capture_width'],vision['capture_height']),(640,512))
+                self.assertEqual((vision['tensor_width'],vision['tensor_height']),(480,384))
+                self.assertEqual(vision['capture_fps'],200)
+                actual=manager.inspect_defaults(game,toml_text(document))
+                for field in FIELDS:
+                    path=field[0]
+                    with self.subTest(game=game,path=path):
+                        self.assertIn(path,actual)
+                        expected=lookup(document,path)
+                        if field[2] is float:self.assertAlmostEqual(actual[path],expected,places=5)
+                        else:self.assertEqual(actual[path],expected)
+                manager.validate(repo.runtime_path(profile),[game])
+
     def test_every_editable_numeric_field_roundtrips_native_without_replacement(self):
         from desktop_app.workspace import FIELDS,put
         from desktop_app.fields import field_value
@@ -227,16 +287,17 @@ class DesktopWorkspaceTests(unittest.TestCase):
         deadline=time.monotonic()+10
         while self.app.ads_policy_loading and time.monotonic()<deadline:
             self.app.poll();self.root.update();time.sleep(.01)
-        diagram=self.app.ads_diagram;diagram.mode.set('follow')
-        self.app.variables['gamepad.assist.minimum_position_stick'].set('0')
+        diagram=self.app.ads_diagram;diagram.mode.set('follow');self.root.update()
+        self.app.variables['gamepad.assist.minimum_position_stick'].set('0');self.root.update()
         diagram.offset=[3.,0.];diagram.redraw()
         original=diagram.geometry['example']['stick'][0]
-        self.app.variables['gamepad.bodylock.output_limit_x'].set('.9')
+        self.app.variables['gamepad.bodylock.output_limit_x'].set('.9');self.root.update()
         self.assertEqual(diagram.geometry['example']['stick'][0],original)
-        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('90')
+        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('90');self.root.update()
         import math
         self.assertAlmostEqual(diagram.geometry['example']['stick'][0],original*2,places=6)
     @classmethod
+
     def setUpClass(cls):
         require_isolated_gui()
         cls.host=tk.Tk();cls.host.withdraw()
@@ -367,41 +428,41 @@ class DesktopWorkspaceTests(unittest.TestCase):
         diagram.offset=[25.,0.];diagram.redraw()
         self.assertFalse(self.app.dirty(),'preview mode is not a game setting')
         self.assertIn('跟随',diagram.mode_button.buttons[diagram.active_mode].cget('text'))
-        self.app.variables['gamepad.ads.output_limit_x'].set('.05')
+        self.app.variables['gamepad.ads.output_limit_x'].set('.05');self.root.update()
         self.assertEqual(diagram.active_mode,'follow','manual mode must survive parameter edits')
         diagram.mode_button.buttons['acquire'].invoke();self.root.update()
         self.assertEqual(diagram.active_mode,'acquire')
         small=diagram.geometry['example']['stick'][0]
-        self.app.variables['gamepad.ads.output_limit_x'].set('1')
+        self.app.variables['gamepad.ads.output_limit_x'].set('1');self.root.update()
         self.assertGreater(diagram.geometry['example']['stick'][0],small)
         self.app.field_widgets['gamepad.bodylock.output_limit_x'][0].entry.event_generate('<FocusIn>')
         self.assertEqual(diagram.active_mode,'acquire','focus does not switch stages')
         diagram.mode_button.buttons['follow'].invoke()
         self.assertEqual(diagram.active_mode,'follow')
-        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('bad')
+        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('bad');self.root.update()
         self.assertEqual(diagram.example_output.get(),'')
-        diagram.mode.set('acquire')
+        diagram.mode.set('acquire');self.root.update()
         self.assertIsNotNone(diagram.geometry,'an invalid inactive follow draft must not hide ADS')
-        self.app.variables['gamepad.bodylock.activation_range_px'].set('bad')
+        self.app.variables['gamepad.bodylock.activation_range_px'].set('bad');self.root.update()
         self.assertIsNotNone(diagram.geometry)
         self.assertIsNone(diagram.geometry['follow_radius'])
-        self.app.variables['gamepad.bodylock.activation_range_px'].set('150')
-        self.app.variables['gamepad.ads.output_limit_y'].set('bad')
+        self.app.variables['gamepad.bodylock.activation_range_px'].set('150');self.root.update()
+        self.app.variables['gamepad.ads.output_limit_y'].set('bad');self.root.update()
         self.assertEqual(diagram.example_output.get(),'')
-        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('27')
-        diagram.mode.set('follow')
+        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('27');self.root.update()
+        diagram.mode.set('follow');self.root.update()
         self.assertIsNotNone(diagram.geometry,'an invalid inactive ADS draft must not hide follow')
-        self.app.variables['gamepad.ads.pickup_base_radius_px'].set('bad')
+        self.app.variables['gamepad.ads.pickup_base_radius_px'].set('bad');self.root.update()
         self.assertIsNotNone(diagram.geometry)
         self.assertIsNone(diagram.geometry['radius'])
-        self.app.variables['gamepad.ads.pickup_base_radius_px'].set('150')
+        self.app.variables['gamepad.ads.pickup_base_radius_px'].set('150');self.root.update()
         self.assertEqual(diagram.canvas.find_all(),items)
-        self.app.variables['gamepad.ads.output_limit_y'].set('1')
-        diagram.mode.set('acquire');diagram.offset=[220,0];diagram.redraw()
+        self.app.variables['gamepad.ads.output_limit_y'].set('1');self.root.update()
+        diagram.mode.set('acquire');diagram.offset=[220,0];diagram.redraw();self.root.update()
         self.assertIn('不能新拾取',diagram.feedback_summary.get())
         self.assertIn('不输出辅助',diagram.example_output.get())
-        self.app.variables['gamepad.bodylock.activation_range_px'].set('300')
-        diagram.mode.set('follow');diagram.redraw()
+        self.app.variables['gamepad.bodylock.activation_range_px'].set('300');self.root.update()
+        diagram.mode.set('follow');diagram.redraw();self.root.update()
         self.assertIn('向右',diagram.example_output.get(),'selected-target follow can continue outside the ADS pickup circle')
 
     def test_range_preview_resize_stays_within_viewport_without_layout_feedback(self):
@@ -612,9 +673,9 @@ class DesktopWorkspaceTests(unittest.TestCase):
         for percent in (10,25,50):
             diagram.height.set(str(percent));self.root.update()
             self.assertAlmostEqual(diagram.geometry['radius'],150*(1+.75*percent/100),places=3)
-        diagram.height.set('1');self.assertFalse(diagram.geometry['pickup'])
+        diagram.height.set('1');self.root.update();self.assertFalse(diagram.geometry['pickup'])
         self.assertIn('不满足',diagram.summary.get())
-        diagram.height.set('50');self.assertTrue(diagram.geometry['pickup'])
+        diagram.height.set('50');self.root.update();self.assertTrue(diagram.geometry['pickup'])
         diagram.pose.set('wide');self.root.update()
         self.assertTrue(diagram.geometry['wide_low'])
         self.assertIn('宽矮',diagram.summary.get())
@@ -623,42 +684,42 @@ class DesktopWorkspaceTests(unittest.TestCase):
         self.assertIn('圈外',diagram.summary.get())
         diagram.canvas.event_generate('<B1-Motion>',x=int(x0+width*scale/2),y=int(y0+height*scale/2))
         self.assertIn('圈内',diagram.summary.get())
-        diagram.compare.set(True)
+        diagram.compare.set(True);self.root.update()
         self.assertIn('蓝圈 ADS',diagram.legend.cget('text'))
         self.assertIn('紫圈跟随',diagram.legend.cget('text'))
         self.assertFalse(self.app.dirty(),'example size and drag must not change the saved profile')
-        self.app.variables['gamepad.ads.activation_trigger'].set('.1')
-        self.app.variables['gamepad.ads.pickup_base_radius_px'].set('175.5')
+        self.app.variables['gamepad.ads.activation_trigger'].set('.1');self.root.update()
+        self.app.variables['gamepad.ads.pickup_base_radius_px'].set('175.5');self.root.update()
         self.assertAlmostEqual(diagram.geometry['radius'],175.5*1.375,places=3)
         self.assertEqual(diagram.canvas.find_all(),items,'drawing must reuse canvas items')
-        self.app.variables['gamepad.bodylock.activation_range_px'].set('220.5')
-        diagram.mode.set('follow')
-        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('36.375')
+        self.app.variables['gamepad.bodylock.activation_range_px'].set('220.5');self.root.update()
+        diagram.mode.set('follow');self.root.update()
+        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('36.375');self.root.update()
         self.assertAlmostEqual(diagram.geometry['follow_radius'],220.5*1.375,places=3)
         self.assertAlmostEqual(diagram.geometry['response_time_ms'][0],36.375)
         self.assertAlmostEqual(diagram.geometry['cue_follow_radius'],220.5)
         self.assertIn('跟随',diagram.summary.get())
         diagram.offset=[5,-7];diagram.redraw()
-        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('5')
+        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('5');self.root.update()
         baseline=diagram.geometry['example']['stick']
         self.assertEqual(diagram.geometry['response_time_ms'][0],5)
-        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('36.375')
+        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('36.375');self.root.update()
         softer=diagram.geometry['example']['stick']
         self.assertLess(softer[0],baseline[0],'a softer setting must reduce example correction for the same position')
         vertical=softer[1]
-        self.app.variables['gamepad.bodylock.output_limit_y'].set('.2')
+        self.app.variables['gamepad.bodylock.output_limit_y'].set('.2');self.root.update()
         self.assertLessEqual(diagram.geometry['example']['stick'][1],.2)
         rings=[diagram.canvas.coords(diagram.items[key]) for key in ('radius','follow_radius')]
-        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('45')
+        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('45');self.root.update()
         self.assertEqual([diagram.canvas.coords(diagram.items[key]) for key in ('radius','follow_radius')],rings)
-        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('36.375')
-        self.app.variables['gamepad.assist.arrival_radius_px'].set('32')
-        self.app.variables['gamepad.bodylock.activation_range_px'].set('4')
+        self.app.variables['gamepad.bodylock.response_time_x_ms'].set('36.375');self.root.update()
+        self.app.variables['gamepad.assist.arrival_radius_px'].set('32');self.root.update()
+        self.app.variables['gamepad.bodylock.activation_range_px'].set('4');self.root.update()
         self.assertIsNone(diagram.geometry)
         self.assertIn('不能小于',diagram.summary.get())
-        self.app.variables['gamepad.assist.arrival_radius_px'].set('2')
+        self.app.variables['gamepad.assist.arrival_radius_px'].set('2');self.root.update()
         diagram.set_config(self.app.profile['config'])
-        self.app.variables['gamepad.bodylock.activation_range_px'].set('220.5')
+        self.app.variables['gamepad.bodylock.activation_range_px'].set('220.5');self.root.update()
         self.app.save();self.finish();self.assertFalse(self.app.dirty(),self.app.notice.get())
         saved=self.repo.read(self.repo.path(self.a['id']))[0]['config']
         self.assertEqual(lookup(saved,'gamepad.bodylock.activation_range_px'),220.5)
@@ -668,7 +729,7 @@ class DesktopWorkspaceTests(unittest.TestCase):
         self.assertEqual(self.app.variables['gamepad.ads.pickup_base_radius_px'].get(),'150.0')
         self.assertEqual(self.app.variables['gamepad.bodylock.activation_range_px'].get(),'150.0')
         self.assertEqual(self.app.variables['gamepad.bodylock.response_time_x_ms'].get(),'180.0')
-        self.app.variables['gamepad.ads.scope_ready_trigger'].set('.04')
+        self.app.variables['gamepad.ads.scope_ready_trigger'].set('.04');self.root.update()
         with self.assertRaisesRegex(ValueError,'必须小于'):self.app.collect()
         self.assertIsNotNone(diagram.geometry,'invalid L2 settings must not hide the independent spatial comparison')
         self.app.show_page('assist');self.app.show_page('ads')
@@ -688,14 +749,14 @@ class DesktopWorkspaceTests(unittest.TestCase):
         self.assertNotIn('feedback_current',diagram.items)
         horizontal=self.app.field_widgets['gamepad.bodylock.output_limit_x'][0]
         self.assertEqual(horizontal.display.get(),'30')
-        horizontal.display.set('80')
+        horizontal.display.set('80');self.root.update()
         self.assertEqual(float(self.app.variables['gamepad.bodylock.output_limit_x'].get()),.8)
-        self.app.variables['gamepad.bodylock.output_limit_x'].set('.25')
+        self.app.variables['gamepad.bodylock.output_limit_x'].set('.25');self.root.update()
         self.assertEqual(horizontal.display.get(),'25')
-        horizontal.display.set('301')
+        horizontal.display.set('301');self.root.update()
         self.assertIn('100%',self.app.field_widgets['gamepad.bodylock.output_limit_x'][1].cget('text'))
         self.assertTrue(horizontal.entry.instate(['invalid']))
-        horizontal.display.set('30')
+        horizontal.display.set('30');self.root.update()
         diagram.offset=[5,-7];diagram.redraw()
         self.assertIsNotNone(diagram.geometry,diagram.summary.get())
         self.assertIn('向右',diagram.example_output.get());self.assertIn('向上',diagram.example_output.get())
@@ -707,16 +768,16 @@ class DesktopWorkspaceTests(unittest.TestCase):
         diagram.offset=[0,0];diagram.redraw()
         self.assertIn('无需位置纠偏',diagram.example_output.get())
         self.assertIn('准星',diagram.canvas.itemcget(diagram.items['center_label'],'text'))
-        self.app.variables['gamepad.assist.minimum_position_stick'].set('0')
-        self.app.variables['gamepad.assist.arrival_radius_px'].set('1')
+        self.app.variables['gamepad.assist.minimum_position_stick'].set('0');self.root.update()
+        self.app.variables['gamepad.assist.arrival_radius_px'].set('1');self.root.update()
         diagram.offset=[1.1,0];diagram.redraw()
         self.assertIn('死区内，已过滤',diagram.example_output.get())
-        self.app.variables['gamepad.assist.input_deadzone'].set('0')
+        self.app.variables['gamepad.assist.input_deadzone'].set('0');self.root.update()
         diagram.redraw();self.assertIn('向右',diagram.example_output.get())
-        horizontal.display.set('bad')
+        horizontal.display.set('bad');self.root.update()
         self.assertEqual(self.app.variables['gamepad.bodylock.output_limit_x'].get(),'bad')
         self.assertEqual(diagram.example_output.get(),'')
-        horizontal.display.set('31.25')
+        horizontal.display.set('31.25');self.root.update()
         self.assertEqual(lookup(self.app.collect()['config'],'gamepad.bodylock.output_limit_x'),.3125)
 
 
@@ -807,24 +868,64 @@ class DesktopWorkspaceTests(unittest.TestCase):
         self.assertEqual(self.app.surface.canvas.winfo_height(),before)
         self.assertTrue(self.app.notice_detail.winfo_ismapped())
 
+    def test_delete_profile_blocks_running_owner_and_keeps_other_profiles(self):
+        identifier=self.app.profile['id']
+        path=self.app.repository.path(identifier)
+        record={'game':self.app.profile['game'],'config_path':str(self.app.repository.runtime_path(self.app.profile))}
+        with patch.object(self.app.manager,'active',return_value=record),patch('desktop_app.gui.messagebox.askyesno') as confirm:
+            self.app.manage_value.set('delete');self.finish()
+            confirm.assert_not_called()
+            self.assertTrue(path.exists())
+        with patch.object(self.app.manager,'active',return_value=None),patch('desktop_app.gui.messagebox.askyesno',return_value=False):
+            self.app.manage_value.set('delete');self.finish()
+            self.assertTrue(path.exists())
+        with patch.object(self.app.manager,'active',return_value=None),patch('desktop_app.gui.messagebox.askyesno',return_value=True):
+            self.app.manage_value.set('delete');self.finish()
+            self.assertFalse(path.exists())
+            self.assertNotIn(identifier,self.app.states)
+            self.assertTrue(list((self.app.project/'runs/desktop/deleted-profiles').glob('*/'+path.name)))
+
+    def test_delete_last_profile_returns_to_empty_state(self):
+        with patch.object(self.app.manager,'active',return_value=None),patch('desktop_app.gui.messagebox.askyesno',return_value=True):
+            while self.app.profile:
+                self.app.manage_value.set('delete');self.finish()
+            self.assertEqual(self.app.profile_entries,[])
+            self.assertEqual(self.app.states,{})
+            with patch.object(self.app,'name_dialog',return_value='全新场景') as dialog:
+                self.app.new_profile();self.finish()
+                dialog.assert_called_once_with('新建配置')
+            self.assertEqual(self.app.profile['name'],'全新场景')
+
+    def test_import_offers_only_branches_found_in_legacy_file(self):
+        path=self.project/'import.toml'
+        path.write_text('[games.training_range]\n[gamepad.ads]\noutput_limit_x = 0.42\n',encoding='utf-8')
+        with patch('desktop_app.gui.filedialog.askopenfilename',return_value=str(path)),patch.object(self.app,'name_dialog',return_value=('自由导入','training_range')) as dialog:
+            self.app.import_profile();self.finish()
+            dialog.assert_called_once_with('导入配置','import',['default','training_range'])
+            self.assertEqual(self.app.profile['game'],'training_range',self.app.notice.get())
+            self.assertEqual(self.app.profile['name'],'自由导入')
+            self.assertAlmostEqual(lookup(self.app.profile['config'],'gamepad.ads.output_limit_x'),.42)
+
     def test_new_profile_uses_real_native_defaults_and_requires_explicit_model_choice(self):
-        with patch.object(self.app,'name_dialog',return_value=('新建 Apex','apex')):
+        with patch.object(self.app,'name_dialog',return_value='新建 Apex'):
             self.app.new_profile();self.finish()
         self.assertEqual(self.app.profile['name'],'新建 Apex',self.app.notice.get())
+        self.assertEqual(self.app.profile['game'],'custom')
         self.assertEqual(self.app.profile['curve']['algorithm'],'linear')
-        self.assertEqual(self.app.variables['runtime.profile'].get(),'legacy')
+        self.assertNotIn('runtime.profile',self.app.variables)
         self.assertEqual(self.app.variables['gamepad.bodylock.output_limit_x'].get(),'0.3')
-        self.assertEqual(self.app.variables['runtime.vision.capture_fps'].get(),'140')
+        self.assertEqual(self.app.variables['runtime.vision.capture_fps'].get(),'200')
         self.assertEqual(self.app.variables['runtime.vision.model_path'].get(),'')
 
-    def test_missing_model_keeps_running_instance_and_tracks_successful_save(self):
+    def test_missing_model_keeps_running_instance_and_unsaved_draft(self):
         record={'game':'apex','config_path':str(self.repo.runtime_path(self.b)),'process_id':44}
-        with patch.object(self.app.manager,'active',return_value=record),patch.object(self.app.manager,'stop') as stop:
+        with (patch.object(self.app.manager,'active',return_value=record),patch.object(self.app.manager,'stop') as stop,
+              patch('desktop_app.gui.filedialog.askopenfilename',return_value='')):
             self.app.variables['gamepad.ads.output_limit_x'].set('.75')
             self.app.primary_action();self.finish()
             stop.assert_not_called()
-            self.assertFalse(self.app.dirty())
-            self.assertIn('模型文件不存在',self.app.notice.get())
+            self.assertTrue(self.app.dirty())
+            self.assertIn('未选择识别模型',self.app.notice.get())
             self.assertEqual(self.app.state['expected'],self.repo.path(self.a['id']).read_bytes())
 
     def test_escape_cancels_whole_drag_and_restores_builtin_algorithm(self):
@@ -854,13 +955,13 @@ class DesktopWorkspaceTests(unittest.TestCase):
         self.app.show_page('curve');self.root.update()
         self.app.curve_editor.move_point(3,.32,.27)
         path=self.project/'curve-export.json'
-        with patch('desktop_app.gui.filedialog.asksaveasfilename',return_value=str(path)):self.app.export_curve()
+        with patch('desktop_app.gui.filedialog.asksaveasfilename',return_value=str(path)):self.app.export_curve();self.finish()
         document=json.loads(path.read_text(encoding='utf-8'))
         self.assertEqual(document['schema_version'],1)
         self.app.curve_choice.set('linear')
-        with patch('desktop_app.gui.filedialog.askopenfilename',return_value=str(path)):self.app.import_curve()
+        with patch('desktop_app.gui.filedialog.askopenfilename',return_value=str(path)):self.app.import_curve();self.finish()
         self.assertEqual(self.app.curve_editor.points,document['points'])
-        with patch.object(self.app,'name_dialog',return_value='训练曲线'):self.app.save_curve_preset()
+        with patch.object(self.app,'name_dialog',return_value='训练曲线'):self.app.save_curve_preset();self.finish()
         self.assertTrue(all(w.winfo_exists() for w in self.app.inputs))
         self.assertEqual(len(self.app.curve_library.entries()),1)
         self.app.run_job('校验',lambda:None);self.finish()
@@ -892,7 +993,7 @@ class DesktopWorkspaceTests(unittest.TestCase):
         original=editor.get('1.0','end-1c')
         editor.delete('1.0','end');editor.insert('1.0',update_text(original,{'runtime.game':'bo3'}));button.invoke()
         self.assertTrue(window.winfo_exists())
-        editor.delete('1.0','end');editor.insert('1.0',update_text(original,{'gamepad.ads.output_limit_x':.74567}));button.invoke()
+        editor.delete('1.0','end');editor.insert('1.0',update_text(original,{'gamepad.ads.output_limit_x':.74567}));button.invoke();self.finish()
         self.assertFalse(window.winfo_exists());self.assertTrue(self.app.dirty())
         self.assertEqual(self.app.variables['gamepad.ads.output_limit_x'].get(),'0.74567')
         self.assertEqual(lookup(self.repo.read(self.repo.path(self.a['id']))[0]['config'],'gamepad.ads.output_limit_x'),1.)
@@ -968,6 +1069,108 @@ class DesktopWorkspaceTests(unittest.TestCase):
             surface.canvas.event_generate('<MouseWheel>',delta=delta);self.root.update()
             self.assertEqual(surface.canvas.canvasy(0),0,
                              'a page shorter than the viewport must not scroll into empty space')
+
+    def test_preview_batches_updates_and_does_not_draw_hidden_page(self):
+        self.app.show_page('ads');self.root.update()
+        diagram=self.app.ads_diagram
+        with patch.object(diagram,'redraw',wraps=diagram.redraw) as draw:
+            for value in ('.31','.32','.33'):
+                self.app.variables['gamepad.bodylock.output_limit_x'].set(value)
+            self.assertEqual(draw.call_count,0)
+            self.root.update()
+            self.assertEqual(draw.call_count,1)
+        self.app.show_page('assist');self.root.update()
+        with patch.object(diagram,'redraw',wraps=diagram.redraw) as draw:
+            self.app.variables['gamepad.bodylock.output_limit_x'].set('.34');self.root.update()
+            draw.assert_not_called()
+
+    def test_curve_file_validation_precision_and_undo_roundtrip(self):
+        self.app.show_page('curve');self.root.update()
+        original=deepcopy(self.app.profile['curve'])
+        invalid=self.project/'invalid.json';invalid.write_text('{}',encoding='utf-8')
+        with patch('desktop_app.gui.filedialog.askopenfilename',return_value=str(invalid)):
+            self.app.import_curve();self.finish()
+        self.assertEqual(self.app.profile['curve'],original)
+        self.assertIn('格式',self.app.notice.get())
+        self.app.curve_editor.select(3)
+        self.app.point_x.set('32');self.app.point_y.set('27')
+        target=self.project/'curve.json'
+        with patch('desktop_app.gui.filedialog.asksaveasfilename',return_value=str(target)):
+            self.app.export_curve();self.finish()
+        document=json.loads(target.read_text(encoding='utf-8'))
+        self.assertEqual(document['points'][3],[.32,.27])
+        self.app.curve_choice.set('linear')
+        with patch('desktop_app.gui.filedialog.askopenfilename',return_value=str(target)):
+            self.app.import_curve();self.finish()
+        self.assertEqual(self.app.profile['curve']['definition']['points'],document['points'])
+        self.assertIn('草稿',self.app.notice.get())
+        self.app.curve_editor.undo()
+        self.assertEqual(self.app.profile['curve']['algorithm'],'linear')
+
+    def test_export_names_are_valid_filenames_for_free_profile_names(self):
+        from desktop_app.workspace import export_filename
+        self.assertEqual(export_filename('A / B: test?', '.json'),'A _ B_ test_.json')
+        self.assertEqual(export_filename('CON','.json'),'_CON.json')
+        self.assertEqual(export_filename('训练配置','.json'),'训练配置.json')
+
+    def test_import_resolves_native_defaults_from_actual_source(self):
+        path=self.project/'old.toml'
+        path.write_text('[runtime]\nprofile="performance"\n',encoding='utf-8')
+        with patch('desktop_app.gui.filedialog.askopenfilename',return_value=str(path)),patch.object(self.app,'name_dialog',return_value='导入旧设置'):
+            self.app.import_profile();self.finish()
+        self.assertEqual(self.app.profile['name'],'导入旧设置',self.app.notice.get())
+        self.assertEqual(lookup(self.app.profile['config'],'runtime.vision.capture_fps'),240)
+        self.assertEqual(self.app.profile['curve']['algorithm'],'linear')
+        self.assertNotIn('runtime.profile',self.app.variables)
+
+    def test_long_error_notice_uses_bounded_text_measurements(self):
+        with patch.object(self.app.notice_font,'measure',wraps=self.app.notice_font.measure) as measure:
+            self.app.notice.set('错误详情 ' * 2000)
+            self.assertLess(measure.call_count,20)
+        self.assertTrue(self.app.notice_summary.get().endswith('…'))
+
+    def test_scrollbar_appearance_never_changes_form_width(self):
+        self.root.geometry('900x740+20+20');self.root.update()
+        canvas=self.app.surface.canvas
+        before=canvas.winfo_width()
+        field=self.app.field_widgets['gamepad.ads.output_limit_x'][0]
+        field_width=field.winfo_width()
+        for _ in range(3):
+            self.app.advanced_button.invoke();self.root.update()
+            self.assertGreater(self.app.surface.content.winfo_reqheight(),canvas.winfo_height())
+            self.assertEqual(canvas.winfo_width(),before)
+            self.assertEqual(field.winfo_width(),field_width)
+            self.app.advanced_button.invoke();self.root.update()
+            self.assertEqual(canvas.winfo_width(),before)
+            self.assertEqual(field.winfo_width(),field_width)
+
+    def test_folded_sections_restore_original_content_height(self):
+        self.app.show_page('assist');self.root.update()
+        original=self.app.surface.content.winfo_reqheight()
+        for variable in (self.app.advanced,self.app.manual_transfer):
+            variable.set(True);self.app.update_advanced_groups();self.root.update()
+            self.assertGreater(self.app.surface.content.winfo_reqheight(),original)
+            variable.set(False);self.app.update_advanced_groups();self.root.update()
+            self.assertEqual(self.app.surface.content.winfo_reqheight(),original)
+
+    def test_primary_running_action_applies_without_restart(self):
+        model=self.project/'model.engine';model.write_bytes(b'test')
+        self.app.variables['runtime.vision.model_path'].set(str(model))
+        record={'process_id':42,'game':'apex','profile_id':self.a['id'],'config_path':str(self.repo.runtime_path(self.a))}
+        self.app.runtime_status={'phase':'running','record':record}
+        self.app.refresh_actions()
+        self.assertEqual(self.app.primary.cget('text'),'保存并应用')
+        with patch.object(self.app.manager,'active',return_value=record),patch.object(self.app.manager,'reload_config',return_value={'status':2}) as reload,patch.object(self.app.manager,'stop') as stop:
+            self.app.primary_action();self.finish()
+            reload.assert_called_once();stop.assert_not_called()
+
+    def test_new_profile_has_explicit_rates_without_performance_preset(self):
+        with patch.object(self.app,'name_dialog',return_value='通用配置'):
+            self.app.new_profile();self.finish()
+        self.assertNotIn('runtime.profile',self.app.variables)
+        self.assertIsNone(lookup(self.app.profile['config'],'runtime.profile'))
+        self.app.show_page('device')
+        self.assertIn('runtime.vision.tensor_height',self.app.field_widgets)
 
     def test_disclosure_collapse_and_resize_clamp_scroll_extent_and_reuse_controls(self):
         self.root.geometry('900x740+20+20');self.root.update()
@@ -1048,10 +1251,70 @@ class DesktopWorkspaceTests(unittest.TestCase):
         b={'game':'apex','config_path':str(self.repo.runtime_path(self.b))}
         self.assertTrue(self.app.owns_active_config(a));self.assertFalse(self.app.owns_active_config(b))
         with (patch.object(self.app.manager,'active',return_value=None),patch.object(self.app.manager,'start',return_value={'process_id':42}) as start,
+              patch.object(self.app.manager,'inspect_model',return_value={'input_width':480,'input_height':384}),
               patch.object(self.app.manager,'set_fusion') as fusion):
             self.app.primary_action();self.finish()
             self.assertEqual(start.call_args.args[0],'apex');self.assertEqual(start.call_args.args[3],self.a['id'])
             fusion.assert_not_called()
+
+    def test_new_profile_guides_model_selection_before_any_runtime_mutation(self):
+        with patch.object(self.app,'name_dialog',return_value='新配置启动回归'):
+            self.app.new_profile();self.finish()
+        self.assertEqual(self.app.page,'device')
+        self.assertEqual(self.app.primary.cget('text'),'选择模型')
+        original=self.repo.path(self.app.profile['id']).read_bytes()
+        with (patch('desktop_app.gui.filedialog.askopenfilename',return_value='') as picker,
+              patch.object(self.app.manager,'start') as start,patch.object(self.app.manager,'stop') as stop):
+            self.app.primary_action();self.finish()
+            picker.assert_called_once();start.assert_not_called();stop.assert_not_called()
+        self.assertEqual(self.repo.path(self.app.profile['id']).read_bytes(),original)
+        self.assertIn('未选择',self.app.notice.get())
+        model=self.project/'chosen.engine';model.write_bytes(b'GUI handoff fixture; native load separately verified')
+        with patch('desktop_app.gui.filedialog.askopenfilename',return_value=str(model)):
+            self.app.primary_action();self.finish()
+        self.assertEqual(self.app.primary.cget('text'),'启动配置')
+        with (patch.object(self.app.manager,'active',return_value=None),
+              patch.object(self.app.manager,'inspect_model',return_value={'input_width':480,'input_height':384}),
+              patch.object(self.app.manager,'start',return_value={'process_id':42}) as start):
+            self.app.primary_action();self.finish()
+        self.assertEqual(start.call_args.args[3],self.app.profile['id'])
+        runtime=tomllib.loads(self.repo.runtime_path(self.app.profile).read_text(encoding='utf-8'))
+        self.assertEqual(runtime['runtime']['vision']['model_path'],'chosen.engine')
+
+    def test_engine_shape_conflict_is_resolved_before_save_or_stop(self):
+        model=self.project/'no-dimensions-in-name.engine';model.write_bytes(b'metadata is supplied by native probe mock')
+        self.app.variables['runtime.vision.model_path'].set(model.name)
+        for key,value in [('capture_width',480),('capture_height',416),('tensor_width',480),('tensor_height',416)]:
+            self.app.variables['runtime.vision.'+key].set(str(value))
+        original=self.repo.path(self.a['id']).read_bytes()
+        with (patch.object(self.app.manager,'inspect_model',return_value={'input_width':480,'input_height':384}),
+              patch('desktop_app.gui.messagebox.askyesno',return_value=False),
+              patch.object(self.app.manager,'stop') as stop,patch.object(self.app.manager,'start') as start):
+            self.app.primary_action();self.finish()
+            stop.assert_not_called();start.assert_not_called()
+        self.assertEqual(self.repo.path(self.a['id']).read_bytes(),original)
+        self.assertTrue(self.app.dirty())
+        with (patch.object(self.app.manager,'inspect_model',return_value={'input_width':480,'input_height':384}),
+              patch('desktop_app.gui.messagebox.askyesno',return_value=True),
+              patch.object(self.app.manager,'active',return_value=None),
+              patch.object(self.app.manager,'start',return_value={'process_id':42}) as start):
+            self.app.primary_action();self.finish()
+        vision=start.call_args.args[1]['runtime']['vision']
+        self.assertEqual((vision['tensor_width'],vision['tensor_height']),(480,384))
+        self.assertEqual((vision['capture_width'],vision['capture_height']),(480,384))
+        self.assertEqual(self.app.variables['runtime.vision.tensor_height'].get(),'384')
+        self.assertFalse(self.app.dirty())
+
+    def test_broken_model_preflight_does_not_save_or_stop(self):
+        model=self.project/'broken.engine';model.write_bytes(b'broken')
+        self.app.variables['runtime.vision.model_path'].set(model.name)
+        original=self.repo.path(self.a['id']).read_bytes()
+        with (patch.object(self.app.manager,'inspect_model',side_effect=ValueError('模型读取失败')),
+              patch.object(self.app.manager,'stop') as stop,patch.object(self.app.manager,'start') as start):
+            self.app.primary_action();self.finish()
+            stop.assert_not_called();start.assert_not_called()
+        self.assertEqual(self.repo.path(self.a['id']).read_bytes(),original)
+        self.assertIn('模型读取失败',self.app.notice.get())
 
     def test_pending_reload_must_match_pid_and_request_and_restart_is_truthful(self):
         with patch.object(self.app.manager,'active',return_value={'process_id':42}):

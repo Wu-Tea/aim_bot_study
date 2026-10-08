@@ -30,7 +30,7 @@ GAME_FIELDS = [
 ]
 GAME_FIELDS += CATALOG_FIELDS
 COMMON_FIELDS = [
-    ('runtime.profile', '性能档位', str, 'balanced', ('legacy', 'balanced', 'performance', 'low_latency')),
+    ('runtime.profile', '性能档位', str, 'legacy', ('legacy', 'balanced', 'performance', 'low_latency')),
     ('runtime.vision.capture_fps', '检测帧率', int, 200, (1, 1000)),
     ('runtime.vision.idle_capture_fps', '空闲检测帧率', int, 60, (1, 240)),
     ('runtime.vision.capture_width', '捕获宽度', int, 640, (32, 8192)),

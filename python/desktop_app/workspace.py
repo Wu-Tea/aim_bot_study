@@ -14,8 +14,15 @@ from .fields import COMMON_FIELDS, GAME_FIELDS, field_value, validate_fields
 from .parameter_catalog import configured_value, LEGACY_PATHS
 from .settings import effective, literal, lookup, UiPreferences
 
-FIELDS = [f for f in GAME_FIELDS + COMMON_FIELDS if not f[0].startswith('gamepad.aim_response_curve.') and f[0] not in LEGACY_PATHS]
-GAMES = {'default': '通用 / COD', 'apex': 'Apex Legends', 'bo3': 'COD · Black Ops III'}
+FIELDS = [f for f in GAME_FIELDS + COMMON_FIELDS if not f[0].startswith('gamepad.aim_response_curve.') and f[0] not in LEGACY_PATHS and f[0] != 'runtime.profile']
+LEGACY_GAME_LABELS = {'default': '通用 / COD', 'apex': 'Apex Legends', 'bo3': 'COD · Black Ops III'}
+
+
+def export_filename(name, suffix):
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(' .') or '配置'
+    if stem.split('.')[0].upper() in {'CON','PRN','AUX','NUL',*[f'{prefix}{i}' for prefix in ('COM','LPT') for i in range(1,10)]}:
+        stem = '_' + stem
+    return stem + suffix
 
 
 def put(document, path, value):
@@ -68,7 +75,7 @@ def snapshot(config, game, project, defaults=None):
     for field in FIELDS:
         value = configured_value(data, field[0], (defaults or {}).get(field[0], field[3]))
         put(data, field[0], field_value(field, value))
-    algorithm = lookup(data, 'gamepad.aim_response_curve.algorithm', 'linear' if game != 'default' else 'cod_dynamic_legacy_lut')
+    algorithm = lookup(data, 'gamepad.aim_response_curve.algorithm', (defaults or {}).get('gamepad.aim_response_curve.algorithm', 'linear'))
     if algorithm == 'custom_lut':
         points = decode_points(lookup(data, 'gamepad.aim_response_curve.custom_points', ''))
     else:
@@ -115,8 +122,8 @@ class ProfileRepository:
         self.path(data.get('id'))
         if 'created_at_utc' in data and not isinstance(data['created_at_utc'],str):
             raise ValueError('配置创建时间格式无效。')
-        if data.get('game') not in GAMES:
-            raise ValueError('不支持的游戏。')
+        if not isinstance(data.get('game'), str) or not re.fullmatch(r'[a-z0-9_]+', data['game']):
+            raise ValueError('运行配置标识无效。')
         if not isinstance(data.get('name'), str) or not 1 <= len(data['name'].strip()) <= 80:
             raise ValueError('配置名称应为 1～80 个字符。')
         if not isinstance(data.get('config'), dict) or 'games' in data['config']:
@@ -136,9 +143,9 @@ class ProfileRepository:
                 raise ValueError('预设曲线的点位与原生算法不一致。')
             toml_text(projection(dict(data, config=state['config'], curve=curve)))
 
-    def create(self, name, game, defaults=None, source=None, validate=None):
-        if game not in GAMES:
-            raise ValueError('不支持的游戏。')
+    def create(self, name, game='custom', defaults=None, source=None, validate=None):
+        if not isinstance(game, str) or not re.fullmatch(r'[a-z0-9_]+', game):
+            raise ValueError('运行配置标识无效。')
         base = {'runtime': {'game': game}} if source is None else source
         state = snapshot(base, game, self.curve_source, defaults)
         data = {'schema_version': 2, 'id': 'p_' + uuid.uuid4().hex, 'name': name.strip(),
@@ -188,6 +195,59 @@ class ProfileRepository:
             return path.read_bytes()
         finally:
             candidate.unlink(missing_ok=True)
+
+    def delete(self, profile, expected):
+        """Remove from the library while retaining a recoverable JSON/TOML pair."""
+        path = self.path(profile['id'])
+        runtime = self.runtime_path(profile)
+        if path.read_bytes() != expected:
+            raise ValueError('配置已被外部修改，请重新载入后再删除。')
+        saved = json.loads(expected.decode('utf-8-sig'))
+        if runtime.exists() and runtime.read_text(encoding='utf-8-sig') != toml_text(projection(saved)):
+            raise ValueError('运行配置 TOML 被外部修改；请先导入后再删除。')
+        archive = self.root / 'runs/desktop/deleted-profiles' / (profile['id'] + '-' + uuid.uuid4().hex)
+        archive.mkdir(parents=True)
+        moved = []
+        try:
+            for source in (runtime, path):
+                if source.exists():
+                    destination = archive / source.name
+                    source.rename(destination)
+                    moved.append((source, destination))
+        except OSError:
+            for source, destination in reversed(moved):
+                destination.rename(source)
+            raise
+        return archive
+
+    def import_text(self, path):
+        path = Path(path)
+        if path.suffix.lower() == '.json':
+            data = json.loads(path.read_text(encoding='utf-8-sig'))
+            if data.get('schema_version') == 2:
+                self.check(data)
+                return toml_text(projection(data))
+            path = path.with_suffix('.toml')
+        return path.read_text(encoding='utf-8-sig')
+
+    def import_choices(self, path):
+        """Read actual branches from an import; never invent game templates."""
+        path = Path(path)
+        if path.suffix.lower() == '.json':
+            data = json.loads(path.read_text(encoding='utf-8-sig'))
+            if not isinstance(data, dict):raise ValueError('配置 JSON 必须是对象。')
+            if data.get('schema_version') == 2:
+                self.check(data)
+                return [data['game']]
+            if data.get('kind') == 'normalized_stick_response':
+                raise ValueError('这是响应曲线文件，请从响应曲线工作区导入。')
+            if data.get('schema_version') != 1 or not all(k in data for k in ('id','name','game')):
+                raise ValueError('不支持的配置 JSON 格式或版本。')
+            path = path.with_suffix('.toml')
+        document = tomllib.loads(path.read_text(encoding='utf-8-sig'))
+        branches = document.get('games', {})
+        if not isinstance(branches, dict):raise ValueError('配置分支格式无效。')
+        return list(dict.fromkeys([lookup(document, 'runtime.game', 'default'), *branches]))
 
     def import_file(self, path, name, game, defaults=None, validate=None):
         path = Path(path)

@@ -21,20 +21,22 @@ class NativeGeometryParityTests(unittest.TestCase):
     def test_small_distance_cannot_use_large_force_at_fastest_timing(self):
         from desktop_app.ads_geometry import follow_response_example
         policy=RuntimeManager(PROJECT_ROOT).ads_geometry_policy()
-        # 1.5 px is 1% of a 150 px range: sqrt(1%) of an 80% cap = 8%.
+        # Even a 5 ms requested response cannot bypass the feedback-time budget.
         result=follow_response_example(policy,5,5,.8,.8,1.5,0,radius_px=150)
-        self.assertLessEqual(result['stick'][0],.080001)
+        self.assertLessEqual(result['stick'][0],1.5/(500*.025)+1e-6)
 
     def test_near_center_position_does_not_prematurely_saturate(self):
         from desktop_app.ads_geometry import follow_response_example
         policy=RuntimeManager(PROJECT_ROOT).ads_geometry_policy()
-        result=follow_response_example(policy,80,80,.8,.8,32,0,radius_px=150)
-        self.assertAlmostEqual(result['stick'][0],.8*(32/150)**.5,places=6)
+        result=follow_response_example(policy,80,80,.8,.8,8,0,radius_px=150)
+        self.assertAlmostEqual(result['stick'][0],8/(500*.08),places=6)
+        delayed=follow_response_example(policy,80,80,.8,.8,8,0,radius_px=150,observation_age_ms=45)
+        self.assertLess(delayed['stick'][0],result['stick'][0])
 
     def test_independent_parameter_preview_matches_native_output(self):
         from desktop_app.ads_geometry import follow_response_example
         policy=RuntimeManager(PROJECT_ROOT).ads_geometry_policy()
-        self.assertEqual(policy['parameter_semantics'],'range-response-v3')
+        self.assertEqual(policy['parameter_semantics'],'range-response-v4')
         self.assertEqual(len(policy['independent_examples']),864)
         for ref in policy['independent_examples']:
             with self.subTest(ref=ref):

@@ -4,6 +4,7 @@ import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import queue
@@ -26,9 +27,8 @@ from .settings import ConfigStore, UiPreferences, effective, lookup
 from .fields import CHOICE_LABELS, COMMON_FIELDS, GAME_FIELDS, field_value, field_presentation
 from .parameter_catalog import PARAMETERS, groups as catalog_groups
 from .ads_preview import AdsEnvelopePreview
-from .workspace import FIELDS, GAMES, ProfileRepository, configured_value, projection, put, snapshot, toml_text
+from .workspace import FIELDS, LEGACY_GAME_LABELS, ProfileRepository, configured_value, projection, put, snapshot, toml_text, export_filename
 
-GAME_LABELS = GAMES
 FIELD_MAP = {f[0]: f for f in FIELDS}
 VIEW_ATTRIBUTES = ('surface','inputs','search_rows','field_widgets','page_traces','curve_editor',
     'curve_choice','preset_value','preset_entries','preset_button','point_title','point_entries',
@@ -36,10 +36,10 @@ VIEW_ATTRIBUTES = ('surface','inputs','search_rows','field_widgets','page_traces
     'point_table','tableholder','undo_button','redo_button','add_point_button','remove_point_button',
     'device_text','fusion_button','learning_summary','learning_table',
     'frame_rate_values','frame_rate_detail',
-    'advanced_parent','advanced_group','advanced_button','transfer_parent','transfer_group','ads_diagram','ads_groups')
+    'advanced_parent','advanced_group','advanced_button','transfer_button','transfer_parent','transfer_group','ads_diagram','ads_groups')
 PAGES = {'assist': ('参数调校', '辅助力度与识别目标'), 'curve': ('响应曲线', '直接编辑输入与响应'),
          'ads': ('范围与跟随', '开镜时找到目标，瞄上后持续跟随'),
-         'device': ('设备与运行', '模型、手柄与检测设置'), 'feedback': ('运行反馈', '设备状态、帧率与响应学习')}
+         'device': ('模型与设备', '选择模型，设置捕获尺寸与手柄'), 'feedback': ('运行反馈', '设备状态、帧率与响应学习')}
 ASSIST_GROUPS = [
     ('首次瞄准与腰射', ['gamepad.ads.output_limit_x','gamepad.ads.output_limit_y',
                    'gamepad.assist.hipfire_ratio','gamepad.ai_aim.aim_response_learning_enabled'],0),
@@ -137,6 +137,11 @@ class AssistantWindow:
         header.pack(fill='x',pady=(0,4))
         ttk.Label(header,text='手柄助手',style='Section.TLabel').pack(side='left')
         ttk.Label(header,text='  /  配置工作室',style='Muted.TLabel').pack(side='left')
+        self.runtime_menu_value=tk.StringVar(value='tools')
+        self.runtime_menu=ChoiceInput(header,self.runtime_menu_value,['restart','raw'],
+            {'tools':'更多','restart':'保存并重启当前配置','raw':'编辑完整配置…'})
+        self.runtime_menu.pack(side='right',padx=(8,0))
+        self.watch(self.runtime_menu_value,self.runtime_menu_action)
         self.primary = ttk.Button(header,text='启动配置',style='Primary.TButton',command=self.primary_action)
         self.primary.pack(side='right')
         self.stop_button = ttk.Button(header,text='停止',command=self.stop_runtime)
@@ -149,9 +154,9 @@ class AssistantWindow:
         self.new_button = ttk.Button(strip,text='＋ 新建',command=self.new_profile)
         self.new_button.pack(side='right',padx=(8,0))
         self.manage_value = tk.StringVar(value='manage')
-        self.manage_button = ChoiceInput(strip,self.manage_value,['copy','rename','import','export','reload','reset'],
+        self.manage_button = ChoiceInput(strip,self.manage_value,['copy','rename','import','export','reload','reset','delete'],
             {'manage':'配置管理','copy':'复制当前配置','rename':'重命名','import':'导入配置…',
-             'export':'导出配置…','reload':'重新载入','reset':'恢复创建时的参数'})
+             'export':'导出配置…','reload':'重新载入','reset':'恢复创建时的参数','delete':'删除当前配置…'})
         self.manage_button.pack(side='right',padx=(8,0))
         self.watch(self.manage_value,self.manage_action)
         self.profile_strip = ProfileStrip(strip,self.select_profile)
@@ -198,7 +203,13 @@ class AssistantWindow:
         first=message.splitlines()[0] if message else ''
         available=max(160,self.root.winfo_width()-110)
         preview=first
-        while preview and self.notice_font.measure(preview+'…')>available:preview=preview[:-1]
+        if self.notice_font.measure(preview+'…')>available:
+            low,high=0,len(preview)
+            while low<high:
+                middle=(low+high+1)//2
+                if self.notice_font.measure(preview[:middle]+'…')<=available:low=middle
+                else:high=middle-1
+            preview=preview[:low]
         details=preview!=first or first!=message
         self.notice_summary.set(preview+('…' if details else ''))
         if details:self.notice_detail.pack(side='right',padx=(8,0))
@@ -370,7 +381,7 @@ class AssistantWindow:
             empty=ttk.Frame(body,padding=(25,70))
             empty.pack(fill='x')
             ttk.Label(empty,text='为每一种手感，建立一份配置',style='Title.TLabel').pack(anchor='w')
-            ttk.Label(empty,text='配置独立保存模型、辅助参数和响应曲线。\n选择游戏后，从默认值开始调校，或导入已有配置。',
+            ttk.Label(empty,text='配置独立保存模型、辅助参数和响应曲线。\n填写名称即可从默认值开始调校，也可以导入已有配置。',
                       style='Muted.TLabel').pack(anchor='w',pady=(14,22))
             ttk.Button(empty,text='＋ 创建第一份配置',style='Primary.TButton',command=self.new_profile).pack(side='left')
             ttk.Button(empty,text='导入已有配置',command=self.import_profile).pack(side='left',padx=12)
@@ -477,11 +488,12 @@ class AssistantWindow:
             group=self.group(cols[column],title,paths)
             if title=='首次瞄准与腰射':
                 ttk.Button(group,text='瞄上后持续跟随 → 范围与跟随',style='Link.TButton',command=lambda:self.show_page('ads')).pack(anchor='w',pady=(4,0))
-        self.advanced_button=self.register(DisclosureButton(parent,self.advanced,'高级：意图、开火与响应',lambda:self.show_page('assist')))
+        self.advanced_button=self.register(DisclosureButton(parent,self.advanced,'手动介入与响应学习',self.update_advanced_groups))
         self.advanced_button.pack(fill='x',pady=(2,0))
         self.advanced_parent=ttk.Frame(parent)
         self.advanced_parent.pack(fill='x')
-        self.register(DisclosureButton(parent,self.manual_transfer,'手动输出补偿',lambda:self.show_page('assist'))).pack(fill='x',pady=(8,0))
+        self.transfer_button=self.register(DisclosureButton(parent,self.manual_transfer,'手动输出补偿',self.update_advanced_groups))
+        self.transfer_button.pack(fill='x',pady=(8,0))
         self.transfer_parent=ttk.Frame(parent)
         self.transfer_parent.pack(fill='x')
         self.update_advanced_groups()
@@ -537,8 +549,8 @@ class AssistantWindow:
         entry.pack(side='left',fill='x',expand=True)
         self.register(ttk.Button(model,text='选择文件…',command=self.choose_model)).pack(side='left',padx=(8,0))
         cols=self.columns(parent)
-        common=[f[0] for f in COMMON_FIELDS]
-        self.group(cols[0],'捕获与推理',common[:7],False)
+        self.group(cols[0],'捕获与推理',['runtime.vision.'+key for key in
+            ('capture_fps','idle_capture_fps','capture_width','capture_height','tensor_width','tensor_height')],False)
         devices=self.group(cols[1],'手柄与日志',[],False)
         row=self.field_row(devices,'runtime.input.device_id',False)
         self.register(ttk.Button(row,text='刷新',width=5,command=self.refresh_input_devices)).grid(row=0,column=2,padx=(6,0))
@@ -546,11 +558,6 @@ class AssistantWindow:
         for path in ('runtime.telemetry.enabled','runtime.performance.enabled'):self.field_row(devices,path,False)
         self.refresh_device_choices()
         if not self.devices_scanned:self.refresh_input_devices()
-        tools=ttk.Frame(parent)
-        tools.pack(fill='x',pady=(8,0))
-        self.register(ttk.Button(tools,text='编辑完整配置…',command=self.raw_editor)).pack(side='left')
-        self.register(ttk.Button(tools,text='保存并热加载',command=self.apply_saved_config)).pack(side='left',padx=8)
-        self.register(ttk.Button(tools,text='重启当前配置',command=lambda:self.primary_action(force_restart=True))).pack(side='left')
 
     def refresh_input_devices(self):
         if self.device_scanning or self.closed:return
@@ -601,27 +608,33 @@ class AssistantWindow:
     def update_advanced_groups(self):
         if self.page=='assist' and self.profile:
             if self.advanced.get():
+                self.advanced_parent.pack(fill='x',before=self.transfer_button)
                 if self.advanced_group is None:
                     self.advanced_group=ttk.Frame(self.advanced_parent)
                     self.advanced_group.pack(fill='x',pady=(0,14))
                     left,right=self.columns(self.advanced_group)
                     for title,paths in catalog_groups(True):
                         self.group(left,title,paths,True,
-                            '逐轴力度：0.15 = 15%；忽略阈值必须小于完整阈值。' if title=='手动意图' else '')
+                            '从开始介入到完全接管，手动控制权逐步增加。' if title=='手动意图' else '')
                     self.group(right,'响应学习起点',PRIOR_PATHS,False,
                                '0 使用原生默认值；手动指定范围为 80～4000。')
                     self.surface.install_wheel(self.advanced_group)
                 else:self.advanced_group.pack(fill='x',pady=(0,14))
-            elif self.advanced_group is not None:self.advanced_group.pack_forget()
+            else:
+                if self.advanced_group is not None:self.advanced_group.pack_forget()
+                self.advanced_parent.pack_forget()
         if self.page=='assist' and self.profile:
             if self.manual_transfer.get():
+                self.transfer_parent.pack(fill='x')
                 if self.transfer_group is None:
                     self.transfer_group=self.group(self.transfer_parent,'手动输出补偿',
                         [f[0] for f in GAME_FIELDS if f[0].startswith('gamepad.output_transfer.')],False,
                         '调整手动摇杆输出的映射；展开此处不会启用补偿。')
                     self.surface.install_wheel(self.transfer_group)
                 else:self.transfer_group.pack(fill='x',pady=(0,14))
-            elif self.transfer_group is not None:self.transfer_group.pack_forget()
+            else:
+                if self.transfer_group is not None:self.transfer_group.pack_forget()
+                self.transfer_parent.pack_forget()
 
     def build_curve(self,parent):
         toolbar=ttk.Frame(parent)
@@ -632,14 +645,12 @@ class AssistantWindow:
         choice.pack(side='left')
         ttk.Label(toolbar,text='蓝：当前 / 灰：已保存',style='Muted.TLabel').pack(side='left',padx=12)
         self.watch(self.curve_choice,self.curve_choice_changed,page=True)
-        menu=ttk.Menubutton(toolbar,text='曲线文件 ▾')
-        popup=tk.Menu(menu,tearoff=False,background=RAIL,foreground=INK)
-        for title,command in [('导入曲线…',self.import_curve),('导出曲线…',self.export_curve),('存为预设…',self.save_curve_preset)]:
-            popup.add_command(label=title,command=command)
-        menu.configure(menu=popup)
-        self.register(menu).pack(side='right')
+        files=ttk.Frame(parent)
+        files.pack(fill='x',pady=(0,10))
+        for label,command in [('导入曲线…',self.import_curve),('导出曲线…',self.export_curve),('存为预设…',self.save_curve_preset)]:
+            self.register(ttk.Button(files,text=label,command=command)).pack(side='left',padx=(0,6))
         self.preset_value=tk.StringVar(value='presets')
-        self.preset_button=self.register(ChoiceInput(toolbar,self.preset_value,[],{'presets':'曲线预设'}))
+        self.preset_button=self.register(ChoiceInput(files,self.preset_value,[],{'presets':'曲线预设'}))
         self.watch(self.preset_value,self.preset_changed,page=True)
         self.refresh_curve_presets()
         graphrow=ttk.Frame(parent)
@@ -687,7 +698,7 @@ class AssistantWindow:
             self.register(ttk.Button(actions,text=label,command=action)).pack(side='right',padx=(5,0))
         ttk.Label(parent,text='拖动点调整 · 双击空白插点 · ↑↓ 微调 · Ctrl+Z 撤销',
                   style='Muted.TLabel').pack(anchor='w',pady=(0,8))
-        self.register(DisclosureButton(parent,self.show_point_table,'查看全部控制点',lambda:self.show_page('curve'))).pack(anchor='w')
+        self.register(DisclosureButton(parent,self.show_point_table,'查看全部控制点',self.toggle_point_table)).pack(anchor='w')
         self.point_table=ttk.Treeview(parent,columns=('input','output'),show='headings',height=4,selectmode='browse')
         self.point_table.local_scroll=True
         self.point_table.heading('input',text='控制点输入 %')
@@ -703,6 +714,12 @@ class AssistantWindow:
         self.point_table.bind('<<TreeviewSelect>>',self.table_selected)
         self.point_table.bind('<Double-Button-1>',lambda _:self.precision_button.focus_set())
         self.point_selected(self.curve_editor.selected)
+
+    def toggle_point_table(self):
+        if self.show_point_table.get():
+            self.tableholder.pack(fill='x',pady=(8,0))
+            self.point_selected(self.curve_editor.selected)
+        else:self.tableholder.pack_forget()
 
     def refresh_curve_presets(self):
         try:presets=self.curve_library.entries()
@@ -806,34 +823,39 @@ class AssistantWindow:
         except ValueError as error:self.notice.set(str(error))
 
     def use_curve(self,data):
-        if not self.apply_precision():return
+        if not self.apply_precision():return False
         self.curve_editor.model.replace(data['points'],{'algorithm':'custom_lut','name':data['name']})
         self.curve_editor.changed()
+        self.notice.set('曲线已载入当前草稿，可撤销；点击顶部保存后生效。')
+        return True
 
     def preset_changed(self,*_):
         if self.preset_value.get() in self.preset_entries:self.use_curve(self.preset_entries[self.preset_value.get()])
 
     def import_curve(self):
+        if self.busy or not self.profile or not self.apply_precision():return
         path=filedialog.askopenfilename(parent=self.root,title='导入响应曲线',filetypes=[('标准曲线 JSON','*.json')])
-        if path:
-            try:self.use_curve(read_curve(path))
-            except (OSError,ValueError,KeyError) as error:self.notice.set('导入失败：'+str(error))
+        if path:self.run_job('正在读取曲线…',lambda:read_curve(path),self.use_curve)
 
     def export_curve(self):
-        if self.point_dirty and not self.apply_precision():return
+        if self.busy or not self.profile or not self.apply_precision():return
         path=filedialog.asksaveasfilename(parent=self.root,title='导出响应曲线',defaultextension='.json',
-            initialfile=self.profile['name']+'-curve.json',filetypes=[('标准曲线 JSON','*.json')])
+            initialfile=export_filename(self.profile['name'],'-curve.json'),filetypes=[('标准曲线 JSON','*.json')])
         if path:
-            writer=UiPreferences(self.project);writer.path=Path(path)
-            try:writer.write(self.profile['curve']['definition']);self.notice.set('曲线已导出。')
-            except OSError as error:self.notice.set('导出失败：'+str(error))
+            document=deepcopy(self.profile['curve']['definition'])
+            def work():
+                writer=UiPreferences(self.project);writer.path=Path(path);writer.write(document)
+            self.run_job('正在导出曲线…',work,lambda _:self.notice.set('曲线已导出：'+str(path)))
 
     def save_curve_preset(self):
-        if self.point_dirty and not self.apply_precision():return
-        name=self.name_dialog('保存曲线预设',self.profile['name']+' 响应曲线')
+        if self.busy or not self.profile or not self.apply_precision():return
+        name=self.name_dialog('保存曲线预设',(self.profile['name']+' 响应曲线')[:80])
         if name:
-            try:self.curve_library.create(name,self.curve_editor.points);self.refresh_curve_presets();self.notice.set('预设已保存；其他配置的曲线保持独立。')
-            except (ValueError,OSError) as error:self.notice.set(str(error))
+            points=deepcopy(self.curve_editor.points)
+            def done(_):
+                self.refresh_curve_presets()
+                self.notice.set('曲线预设已保存，可在其他配置中选择使用。')
+            self.run_job('正在保存曲线预设…',lambda:self.curve_library.create(name,points),done)
 
     def filter_rows(self):
         query=self.search.get().strip().lower()
@@ -857,7 +879,7 @@ class AssistantWindow:
             if query and query not in text:row.pack_forget()
             else:row.pack(fill='x')
 
-    def name_dialog(self,title,initial='',game=False):
+    def name_dialog(self,title,initial='',branches=None):
         window=tk.Toplevel(self.root)
         window.title(title)
         window.configure(background=SURFACE)
@@ -867,20 +889,19 @@ class AssistantWindow:
         frame.pack(fill='both',expand=True)
         ttk.Label(frame,text=title,style='Section.TLabel').pack(anchor='w',pady=(0,14))
         name=tk.StringVar(value=initial)
-        ttk.Label(frame,text='配置名称' if game else '名称',style='Muted.TLabel').pack(anchor='w')
+        ttk.Label(frame,text='名称',style='Muted.TLabel').pack(anchor='w')
         entry=ttk.Entry(frame,textvariable=name,width=35)
         entry.pack(fill='x',pady=(4,12))
-        selected_game=tk.StringVar(value='apex')
-        if game:
-            ttk.Label(frame,text='游戏 · 创建后保持固定',style='Muted.TLabel').pack(anchor='w')
-            ChoiceInput(frame,selected_game,list(GAMES),GAMES).pack(fill='x',pady=(4,12))
-            ttk.Label(frame,text='Apex / BO3 默认线性，通用 / COD 使用原生动态曲线。',style='Muted.TLabel',wraplength=330).pack(anchor='w',pady=(0,12))
+        selected_game=tk.StringVar(value=branches[0] if branches else '')
+        if branches:
+            ttk.Label(frame,text='旧文件中的配置分支',style='Muted.TLabel').pack(anchor='w')
+            ChoiceInput(frame,selected_game,branches,{key:key for key in branches}).pack(fill='x',pady=(4,12))
         error=tk.StringVar()
         ttk.Label(frame,textvariable=error,foreground='#f49090').pack(anchor='w')
         result=[]
         def confirm():
             if not 1<=len(name.get().strip())<=80:error.set('名称应为 1～80 个字符。');return
-            result.append((name.get().strip(),selected_game.get()) if game else name.get().strip())
+            result.append((name.get().strip(),selected_game.get()) if branches else name.get().strip())
             window.destroy()
         buttons=ttk.Frame(frame);buttons.pack(fill='x',pady=(12,0))
         ttk.Button(buttons,text='确认',style='Primary.TButton',command=confirm).pack(side='right')
@@ -894,9 +915,9 @@ class AssistantWindow:
         return result[0] if result else None
 
     def new_profile(self):
-        result=self.name_dialog('新建配置','',True)
-        if not result:return
-        name,game=result
+        name=self.name_dialog('新建配置')
+        if not name:return
+        game='custom'
         def work():
             defaults=self.manager.inspect_defaults(game,f'[runtime]\ngame="{game}"\n')
             defaults['runtime.vision.model_path']=''
@@ -905,6 +926,7 @@ class AssistantWindow:
 
     def profile_created(self,profile):
         self.load_library(profile['id'])
+        if not self.has_model_file():self.show_page('device')
         self.notice.set('配置已创建。选择识别模型后即可启动；调整参数后点击保存。')
 
     def native_validator(self,game):
@@ -935,6 +957,18 @@ class AssistantWindow:
                     state['saved']['name']=state['data']['name']=name
                     self.refresh_strip();self.notice.set('配置已重命名。')
                 self.run_job('正在重命名…',lambda:self.repository.save(candidate,state['expected'],self.native_validator(candidate['game'])),done)
+        elif action=='delete':
+            if self.owns_active_config(self.manager.active()):
+                self.notice.set('当前配置正在运行，请先停止运行再删除。');return
+            profile=deepcopy(self.profile)
+            expected=self.state['expected']
+            if not messagebox.askyesno('删除配置',f"删除“{profile['name']}”？未保存修改会丢弃，磁盘配置将保留在删除备份中。",parent=self.root):return
+            def done(archive):
+                self.states.pop(profile['id'],None)
+                self.profile=None;self.point_dirty=False
+                self.load_library()
+                self.notice.set('配置已删除。可从删除备份中的 JSON 重新导入：'+str(archive))
+            self.run_job('正在删除配置…',lambda:self.repository.delete(profile,expected),done)
         elif action=='export':self.export_profile()
         elif action=='reset':
             if messagebox.askyesno('恢复创建时的参数','把当前草稿恢复为配置创建时的参数和曲线？保存后才会写入文件。',parent=self.root):
@@ -947,27 +981,20 @@ class AssistantWindow:
     def import_profile(self):
         path=filedialog.askopenfilename(parent=self.root,title='导入为独立配置',filetypes=[('配置文件','*.toml *.json'),('所有文件','*.*')])
         if not path:return
-        game=None
-        if Path(path).suffix.lower()=='.json':
-            try:
-                document=json.loads(Path(path).read_text(encoding='utf-8-sig'))
-                if not isinstance(document,dict):raise ValueError('配置 JSON 必须是对象。')
-                if document.get('schema_version')==2:
-                    self.repository.check(document);game=document['game']
-                elif document.get('kind')=='normalized_stick_response':
-                    raise ValueError('这是响应曲线文件，请从响应曲线工作区导入。')
-            except (OSError,ValueError,KeyError,TypeError) as error:self.notice.set('导入失败：'+str(error));return
-        result=self.name_dialog('导入配置',Path(path).stem,not bool(game))
+        try:choices=self.repository.import_choices(path)
+        except (OSError,ValueError,KeyError,TypeError) as error:
+            self.notice.set('导入失败：'+str(error));return
+        result=self.name_dialog('导入配置',Path(path).stem,choices if len(choices)>1 else None)
         if not result:return
-        if game:name=result
-        else:name,game=result
+        if len(choices)>1:name,game=result
+        else:name,game=result,choices[0]
         self.run_job('正在读取并校验导入配置…',lambda:self.repository.import_file(path,name,game,
-            self.manager.inspect_defaults(game,f'[runtime]\ngame="{game}"\n'),self.native_validator(game)),self.profile_created)
+            self.manager.inspect_defaults(game,self.repository.import_text(path)),self.native_validator(game)),self.profile_created)
 
     def export_profile(self):
         try:candidate=self.collect()
         except ValueError as error:self.notice.set(str(error));return
-        path=filedialog.asksaveasfilename(parent=self.root,title='导出配置',initialfile=self.profile['name']+'.json',
+        path=filedialog.asksaveasfilename(parent=self.root,title='导出配置',initialfile=export_filename(self.profile['name'],'.json'),
             defaultextension='.json',filetypes=[('完整配置 JSON','*.json'),('原生配置 TOML','*.toml')])
         if not path:return
         def work():
@@ -996,6 +1023,14 @@ class AssistantWindow:
             try:value=value.relative_to(self.project)
             except ValueError:pass
             self.variables['runtime.vision.model_path'].set(value.as_posix())
+            self.notice.set('模型已选择。请核对模型输入尺寸，再点击启动配置；启动时会保存当前配置。')
+            return True
+        return False
+
+    def has_model_file(self):
+        if not self.profile:return False
+        value=self.state['raw'].get('runtime.vision.model_path','').strip()
+        return bool(value) and (self.project/value).is_file()
 
     def collect(self):
         if self.point_dirty and not self.apply_precision():raise ValueError('请修正选中控制点的坐标。')
@@ -1063,8 +1098,43 @@ class AssistantWindow:
 
     def primary_action(self,force_restart=False):
         if self.busy or not self.profile:return
+        if not force_restart and self.owns_active_config(self.runtime_status.get('record')) and not self.restart_required:
+            self.apply_saved_config();return
+        # A fresh profile deliberately has no model. Complete this dependency
+        # before saving or stopping another profile, on the UI thread where
+        # the user can act on it rather than a transient worker status line.
+        if not self.has_model_file():
+            self.show_page('device')
+            if not self.choose_model():
+                self.notice.set('未选择识别模型，配置尚未启动。请点击“选择模型”完成设置。')
+            self.refresh_actions()
+            return
         try:candidate=self.collect()
         except ValueError as error:self.notice.set(str(error));return
+        def checked(shape):
+            config=candidate['config']
+            w,h=shape['input_width'],shape['input_height']
+            proposed={'tensor_width':w,'tensor_height':h}
+            cw,ch=(lookup(config,'runtime.vision.'+key) for key in ('capture_width','capture_height'))
+            if lookup(config,'runtime.vision.require_isotropic_resize',True) and cw*h!=ch*w:
+                divisor=math.gcd(w,h);ux,uy=w//divisor,h//divisor
+                scale=max(math.ceil(32/min(ux,uy)),min(round(cw/ux),8192//max(ux,uy)))
+                proposed.update(capture_width=ux*scale,capture_height=uy*scale)
+            changed={key:value for key,value in proposed.items() if lookup(config,'runtime.vision.'+key)!=value}
+            if changed:
+                text=f'模型实际输入为 {w}×{h}，当前配置与模型不匹配。\n'
+                names={'tensor_width':'模型输入宽度','tensor_height':'模型输入高度',
+                       'capture_width':'捕获宽度','capture_height':'捕获高度'}
+                text+='\n'.join(f'{names[key]}：{lookup(config,"runtime.vision."+key)} → {value}' for key,value in changed.items())
+                if not messagebox.askyesno('同步模型规格后启动',text+'\n\n应用这些规格并启动？其他参数保持当前草稿。',parent=self.root):
+                    self.show_page('device');self.notice.set('启动已取消：模型规格尚未匹配，配置和运行实例未改变。');return
+                for key,value in changed.items():self.variables['runtime.vision.'+key].set(str(value))
+                candidate.update(self.collect())
+            self.start_prepared_profile(candidate,force_restart)
+        self.run_job('正在读取模型真实输入规格…',lambda:self.manager.inspect_model(
+            lookup(candidate['config'],'runtime.vision.model_path')),checked)
+
+    def start_prepared_profile(self,candidate,force_restart=False):
         state=self.state
         def work():
             expected=self.repository.save(candidate,state['expected'],self.native_validator(candidate['game']))
@@ -1104,15 +1174,28 @@ class AssistantWindow:
             except Exception as error:self.jobs.put((done,None,str(error)))
         threading.Thread(target=worker,daemon=True).start()
 
+    def runtime_menu_action(self,*_):
+        action=self.runtime_menu_value.get()
+        if action=='tools':return
+        self.runtime_menu_value.set('tools')
+        if self.busy or not self.profile:return
+        if action=='restart':self.primary_action(force_restart=True)
+        elif action=='raw':self.raw_editor()
+
     def refresh_actions(self):
-        for widget in [self.primary,self.stop_button,self.save_button,self.new_button,self.manage_button,*self.navigation.values()]:
+        for widget in [self.primary,self.runtime_menu,self.stop_button,self.save_button,self.new_button,self.manage_button,*self.navigation.values()]:
             widget.state(['disabled'] if self.busy else ['!disabled'])
         if self.busy:return
         active=self.runtime_status.get('record')
         self.stop_button.state(['!disabled'] if active else ['disabled'])
         self.primary.state(['!disabled'] if self.profile else ['disabled'])
         self.save_button.state(['!disabled'] if self.profile and self.dirty() else ['disabled'])
-        self.primary.configure(text='重启配置' if self.owns_active_config(active) else '切换并启动' if active else '启动配置')
+        owned=self.owns_active_config(active)
+        self.runtime_menu.state(['!disabled'] if self.profile else ['disabled'])
+        if owned:self.save_button.pack_forget()
+        elif not self.save_button.winfo_manager():self.save_button.pack(side='right',after=self.stop_button)
+        self.primary.configure(text=('保存并重启' if self.restart_required else '保存并应用') if owned else
+            '选择模型' if self.profile and not self.has_model_file() else '切换并启动' if active else '启动配置')
 
     def build_feedback(self,parent):
         self.device_text=tk.StringVar(value='未运行')
@@ -1156,7 +1239,7 @@ class AssistantWindow:
             values=[rate(data['vision_frames'],data['elapsed_ns']),rate(data['aim_frames'],data['aim_ns']),
                     rate(data['recent_aim_frames'],data['recent_aim_ns'])]
             owner=self.states.get(self.frame_rate_record.get('profile_id'))
-            name=owner['saved']['name'] if owner else GAMES.get(self.frame_rate_record['game'],self.frame_rate_record['game'])
+            name=owner['saved']['name'] if owner else LEGACY_GAME_LABELS.get(self.frame_rate_record['game'],self.frame_rate_record['game'])
             mode='已停止' if not record or data['state']==2 else 'Aim' if data['aiming'] else '空闲'
             detail=f'{name} · {mode} · Aim {data["aim_ns"]/1_000_000_000:.1f} 秒 / {data["aim_frames"]:,} 帧'
             if record and data['state']==0:detail+=' · 等待首个控制周期'
@@ -1194,24 +1277,42 @@ class AssistantWindow:
         editor.pack(fill='both',expand=True);editor.insert('1.0',text)
         error=tk.StringVar();ttk.Label(frame,textvariable=error,foreground='#f49090',wraplength=790).pack(anchor='w',pady=8)
         def apply():
+            if self.busy:return
             try:
-                data=tomllib.loads(editor.get('1.0','end-1c'))
-                if 'games' in data or lookup(data,'runtime.game')!=self.profile['game']:raise ValueError('完整配置必须保持当前游戏，且不包含 games 继承表。')
-                candidate=snapshot(data,self.profile['game'],self.project)
-                native=self.native_validator(self.profile['game'])
-                if native:
-                    handle,filename=tempfile.mkstemp(prefix='.editor-',suffix='.toml',dir=self.project)
-                    temporary=Path(filename)
-                    try:
-                        with os.fdopen(handle,'w',encoding='utf-8',newline='\n') as stream:stream.write(toml_text(data))
-                        native(temporary)
-                    finally:temporary.unlink(missing_ok=True)
-                self.profile.update(candidate)
-                self.state['raw']={f[0]:raw_value(f,configured_value(candidate['config'],f[0],f[3])) for f in FIELDS}
-                self.state['model']=self.model_for(self.profile)
-                window.destroy();self.select_profile(self.profile['id']);self.notice.set('完整配置已进入草稿；点击保存后生效。')
-            except (ValueError,KeyError,TypeError,OSError) as problem:error.set(str(problem))
-        ttk.Button(frame,text='校验并写入草稿',style='Primary.TButton',command=apply).pack(anchor='e')
+                text=editor.get('1.0','end-1c')
+                data=tomllib.loads(text)
+                if 'games' in data or lookup(data,'runtime.game')!=self.profile['game']:
+                    raise ValueError('完整配置必须保持当前运行标识，且不包含 games 继承表。')
+            except (ValueError,KeyError,TypeError) as problem:error.set(str(problem));return
+            profile=self.profile
+            button.state(['disabled']);error.set('正在校验…')
+            def work():
+                try:
+                    defaults=self.manager.inspect_defaults(profile['game'],text)
+                    candidate=snapshot(data,profile['game'],self.project,defaults)
+                    native=self.native_validator(profile['game'])
+                    if native:
+                        handle,filename=tempfile.mkstemp(prefix='.editor-',suffix='.toml',dir=self.project)
+                        temporary=Path(filename)
+                        try:
+                            with os.fdopen(handle,'w',encoding='utf-8',newline='\n') as stream:stream.write(toml_text(data))
+                            native(temporary)
+                        finally:temporary.unlink(missing_ok=True)
+                    return candidate,None
+                except (ValueError,KeyError,TypeError,OSError) as problem:return None,str(problem)
+            def done(result):
+                if not window.winfo_exists():return
+                candidate,problem=result
+                button.state(['!disabled'])
+                if problem:error.set(problem);return
+                profile.update(candidate)
+                state=self.states[profile['id']]
+                state['raw']={f[0]:raw_value(f,configured_value(candidate['config'],f[0],f[3])) for f in FIELDS}
+                state['model']=self.model_for(profile)
+                window.destroy();self.select_profile(profile['id']);self.notice.set('完整配置已进入草稿；点击顶部保存后生效。')
+            self.run_job('正在校验完整配置…',work,done)
+        button=ttk.Button(frame,text='校验并写入草稿',style='Primary.TButton',command=apply)
+        button.pack(anchor='e')
         window.bind('<Escape>',lambda _:window.destroy());window.grab_set();editor.focus_set()
 
     def show_logs(self):
@@ -1282,7 +1383,7 @@ class AssistantWindow:
         description={'stopped':'已停止','starting':'正在启动','running':'运行中','waiting_device':'等待手柄','stopping':'正在停止','failed':'运行失败'}.get(phase,phase)
         if record:
             state=self.states.get(record.get('profile_id'))
-            name=state['saved']['name'] if state else GAMES.get(record['game'],record['game'])
+            name=state['saved']['name'] if state else LEGACY_GAME_LABELS.get(record['game'],record['game'])
             description+=' · '+(name if len(name)<=10 else name[:9]+'…')
         self.status_text.set(description)
         if phase=='failed' and status.get('error')!=getattr(self,'last_runtime_failure',None):
@@ -1295,7 +1396,7 @@ class AssistantWindow:
             elif learning and learning.get('completed_id')==request and learning.get('status')!=1:self.applied(learning)
         if self.page=='feedback' and self.profile:
             self.show_frame_rates()
-            owner=' · '+GAMES.get(record['game'],record['game']) if record else ''
+            owner=' · '+LEGACY_GAME_LABELS.get(record['game'],record['game']) if record else ''
             self.device_text.set(status.get('device','未运行')+owner+(' · 虚拟输出已连接' if status.get('virtual_connected') else ''))
             fusion=observation['fusion']
             if fusion is not None:
@@ -1375,18 +1476,16 @@ def main():
             user32.SetForegroundWindow(window)
         kernel.CloseHandle(ui_lock)
         return
-    root = tk.Tk()
     try:
-        AssistantWindow(root, project)
+        from .web_host import launch
+        launch(project)
     except Exception as error:
-        root.withdraw()
-        messagebox.showerror('手柄助手无法打开', str(error), parent=root)
-        root.destroy()
+        # pythonw has no console: startup failures must stay visible.
+        ctypes.windll.user32.MessageBoxW(None, str(error), '手柄助手无法打开', 0x10)
         raise
-    try:
-        root.mainloop()
     finally:
         kernel.CloseHandle(ui_lock)
+
 
 
 if __name__ == '__main__':

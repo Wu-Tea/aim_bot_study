@@ -8,6 +8,8 @@ __pycache__/
 .venv/
 .idea/
 .playwright-cli/
+node_modules/
+/python/desktop_app/web_ui/dist/
 .claude/settings.local.json
 .agent-context/claude-runs/
 config.toml

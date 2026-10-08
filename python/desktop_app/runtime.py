@@ -131,6 +131,8 @@ class RuntimeManager:
         self.lock = threading.Lock()
         self.child = None
         self.stopping_pid = None
+        self._model_inspection = None
+        self._model_inspection_lock = threading.Lock()
 
     def validate(self, config_path, games):
         document = tomllib.loads(Path(config_path).read_text(encoding='utf-8-sig'))
@@ -223,6 +225,44 @@ class RuntimeManager:
             except (OSError, ValueError, KeyError, TypeError):
                 continue
         return None
+
+    def inspect_model(self, path):
+        # Shape is derived from these two files. Reuse it only while both file
+        # identities are unchanged; the runtime still loads the engine on start.
+        model = (self.root / path).resolve()
+        def identity(file):
+            stat = file.stat()
+            return (str(file), stat.st_dev, stat.st_ino, stat.st_size,
+                    stat.st_mtime_ns, stat.st_ctime_ns)
+        with self._model_inspection_lock:
+            if not model.is_file():
+                raise ValueError('识别模型文件不存在：' + str(model))
+            key = (identity(model), identity(self.executable))
+            if self._model_inspection and self._model_inspection[0] == key:
+                return dict(self._model_inspection[1])
+            shape = self._read_model_shape(model)
+            if key != (identity(model), identity(self.executable)):
+                raise ValueError('模型或原生程序在读取期间发生变化，请重新选择模型。')
+            self._model_inspection = (key, dict(shape))
+            return shape
+
+    def _read_model_shape(self, path):
+        model = (self.root / path).resolve()
+        if not model.is_file():
+            raise ValueError('识别模型文件不存在：' + str(model))
+        result = subprocess.run([str(self.executable), '--inspect-engine', str(model)],
+                                cwd=self.root, capture_output=True,
+                                creationflags=CREATE_NO_WINDOW, timeout=45)
+        if result.returncode:
+            raise ValueError('模型读取失败：' + result.stderr.decode('utf-8', errors='replace').strip())
+        try:
+            shape = json.loads(result.stdout.decode('utf-8'))
+            if not isinstance(shape,dict) or any(type(shape.get(k)) is not int or not 32 <= shape[k] <= 8192
+                for k in ('input_width','input_height')):
+                raise ValueError('模型输入尺寸不在支持范围内')
+        except (ValueError,UnicodeError) as error:
+            raise ValueError('模型尺寸读取失败：' + str(error)) from error
+        return shape
 
     def start(self, game, document, config_path=None, profile_id=None):
         with self.lock, launch_lock(self.root):
