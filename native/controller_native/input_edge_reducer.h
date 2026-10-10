@@ -23,6 +23,9 @@ inline bool physical_fire_active(const PhysicalGamepadState& physical, std::stri
 struct InputEdgeSnapshot {
     bool physical_ads_active = false;
     bool manual_fire_signal_active = false;
+    bool touch_fire_active = false;
+    bool touch_fire_pressed = false;
+    bool touch_fire_released = false;
     bool physical_ads_pressed = false;
     bool physical_ads_released = false;
     bool physical_ads_ready = false;
@@ -42,6 +45,7 @@ public:
         physical_ads_active_ = false;
         physical_ads_ready_ = false;
         previous_manual_fire_signal_ = false;
+        previous_touch_fire_signal_ = false;
         physical_ads_idle_samples_ = 0;
     }
 
@@ -51,7 +55,8 @@ public:
         std::uint64_t* next_event_sequence,
         float ads_ready_threshold = 0.80f,
         std::string_view fire_input = "both",
-        float ads_activation_threshold = kPhysicalAdsPressThreshold) noexcept {
+        float ads_activation_threshold = kPhysicalAdsPressThreshold,
+        bool touch_fire_signal = false) noexcept {
         InputEdgeSnapshot result{};
         const bool previous_physical_ads = physical_ads_active_;
         const bool previous_physical_ads_ready = physical_ads_ready_;
@@ -80,6 +85,9 @@ public:
             physical_fire_active(physical, fire_input);
         result.physical_ads_active = physical_ads_active_;
         result.manual_fire_signal_active = manual_fire_signal;
+        result.touch_fire_active = physical.connected && touch_fire_signal;
+        result.touch_fire_pressed = result.touch_fire_active && !previous_touch_fire_signal_;
+        result.touch_fire_released = !result.touch_fire_active && previous_touch_fire_signal_;
         result.physical_ads_pressed =
             physical_ads_active_ && !previous_physical_ads;
         result.physical_ads_released =
@@ -124,7 +132,9 @@ public:
         if (result.manual_fire_pressed || result.manual_fire_released) {
             assign_cause();
         }
+        if (result.touch_fire_pressed || result.touch_fire_released) assign_cause();
         previous_manual_fire_signal_ = manual_fire_signal;
+        previous_touch_fire_signal_ = result.touch_fire_active;
         return result;
     }
 
@@ -132,6 +142,7 @@ private:
     bool physical_ads_active_ = false;
     bool physical_ads_ready_ = false;
     bool previous_manual_fire_signal_ = false;
+    bool previous_touch_fire_signal_ = false;
     unsigned int physical_ads_idle_samples_ = 0;
 };
 

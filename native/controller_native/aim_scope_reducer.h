@@ -7,16 +7,23 @@
 namespace controller_native {
 
 enum class AimScopeSource : unsigned char {
-    None,
-    PhysicalAds,
-    ManualFire,
-    PhysicalAdsAndManualFire,
+    None = 0,
+    PhysicalAds = 1,
+    ManualFire = 2,
+    PhysicalAdsAndManualFire = 3,
+    TouchpadFire = 4,
+    PhysicalAdsAndTouchpadFire = 5,
+    ManualFireAndTouchpadFire = 6,
+    PhysicalAdsAndManualFireAndTouchpadFire = 7,
 };
 
 struct AimScopeSnapshot {
     AimScopeSource source = AimScopeSource::None;
     bool physical_ads_active = false;
     bool manual_fire_active = false;
+    bool touch_fire_active = false;
+    bool touch_fire_pressed = false;
+    bool touch_fire_released = false;
     bool assist_active = false;
     bool physical_ads_pressed = false;
     bool physical_ads_released = false;
@@ -53,6 +60,9 @@ public:
         double now_seconds = 0.0) noexcept {
         AimScopeSnapshot snapshot{};
         snapshot.physical_ads_pressed = input.physical_ads_pressed;
+        snapshot.touch_fire_active = input.touch_fire_active;
+        snapshot.touch_fire_pressed = input.touch_fire_pressed;
+        snapshot.touch_fire_released = input.touch_fire_released;
         snapshot.physical_ads_released = input.physical_ads_released;
         snapshot.physical_ads_ready = input.physical_ads_ready;
         snapshot.physical_ads_ready_pressed =
@@ -74,7 +84,7 @@ public:
         manual_fire_active_ = manual_fire_activates_aim &&
             input.manual_fire_signal_active;
         const bool assist_active =
-            physical_ads_active_ || manual_fire_active_;
+            physical_ads_active_ || manual_fire_active_ || input.touch_fire_active;
         snapshot.scope_acquired =
             assist_active && !previous_assist_active_;
         snapshot.scope_released =
@@ -88,13 +98,9 @@ public:
         snapshot.physical_ads_epoch = physical_ads_epoch_;
         snapshot.physical_ads_started_seconds = physical_ads_started_seconds_;
         snapshot.manual_fire_epoch = manual_fire_epoch_;
-        snapshot.source = physical_ads_active_
-            ? manual_fire_active_
-                ? AimScopeSource::PhysicalAdsAndManualFire
-                : AimScopeSource::PhysicalAds
-            : manual_fire_active_
-                ? AimScopeSource::ManualFire
-                : AimScopeSource::None;
+        // Existing enum values encode ADS=1, manual=2; touch adds bit 4.
+        snapshot.source = static_cast<AimScopeSource>((physical_ads_active_ ? 1 : 0) |
+            (manual_fire_active_ ? 2 : 0) | (input.touch_fire_active ? 4 : 0));
         previous_assist_active_ = assist_active;
         return snapshot;
     }

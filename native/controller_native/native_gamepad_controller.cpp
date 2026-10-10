@@ -637,7 +637,8 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
         config_.rb_counts_as_aiming,
         &next_command_sequence_,
         config_.ai_aim.ads_scope_ready_trigger, config_.auto_fire.manual_fire_input,
-        config_.ai_aim.ads_activation_trigger);
+        config_.ai_aim.ads_activation_trigger,
+        !config_.ai_aim.adapter_direct_mouse_manual && TouchpadFire::requested(physical));
     const AimScopeSnapshot scope = aim_scope_reducer_.reduce(
         input_edges,
         config_.auto_fire.manual_fire_activates_ai_aim, now);
@@ -666,7 +667,7 @@ const NativeControlTickPreparation& NativeGamepadController::begin_tick(
     sampled_intent_ = intent_filter_.update(
         {physical.left_x, physical.left_y},
         {physical.right_x, physical.right_y},
-        pipeline_contract::permits_assist(activation), manual_fire_pressed(physical), now,
+        pipeline_contract::permits_assist(activation), manual_fire_pressed(physical) || scope.touch_fire_active, now,
         last_target_plan_.target_id != 0,
         last_output_components_.handover_requested,
         mouse_bodylock ? config_.ai_aim.adapter_bodylock_deadzone : 0.0f);
@@ -714,7 +715,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     has_sampled_input_ = false;
     const auto touch_fire = touchpad_fire_.update(
         config_.ai_aim.adapter_direct_mouse_manual ? PhysicalGamepadState{} : physical,
-        now, config_.auto_fire.pulse_width_ms, config_.auto_fire.pulse_period_ms);
+        now);
     // Touch fire disturbs camera-response observations even though this source
     // deliberately has no recoil compensation. Include pulse gaps as firing.
     if (touch_fire.requested) last_firing_activity_seconds_ = now;

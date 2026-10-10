@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <limits>
+#include <random>
 #include <stdexcept>
 
 namespace {
@@ -24,29 +25,191 @@ PhysicalGamepadState touching() {
 void region_and_release() {
     TouchpadFire fire;
     auto input = touching();
-    require(fire.update(input, 1, 30, 100).pressed, "touch immediately starts first pulse");
-    require(!fire.update(input, 1.03, 30, 100).pressed, "pulse releases after 30 ms");
-    require(fire.update(input, 1.1, 30, 100).pressed, "held touch starts next pulse");
+    require(fire.update(input, 1).pressed, "touch immediately starts first pulse");
+    require(!fire.update(input, 1.03).pressed, "pulse releases after 30 ms");
+    require(fire.update(input, 1.05).pressed, "held touch starts next pulse after 50 ms");
     input.touchpad_fingers[0].active = false;
-    require(!fire.update(input, 1.101, 30, 100).requested, "lifting cancels an in-flight pulse");
+    require(!fire.update(input, 1.101).requested, "lifting cancels an in-flight pulse");
     input.touchpad = true;
-    require(!fire.update(input, 1.102, 30, 100).requested, "click is not contact");
-    input.touchpad_fingers[1] = {true, .75f, .75f};
-    require(fire.update(input, 1.103, 30, 100).pressed, "either finger and exact region boundary work");
+    require(!fire.update(input, 1.102).requested, "click is not contact");
+    input.touchpad_fingers[1] = {true, .75f, .6f};
+    require(fire.update(input, 1.103).pressed, "either finger and exact region boundary work");
     for (const auto position : {TouchpadFingerState{true,.749f,.1f},
-            {true,.9f,.751f}, {true,1.1f,.1f}, {true,.9f,-.1f},
+            {true,.9f,.601f}, {true,1.1f,.1f}, {true,.9f,-.1f},
             {true,std::numeric_limits<float>::quiet_NaN(),.1f}}) {
         input.touchpad_fingers[1] = position;
-        require(!fire.update(input, 1.104, 30, 100).requested,
+        require(!fire.update(input, 1.104).requested,
                 "outside/invalid contact must cancel immediately");
     }
     input = touching();
     input.connected = false;
-    require(!fire.update(input, 1.105, 30, 100).requested, "disconnect cancels stale contact");
+    require(!fire.update(input, 1.105).requested, "disconnect cancels stale contact");
     input.connected = true;
-    require(fire.update(input, 1.106, 30, 100).pressed, "fresh request starts fresh pulse");
+    require(fire.update(input, 1.106).pressed, "fresh request starts fresh pulse");
     fire.reset();
-    require(fire.update(input, 1.11, 30, 100).pressed, "reset discards old pulse phase");
+    require(fire.update(input, 1.11).pressed, "reset discards old pulse phase");
+}
+
+void touch_fire_1200_rpm_and_aim_scope() {
+    GamepadRuntimeConfig config;
+    config.auto_fire.enabled=false;
+    config.auto_fire.manual_fire_activates_ai_aim=false;
+    config.auto_fire.pulse_width_ms=5;
+    config.auto_fire.pulse_period_ms=200; // Target AutoFire must not set the touch RPM.
+    double now=10;
+    NativeGamepadController controller(config,&now);
+    auto input=touching();
+    input.touchpad_fingers[0].y=.6f;
+    int starts=0;bool previous=false;
+    for (int tick=0;tick<1000;++tick) {
+        now=10+tick*.001;
+        const auto preparation=controller.begin_tick(input);
+        require(pipeline_contract::requests_target_search(preparation.activation) &&
+                pipeline_contract::permits_assist(preparation.activation),
+                "held touch must activate search and aim before Vision, including fire pulse gaps");
+        require(!preparation.scope.physical_ads_active && !preparation.scope.physical_ads_ready &&
+                !preparation.scope.manual_fire_active,
+                "touch aim must not forge physical L2 or manual fire input");
+        require(preparation.scope.scope_epoch==1 && controller.ads_epoch()==1,
+                "one held contact owns one scope and acquisition epoch");
+        const auto out=controller.build_output_from_sampled_input();
+        require(out.rb==(tick%50<30),"1200 RPM requires 30 ms down / 20 ms up regardless of AutoFire settings");
+        starts+=out.rb && !previous;previous=out.rb;
+    }
+    require(starts==20,"one second must contain 20 touch-fire starts");
+    input.touchpad_fingers[0].y=std::nextafter(.6f,1.f);
+    now+=.001;
+    const auto released=controller.begin_tick(input);
+    require(released.activation==pipeline_contract::AssistActivation::Off && released.scope.scope_released,
+            "crossing into the bottom 40 percent releases touch aim on the same tick");
+    const auto out=controller.build_output_from_sampled_input();
+    require(!out.rb && out.y,"lower contact double-taps triangle without touch fire or aim");
+}
+
+void touch_aim_target_and_physical_scope_handover() {
+    for (bool light_l2 : {false,true}) {
+        GamepadRuntimeConfig config;
+        config.auto_fire.enabled=false;
+        config.auto_fire.manual_fire_activates_ai_aim=false;
+        config.recoil.enabled=true;
+        double now=40;
+        NativeGamepadController controller(config,&now);
+        auto input=touching();input.touchpad_fingers={};
+        input.left_trigger=light_l2 ? .1f : 0;
+        incident_fixture::TargetSpec spec;
+        spec.observation_id=25;spec.selector_generation=1;
+        spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,1,now,40,-12));
+        (void)controller.build_output(input);
+        require(controller.ads_epoch()==0,"idle/light L2 must not start an ADS job");
+        input.touchpad_fingers[0]={true,.9f,.5f};
+        int gap_aim=0;
+        std::uint64_t target=0;
+        for (int tick=0;tick<200;++tick) {
+            now=40.001+tick*.001;
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,tick+2,now,40,-12));
+            const auto preparation=controller.begin_tick(input);
+            require(preparation.scope.touch_fire_active && !preparation.scope.manual_fire_active &&
+                    !preparation.scope.physical_ads_ready,"touch must be its own activation source");
+            require(preparation.scope.touch_fire_pressed==(tick==0),"pulse gaps cannot generate contact edges");
+            const auto out=controller.build_output_from_sampled_input();
+            const auto& plan=controller.last_target_plan();
+            require(plan.target_id!=0 && plan.aim_authority>0 && out.right_x>0,
+                    "a valid off-center target must receive aim while touching, even without ready L2");
+            if (tick==0) target=plan.target_id;
+            require(plan.target_id==target && controller.ads_epoch()==1,"held touch must preserve identity and epoch");
+            require(std::fabs(controller.last_output_components().recoil_stick.y)<1e-6f,
+                    "enabling touch aim must not enable touch recoil");
+            if (!out.rb && out.right_x>0) ++gap_aim;
+        }
+        require(gap_aim==80,"all four 20 ms release gaps must retain aim output");
+        input.left_trigger=1;now+=.001;
+        controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,250,now,40,-12));
+        const auto combined=controller.begin_tick(input);
+        require(combined.scope.physical_ads_ready && combined.scope.touch_fire_active && !combined.scope.scope_acquired,
+                "physical L2 inside touch scope retains its own ready edge without a new scope");
+        (void)controller.build_output_from_sampled_input();
+        input.touchpad_fingers={};now+=.001;
+        const auto ads_only=controller.begin_tick(input);
+        require(ads_only.scope.touch_fire_released && !ads_only.scope.scope_released &&
+                pipeline_contract::permits_assist(ads_only.activation),"touch release must preserve independently held ADS");
+        (void)controller.build_output_from_sampled_input();
+        input.left_trigger=0;
+        for (int tick=0;tick<3;++tick) {
+            now+=.001;const auto preparation=controller.begin_tick(input);
+            if (tick==2) require(preparation.activation==pipeline_contract::AssistActivation::Off,
+                                "the last held source must release aim");
+            (void)controller.build_output_from_sampled_input();
+        }
+
+    }
+}
+
+void touch_macro_randomized_short_long_lifecycle() {
+    std::uint64_t total_steps=0;
+    for (unsigned seed : {20261010u,19072026u}) {
+        std::mt19937 random(seed);
+        for (int scenario=0;scenario<64;++scenario) {
+            GamepadRuntimeConfig config;
+            config.auto_fire.enabled=(scenario%2)==0;
+            config.auto_fire.manual_fire_activates_ai_aim=(scenario%3)==0;
+            config.auto_fire.fire_output=(scenario%2)==0 ? "RB" : "RT";
+            config.auto_fire.pulse_period_ms=100+random()%401;
+            config.auto_fire.pulse_width_ms=1+random()%20;
+            config.recoil.enabled=true;
+            double now=60;
+            NativeGamepadController controller(config,&now);
+            auto input=touching();
+            incident_fixture::TargetSpec spec;
+            spec.observation_id=31;spec.selector_generation=1;
+            spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+            const int duration=(scenario%2)==0 ? 250 : 5000;
+            int remaining=0;bool contact=false;int phase=-1;
+            for (int tick=0;tick<duration;++tick) {
+                now=60+tick*.001;
+                if (remaining--<=0) {
+                    remaining=10+random()%191;
+                    input.connected=random()%10!=0;
+                    input.touchpad_fingers={};
+                    const int position=random()%5;
+                    if (position==0) input.touchpad_fingers[0]={true,.9f,.6f};
+                    if (position==1) input.touchpad_fingers[1]={true,.75f,.4f};
+                    if (position==2) input.touchpad_fingers[0]={true,.9f,.601f};
+                    if (position==3) input.touchpad_fingers[0]={true,.74f,.1f};
+                    input.right_x=(static_cast<int>(random()%11)-5)*.001f;
+                    input.right_y=(static_cast<int>(random()%11)-5)*.001f;
+                }
+                const bool upper=input.connected &&
+                    ((input.touchpad_fingers[0].active && input.touchpad_fingers[0].x>=.75f && input.touchpad_fingers[0].y<=.6f) ||
+                     (input.touchpad_fingers[1].active && input.touchpad_fingers[1].x>=.75f && input.touchpad_fingers[1].y<=.6f));
+                phase=upper ? (contact ? (phase+1)%50 : 0) : -1;
+                if (tick%8==0) controller.submit_vision_snapshot(
+                    incident_fixture::observed_snapshot(spec,tick+1,now,20+random()%21,-10));
+                const auto preparation=controller.begin_tick(input);
+                require(preparation.scope.touch_fire_active==upper &&
+                        pipeline_contract::permits_assist(preparation.activation)==upper,
+                        "randomized contact admission must own aim independently of pulse phase and AutoFire");
+                require(preparation.scope.touch_fire_pressed==(upper && !contact) &&
+                        preparation.scope.touch_fire_released==(!upper && contact),"random contact transitions must emit one edge");
+                const auto out=controller.build_output_from_sampled_input();
+                const bool pulse=config.auto_fire.fire_output=="RB" ? out.rb : out.right_trigger>.5f;
+                require(pulse==(upper && phase<30),"random short/long holds must follow independent 1200 RPM pulses");
+                require(std::isfinite(out.right_x) && std::isfinite(out.right_y) &&
+                        std::hypot(out.right_x,out.right_y)<=1.00001f,"aim output must remain finite and bounded");
+                require(std::fabs(controller.last_output_components().recoil_stick.y)<1e-6f,
+                        "random touch shots must not add recoil");
+                if (!upper && input.connected) require(out.right_x==input.right_x && out.right_y==input.right_y,
+                        "released/lower/outside touch must return exact physical sticks");
+                contact=upper;++total_steps;
+            }
+            controller.reset();input=touching();input.connected=false;now+=.1;
+            const auto preparation=controller.begin_tick(input);
+            require(preparation.activation==pipeline_contract::AssistActivation::Off,"reset/disconnect must discard touch lease");
+            const auto out=controller.build_output_from_sampled_input();
+            require(!out.rb && out.right_trigger==0 && !out.y,"reset/disconnect cannot replay a macro");
+        }
+    }
+    require(total_steps==336000,"both independent seeds and all short/long scenarios must execute");
 }
 
 void sdl_contact_lifecycle() {
@@ -65,11 +228,11 @@ void sdl_contact_lifecycle() {
     auto input = touching();
     input.touchpad_fingers = read_sdl_touchpad_fingers(samples, 2, read);
     TouchpadFire fire;
-    require(input.touchpad_fingers[1].active && fire.update(input, 1, 30, 100).pressed,
+    require(input.touchpad_fingers[1].active && fire.update(input, 1).pressed,
             "SDL contacts flow into fire without requiring pressure or click");
     samples[0].active = 0; samples[1].status = -1;
     input.touchpad_fingers = read_sdl_touchpad_fingers(samples, 2, read);
-    require(!fire.update(input, 1.001, 30, 100).requested,
+    require(!fire.update(input, 1.001).requested,
             "release and failed read cannot retain the preceding touch");
     samples[0].active = 1; samples[0].x = std::numeric_limits<float>::infinity();
     require(!read_sdl_touchpad_fingers(samples, 2, read)[0].active, "reject invalid SDL coordinates");
@@ -80,7 +243,7 @@ void sdl_contact_lifecycle() {
 
 void native_hold_fire_without_recoil() {
     for (const auto output_button : {"RB", "RT"}) {
-      for (float contact_y : {.1f, .7f}) {
+      for (float contact_y : {.1f, .6f}) {
         GamepadRuntimeConfig config;
         config.auto_fire.enabled = false; // Human touch does not require Vision AutoFire.
         config.auto_fire.fire_output = output_button;
@@ -96,11 +259,11 @@ void native_hold_fire_without_recoil() {
         for (int tick = 0; tick < 300; ++tick) {
             now = 10 + tick * .001;
             const auto out = controller.build_output(input);
-            const bool expected = tick % 100 < 30;
+            const bool expected = tick % 50 < 30;
             const bool pressed = config.auto_fire.fire_output == "RB" ? out.rb : out.right_trigger > .5f;
-            require(pressed == expected, "native output must alternate 30 ms down / 70 ms up");
+            require(pressed == expected, "native output must alternate 30 ms down / 20 ms up");
             require(out.right_x == input.right_x && out.right_y == input.right_y,
-                    "touch fire must not activate aim or recoil, including gaps");
+                    "without a target, touch aim must preserve manual input and add no recoil");
             require(out.left_x == input.left_x && out.a && out.touchpad,
                     "other physical input must remain unchanged");
             const auto report = to_ds4_report(out);
@@ -111,10 +274,10 @@ void native_hold_fire_without_recoil() {
             rising_edges += pressed && !previous;
             previous = pressed;
         }
-        require(rising_edges == 3, "three held-touch cycles must actually execute");
+        require(rising_edges == 6, "six held-touch cycles must execute in 300 ms");
         now = 10.3;
         require(config.auto_fire.fire_output == "RB" ? controller.build_output(input).rb
-                    : controller.build_output(input).right_trigger > .5f, "fourth pulse starts");
+                    : controller.build_output(input).right_trigger > .5f, "seventh pulse starts");
         input.touchpad_fingers = {};
         now += .001;
         const auto released = controller.build_output(input);
@@ -154,7 +317,7 @@ void touch_owns_target_fire_gaps() {
         snapshot.state.auto_fire_requested = true;
         controller.submit_vision_snapshot(snapshot);
         const auto out = controller.build_output(input);
-        require(out.rb == (tick % 100 < 30), "target AutoFire must not fill touch pulse gaps");
+        require(out.rb == (tick % 50 < 30), "target AutoFire must not fill touch pulse gaps");
         require(std::fabs(controller.last_output_components().recoil_stick.y) < 1e-6f,
                 "ADS and a target cannot enable recoil on touch fire");
     }
@@ -218,14 +381,14 @@ void touch_regions_and_triangle_lifecycle() {
     TouchpadFire fire;
     TouchpadTriangle triangle;
     auto input = touching();
-    for (float y : {0.f, .25f, .49f, .5f, .501f, .7f, .749f, .75f}) {
+    for (float y : {0.f, .25f, .49f, .5f, .501f, .599f, .6f}) {
         input.touchpad_fingers[0].y = y;
-        require(fire.update(input, 1, 30, 100).requested && !triangle.update(input, 1),
-                "top 75 percent including split line belongs only to fire");
+        require(fire.update(input, 1).requested && !triangle.update(input, 1),
+                "top 60 percent including split line belongs only to fire");
     }
-    input.touchpad_fingers[0].y = .751f;
-    require(!fire.update(input, 1, 30, 100).requested && triangle.update(input, 1),
-            "bottom 25 percent belongs only to triangle");
+    input.touchpad_fingers[0].y = std::nextafter(.6f,1.f);
+    require(!fire.update(input, 1).requested && triangle.update(input, 1),
+            "bottom 40 percent belongs only to triangle");
     input.touchpad_fingers[1] = input.touchpad_fingers[0];
     require(!triangle.update(input, 1.020), "second finger must not restart first press");
     input.touchpad_fingers[0].active = false;
@@ -259,9 +422,9 @@ void touch_regions_and_triangle_lifecycle() {
             input.touchpad_fingers = {};
             input.touchpad_fingers[0] = {true, x, y};
             const bool valid = x >= .75f && x <= 1 && y >= 0 && y <= 1;
-            require(fire.update(input, 4, 30, 100).requested == (valid && y <= .75f),
-                    "grid contacts must match the top 75 percent fire region");
-            require(triangle.update(input, 4) == (valid && y > .75f),
+            require(fire.update(input, 4).requested == (valid && y <= .6f),
+                    "grid contacts must match the top 60 percent fire region");
+            require(triangle.update(input, 4) == (valid && y > .6f),
                     "grid contacts must match the remaining triangle region");
         }
     }
@@ -297,6 +460,9 @@ void auxiliary_triangle_output_contract() {
 } // namespace
 
 void register_touchpad_fire_tests(native_test::Registry& registry) {
+    registry.add_case("BaseEndToEnd", "touch_fire_1200_rpm_and_aim_scope", touch_fire_1200_rpm_and_aim_scope);
+    registry.add_case("BaseEndToEnd", "touch_aim_target_physical_scope_handover", touch_aim_target_and_physical_scope_handover);
+    registry.add_case("BaseEndToEnd", "touch_macro_randomized_short_long_lifecycle", touch_macro_randomized_short_long_lifecycle);
     registry.add_case("BaseEndToEnd", "touch_triangle_double_tap_native", triangle_double_tap_native);
     registry.add_case("BaseEndToEnd", "touch_regions_triangle_lifecycle", touch_regions_and_triangle_lifecycle);
     registry.add_case("BaseContracts", "auxiliary_triangle_output_contract", auxiliary_triangle_output_contract);

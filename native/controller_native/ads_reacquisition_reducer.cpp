@@ -10,7 +10,7 @@ AdsReacquisitionDecision AdsReacquisitionReducer::on_input(
     const pipeline_contract::TargetPlan& current_plan,
     pipeline_contract::EventSequence cause_event) noexcept {
     if (scope.physical_ads_released || scope.scope_released ||
-        (scope.physical_ads_ready_released && !scope.manual_fire_active)) {
+        (scope.physical_ads_ready_released && !scope.manual_fire_active && !scope.touch_fire_active)) {
         if (!pending_.active) return {};
         const auto cause = pending_.cause_event;
         pending_ = {};
@@ -28,7 +28,7 @@ AdsReacquisitionDecision AdsReacquisitionReducer::on_input(
         // re-press. Vision may already have published a person while LT/fire
         // was idle; deferring that edge leaves the coordinator with a manual
         // target and no epoch that can ever admit it.
-        if (scope.manual_fire_active || scope.physical_ads_ready) {
+        if (scope.manual_fire_active || scope.touch_fire_active || scope.physical_ads_ready) {
             pending_ = {};
             return {
                 true,
@@ -41,11 +41,11 @@ AdsReacquisitionDecision AdsReacquisitionReducer::on_input(
         // The distinct ready edge below owns the acquisition clock.
         return {};
     }
-    if (scope.physical_ads_ready_pressed &&
+    if ((scope.physical_ads_ready_pressed || scope.touch_fire_pressed) &&
         current_plan.mode == pipeline_contract::ControlMode::Manual) {
         // Vision can publish a manual/no-epoch target while the player is
-        // still squeezing LT. The later ready edge is the initial ADS job,
-        // not a BodyLock re-press against that preview target.
+        // still squeezing LT. A later ready edge or explicit touch-fire onset
+        // owns the initial ADS job, not a BodyLock re-press against that preview.
         pending_ = {};
         return {
             true,

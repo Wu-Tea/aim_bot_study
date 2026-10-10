@@ -28,7 +28,7 @@ public:
     pipeline_contract::AssistActivation reduce(const AimScopeSnapshot& scope, double now) noexcept {
         if (!std::isfinite(now) || now >= deadline_) revoke();
         // Physical scope takes precedence without pausing/extending an app lease.
-        activation_ = scope.physical_ads_ready || scope.manual_fire_active
+        activation_ = scope.physical_ads_ready || scope.manual_fire_active || scope.touch_fire_active
             ? pipeline_contract::AssistActivation::Engaged
             : scope.assist_active ? pipeline_contract::AssistActivation::Primed
             : application_ == ApplicationAssistState::Granted
