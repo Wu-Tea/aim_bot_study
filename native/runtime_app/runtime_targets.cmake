@@ -13,6 +13,7 @@ endif()
 add_executable(cod_native_runtime
     runtime_app/main.cpp
     runtime_app/runtime_loop.cpp
+    runtime_app/dse_haptics.cpp
     runtime_app/runtime_loop_diagnostics.cpp
     runtime_app/runtime_reload_policy.cpp
     runtime_app/runtime_control_bridge.cpp
@@ -48,7 +49,7 @@ target_link_libraries(cod_native_runtime PRIVATE
     vision_native_core
     controller_native_core
     fusion_shared
-    d3d11 dxgi xinput gdi32 winmm windowsapp advapi32)
+    d3d11 dxgi xinput gdi32 winmm windowsapp advapi32 ole32 uuid setupapi)
 
 if(ViGEmClient_DLL AND EXISTS "${ViGEmClient_DLL}")
     add_custom_command(TARGET cod_native_runtime POST_BUILD

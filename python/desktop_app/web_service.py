@@ -27,6 +27,7 @@ def schema():
         elif path.startswith('gamepad.bodylock.'): group = '持续跟随'
         elif path.startswith('gamepad.ads.'): group = '首次瞄准'
         elif path.startswith('gamepad.assist.'): group = '辅助输入'
+        elif path.startswith('gamepad.detection_haptics.'): group = '人物震动提醒'
         else: group = '响应学习与手动介入'
         advanced = meta.get('advanced', False) or path in ('gamepad.ads.activation_trigger','gamepad.ads.scope_ready_trigger')
         result.append(dict(path=path, label=meta.get('label', label), kind=kind.__name__,

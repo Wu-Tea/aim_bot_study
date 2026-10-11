@@ -262,6 +262,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     if (section == "gamepad.bodylock") return bodylock_keys.count(key) != 0;
     if (section == "runtime.gamepad") return gamepad_keys.count(key) != 0;
     if (section == "gamepad.enemy_mark") return enemy_mark_keys.count(key) != 0;
+    if (section == "gamepad.detection_haptics") return key == "enabled";
     if (section == "gamepad.auto_fire") return auto_fire_keys.count(key) != 0;
     if (section == "gamepad.ai_aim") return ai_aim_keys.count(key) != 0;
     if (section == "gamepad.recoil") return recoil_keys.count(key) != 0;
@@ -723,6 +724,13 @@ void apply_value(
             body.body_lock_activation_box_px = parse_float_value(value);
         } else if (key == "tolerance_px") {
             body.body_lock_box_tolerance_px = parse_float_value(value);
+        }
+    } else if (section == "gamepad.detection_haptics") {
+        if (key == "enabled") {
+            const auto text = trim(value);
+            if (text != "true" && text != "false")
+                throw std::runtime_error("gamepad.detection_haptics.enabled requires true or false");
+            config.gamepad.detection_haptics.enabled = text == "true";
         }
     } else if (section == "gamepad.enemy_mark") {
         if (key == "enabled") {

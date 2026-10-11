@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
-import tkinter as tk
 import tomllib
 import unittest
 from unittest.mock import patch
@@ -10,7 +9,6 @@ from unittest.mock import patch
 from desktop_app.curves import CurveLibrary, decode_points, encode_points, read_curve, seed_points, validate_points
 from desktop_app.profiles import ProfileLibrary
 from desktop_app.settings import ConfigStore, update_text
-from desktop_app.gui import AssistantWindow
 from desktop_app.runtime import RuntimeManager
 
 PROJECT = Path(__file__).resolve().parents[2]
@@ -92,4 +90,4 @@ class ProfileCurveStorageTests(unittest.TestCase):
             reload.assert_called_once_with(record)
 
 
-# The independent-profile UI contracts are exercised in test_desktop_workspace.py.
+# WebView2 bridge contracts are exercised in test_desktop_web_service.py.

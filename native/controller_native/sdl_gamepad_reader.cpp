@@ -398,6 +398,12 @@ const std::string& SdlGamepadReader::device_name() const {
     return device_name_;
 }
 
+std::string SdlGamepadReader::device_path() const {
+    if (!attached() || !backend_->api.joystick_path_for_index) return {};
+    const char* path = backend_->api.joystick_path_for_index(device_index_);
+    return path ? path : "";
+}
+
 PhysicalGamepadState SdlGamepadReader::read() {
     PhysicalGamepadState state;
     if (!available()) {

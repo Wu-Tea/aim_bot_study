@@ -29,6 +29,7 @@ GAME_FIELDS = [
     ('gamepad.auto_fire.manual_fire_input', '手动开火输入', str, 'both', ('both', 'RT', 'RB')),
 ]
 GAME_FIELDS += CATALOG_FIELDS
+GAME_FIELDS.append(('gamepad.detection_haptics.enabled', '发现人物时震动', bool, False, None))
 COMMON_FIELDS = [
     ('runtime.profile', '性能档位', str, 'legacy', ('legacy', 'balanced', 'performance', 'low_latency')),
     ('runtime.vision.capture_fps', '检测帧率', int, 200, (1, 1000)),
@@ -56,6 +57,7 @@ CHOICE_LABELS = {
 # Display semantics shared by labels, entries, units and validation. Native
 # storage keeps normalized fractions; users never enter ambiguous 0..1 values.
 DISPLAY_FIELDS = {
+    'gamepad.detection_haptics.enabled': {'hot_reload':True, 'help':'通过 USB 连接 DSE 手柄。捕获区域内出现人物时，按左、中、右方向震动一次；人物持续可见时不重复提醒。离开约 250 毫秒后可再次触发。'},
     'runtime.vision.target_height_ratio': {'label':'瞄点距顶部','display_scale':100,'unit':'%'},
     'runtime.vision.target_wide_low_height_ratio': {'label':'宽矮目标瞄点距顶部','display_scale':100,'unit':'%'},
     'gamepad.recoil.feedback_amount': {'label':'开镜压枪输出','display_scale':100,'unit':'%'},

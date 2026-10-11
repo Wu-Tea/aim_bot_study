@@ -99,6 +99,12 @@ algorithm = "cod_dynamic_legacy_lut"
 # px/(stick*s) sensitivity of the previous linear solver.
 calibration_reference_stick = 0.50
 
+[gamepad.detection_haptics]
+# USB DualSense Edge: directional person-appearance notification, independent of aim/fire.
+# Enabling keeps detection running while idle. Re-arm after 250 ms of fresh empty frames.
+enabled = false
+strength = 0.24
+
 [gamepad.enemy_mark]
 # An L3/LT edge opens a 250 ms request. Two fresh final plans must place
 # the crosshair inside the same current cue-confirmed person's R; then one

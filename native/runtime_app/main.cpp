@@ -174,6 +174,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config) {
     line("runtime.output.enabled", config.output.enabled);
     line("runtime.output.validation_mode", config.output.validation_mode);
     line("gamepad.enemy_mark.enabled", config.gamepad.enemy_mark.enabled);
+    line("gamepad.detection_haptics.enabled", config.gamepad.detection_haptics.enabled);
     line(
         "gamepad.enemy_mark.l3_cooldown_ms",
         config.gamepad.enemy_mark.l3_cooldown_ms);

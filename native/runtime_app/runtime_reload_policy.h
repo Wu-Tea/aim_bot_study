@@ -3,6 +3,8 @@
 #include "controller_native/runtime_config.h"
 
 namespace runtime_app {
+bool haptics_only_reload(const controller_native::RuntimeConfig& before,
+                         const controller_native::RuntimeConfig& after);
 
 // Configuration policy only: no worker, device or shared-memory dependency.
 std::string hot_reload_restrictions(const controller_native::RuntimeConfig& before,

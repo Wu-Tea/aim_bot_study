@@ -335,6 +335,8 @@ RuntimeLoop::RuntimeLoop(
       vision_delivery_gate_(config_.gamepad.tracker.max_observation_age_ms) {
     telemetry_.start();
     max_ticks_ = max_ticks;
+    dse_haptics_.configure(config_.gamepad.detection_haptics.enabled,
+                           config_.gamepad.detection_haptics.strength);
     selected_xinput_user_index_ = input_reader_.user_index();
     if (input_log_enabled() && sdl_input_reader_ != nullptr) {
         std::cout << "[NativeRuntime] physical input backend=SDL joystick"
@@ -457,6 +459,7 @@ int RuntimeLoop::run() {
             virtual_gamepad_->update(*output_composer_.finalized_output());
         }
     }
+    dse_haptics_.stop();
     frame_rates_.finish(steady_time_point_ns(std::chrono::steady_clock::now()));
     if (control_bridge_) control_bridge_->finish_frame_rates(frame_rates_.snapshot());
     if (vision_service_ != nullptr) {
@@ -493,7 +496,11 @@ void RuntimeLoop::apply_pending_config() {
         ++vision_policy_revision_;
     }
     const bool preserve_learning = preserve_response_learning_on_reload(config_, next);
-    controller_.apply_hot_config(next.gamepad, preserve_learning);
+    if (!haptics_only_reload(config_, next)) controller_.apply_hot_config(next.gamepad, preserve_learning);
+    if (config_.gamepad.detection_haptics.enabled != next.gamepad.detection_haptics.enabled ||
+        (config_.gamepad.detection_haptics.strength == 0) != (next.gamepad.detection_haptics.strength == 0))
+        detection_haptics_policy_.reset();
+    dse_haptics_.configure(next.gamepad.detection_haptics.enabled, next.gamepad.detection_haptics.strength);
     config_.gamepad = next.gamepad;
     config_.ads = next.ads;
     config_.vision.friendly_filter_enabled = next.vision.friendly_filter_enabled;
@@ -558,6 +565,13 @@ void RuntimeLoop::run_once() {
         }
         enemy_mark_vision_active_ = vision_requested;
     }
+
+    const bool haptics_ready = config_.gamepad.detection_haptics.enabled &&
+        config_.gamepad.detection_haptics.strength > 0 && physical.connected && dse_haptics_.ready();
+    if (haptics_ready != haptics_was_ready_) detection_haptics_policy_.reset();
+    haptics_was_ready_ = haptics_ready;
+    // DetectionOnly carries no assist/fire authority. Do not change marker gesture scope.
+    vision_requested = vision_requested || (haptics_ready && !config_.vision.keepwarm_when_idle);
 
     bool fresh_vision = false;
     if (vision_service_ != nullptr) {
@@ -652,6 +666,10 @@ void RuntimeLoop::run_once() {
     const auto vigem_update_finished = std::chrono::steady_clock::now();
     // Everything below is observation, diagnostics, or future-frame setup.
     // It must never delay the output calculated from a newly consumed result.
+    if (fresh_vision && haptics_ready) {
+        dse_haptics_.notify(detection_haptics_policy_.observe(
+            latest_vision_result_, static_cast<float>(config_.vision.capture_width)));
+    }
     frame_rates_.record_tick(physical_read_at_ns, aiming,
         fresh_vision && latest_vision_result_.frame_updated);
     if (control_bridge_ && tick_count_ % 128 == 0 && GetTickCount64() - last_learning_publish_ms_ >= 500) {
@@ -715,10 +733,18 @@ controller_native::PhysicalGamepadState RuntimeLoop::read_physical_gamepad() {
     if (sdl_input_reader_ != nullptr) {
         controller_native::PhysicalGamepadState state = sdl_input_reader_->read();
         if (state.connected) {
+            if (!haptic_input_connected_) {
+                dse_haptics_.bind_device(sdl_input_reader_->device_path());
+                haptic_input_connected_ = true;
+            }
             sdl_reconnect_throttle_.record_success();
             return state;
         }
 
+        if (haptic_input_connected_) {
+            dse_haptics_.bind_device({});
+            haptic_input_connected_ = false;
+        }
         const auto now = std::chrono::steady_clock::now();
         if (sdl_reconnect_throttle_.should_attempt(now)) {
             if (sdl_input_reader_->reconnect()) {

@@ -198,6 +198,11 @@ struct GamepadEnemyMarkConfig {
     unsigned int lt_cooldown_ms = 1000;
 };
 
+struct GamepadDetectionHapticsConfig {
+    bool enabled = false;
+    float strength = kDetectionHapticsStrength;
+};
+
 struct GamepadRuntimeConfig {
     std::string auto_fire_output = "RB";
     bool rb_counts_as_aiming = false;
@@ -207,6 +212,7 @@ struct GamepadRuntimeConfig {
     std::string input_device_name;
     GamepadTrackerConfig tracker;
     GamepadEnemyMarkConfig enemy_mark;
+    GamepadDetectionHapticsConfig detection_haptics;
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
     AimResponseCurveConfig aim_response_curve;

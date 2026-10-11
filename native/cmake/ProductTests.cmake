@@ -103,6 +103,8 @@ add_executable(cod_native_functional_tests
     replay_native/replay_metrics.cpp)
 target_sources(cod_native_functional_tests PRIVATE
     runtime_app/person_detection_gesture_tests.cpp
+    runtime_app/detection_haptics_tests.cpp
+    runtime_app/runtime_reload_policy.cpp
     runtime_app/runtime_telemetry_production_shape_tests.cpp
     runtime_app/telemetry_target_identity_tests.cpp
     runtime_app/telemetry_target_identity.cpp

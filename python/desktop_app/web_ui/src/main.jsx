@@ -862,7 +862,7 @@ function App() {
                                   "响应学习与手动介入",
                                   "手动输出补偿",
                                 ],
-                                target: ["目标与识别"],
+                                target: ["目标与识别", "人物震动提醒"],
                                 fire: ["开火与压枪"],
                               }[tab];
                               return names.map((name) =>

@@ -26,6 +26,7 @@ const std::set<std::string> hot_keys = [] {
     "gamepad.ai_aim.body_free_initial_scale", "gamepad.ai_aim.body_slow_initial_scale",
     "gamepad.ai_aim.ads_free_initial_scale", "gamepad.ai_aim.ads_slow_initial_scale",
     "gamepad.recoil.enabled", "gamepad.recoil.feedback_amount", "gamepad.recoil.hipfire_multiplier",
+    "gamepad.detection_haptics.enabled",
     "gamepad.auto_fire.fire_output", "gamepad.auto_fire.manual_fire_input",
     "gamepad.auto_fire.manual_fire_activates_ai_aim",
     "runtime.vision.friendly_filter_enabled", "runtime.vision.target_height_ratio",
@@ -72,6 +73,14 @@ std::vector<std::string> changed_keys(const controller_native::RuntimeConfig& be
 
 } // namespace
 
+bool haptics_only_reload(const controller_native::RuntimeConfig& before,
+                         const controller_native::RuntimeConfig& after) {
+    const auto changed = changed_keys(before, after);
+    return !changed.empty() && std::all_of(changed.begin(), changed.end(), [](const std::string& key) {
+        return key == "gamepad.detection_haptics.enabled" || key == "gamepad.detection_haptics.strength";
+    });
+}
+
 std::string hot_reload_restrictions(const controller_native::RuntimeConfig& before,
                                    const controller_native::RuntimeConfig& after) {
     if (!after.diagnostics.empty()) throw std::runtime_error(after.diagnostics.front());
@@ -114,7 +123,8 @@ bool preserve_response_learning_on_reload(const controller_native::RuntimeConfig
 #include "editable_float_parameters.inc"
 #undef NATIVE_EDITABLE_FLOAT
         if (catalog_retains) continue;
-        if (key != "gamepad.ai_aim.hipfire_multiplier" &&
+        if (key != "gamepad.detection_haptics.enabled" &&
+            key != "gamepad.ai_aim.hipfire_multiplier" &&
             key != "gamepad.ai_aim.aim_response_learning_enabled") return false;
     }
     return true;

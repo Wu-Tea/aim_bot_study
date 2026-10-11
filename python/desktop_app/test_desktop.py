@@ -1,4 +1,4 @@
-"""Run real Tk checks on a private Windows desktop, without switching desktops.
+"""Run desktop UI checks on a private Windows desktop, without switching desktops.
 
 The launcher owns the desktop until its child exits. Isolation failures are
 reported; tests never silently fall back onto the interactive user desktop.

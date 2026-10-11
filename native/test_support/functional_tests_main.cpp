@@ -9,6 +9,7 @@ void register_runtime_telemetry_tests(native_test::Registry&);
 void register_log_session_manager_tests(native_test::Registry&);
 void register_benchmark_metrics_tests(native_test::Registry&);
 void register_person_detection_gesture_tests(native_test::Registry&);
+void register_detection_haptics_tests(native_test::Registry&);
 void register_runtime_telemetry_production_shape_tests(native_test::Registry&);
 void register_telemetry_target_identity_tests(native_test::Registry&);
 void register_telemetry_event_sampler_tests(native_test::Registry&);
@@ -27,6 +28,7 @@ int main(int argc, char** argv) {
     register_log_session_manager_tests(registry);
     register_benchmark_metrics_tests(registry);
     register_person_detection_gesture_tests(registry);
+    register_detection_haptics_tests(registry);
     register_runtime_telemetry_production_shape_tests(registry);
     register_telemetry_target_identity_tests(registry);
     register_telemetry_event_sampler_tests(registry);

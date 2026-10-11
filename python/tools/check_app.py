@@ -1,4 +1,4 @@
-"""Ordinary app checks: configuration, native behavior, and isolated Tk UI.
+"""Ordinary app checks: configuration, native behavior, and isolated WebView2 UI.
 
 python python/tools/check_app.py [--scope config|gui|all] [--build]
 No application profiles, gameplay output, input desktop or mouse are modified.
@@ -46,6 +46,8 @@ def main():
                               creationflags=subprocess.CREATE_NO_WINDOW)
     else:
         status = run_isolated(['-m','unittest','discover','-s','python/tests','-p','test_desktop*.py'], cwd=ROOT)
+        if status:return status
+        status = run_isolated(['python/tools/benchmarks/desktop_web_host_smoke.py'], cwd=ROOT)
         if status:return status
     print(f'App checks completed: scope={args.scope}; GUI checks use a private Windows desktop.')
     return 0

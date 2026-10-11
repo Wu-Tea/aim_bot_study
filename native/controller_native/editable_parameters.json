@@ -2,6 +2,24 @@
   "schema_version": 1,
   "parameters": [
     {
+      "path": "gamepad.detection_haptics.strength",
+      "member": "detection_haptics.strength",
+      "constant": "DetectionHapticsStrength",
+      "label": "震动力度",
+      "default": 0.24,
+      "min": 0,
+      "max": 1,
+      "group": "人物震动提醒",
+      "page": "assist",
+      "advanced": false,
+      "editor": "slider",
+      "hot_reload": true,
+      "preserve_learning": true,
+      "help": "USB 连接 DSE 时，发现人物按左、中、右轻震一次；中间为双侧同时震动。24% 为已试用的波形力度，0% 不播放。持续有人不重复提醒，连续无人约 250 毫秒后重新准备；多人取最靠近中心的人物。遵循友方过滤，仅覆盖捕获区域。不按开镜也可提醒；原本暂停空闲检测时会增加视觉运算。DSE 音量为零时临时提升，关闭或退出后恢复；系统静音时不播放。",
+      "display_scale": 100,
+      "unit": "%"
+    },
+    {
       "path": "gamepad.ads.activation_trigger",
       "member": "ai_aim.ads_activation_trigger",
       "constant": "AdsActivationTrigger",

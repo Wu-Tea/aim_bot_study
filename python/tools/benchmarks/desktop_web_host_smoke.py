@@ -41,6 +41,31 @@ def main():
                     assert all(layout[key][0]<=layout[key][1]+1 for key in ['outer','body']), (page_name,layout)
                     layouts.append({'page':page_name,**layout})
                 window.evaluate_js('Array.from(document.querySelectorAll("nav button")).find(e=>e.textContent==="参数调校").click()')
+                window.evaluate_js('Array.from(document.querySelectorAll("button")).find(e=>e.textContent==="目标与识别").click()')
+                time.sleep(.2)
+                haptics=window.evaluate_js('''(() => {
+                    const enabled=document.getElementById('f-gamepad.detection_haptics.enabled');
+                    const strength=document.getElementById('f-gamepad.detection_haptics.strength');
+                    return {enabled:enabled.checked,strength:strength.value,
+                        visible:enabled.getBoundingClientRect().height>0 && strength.getBoundingClientRect().height>0};
+                })()''')
+                assert haptics=={'enabled':False,'strength':'24','visible':True}, haptics
+                window.evaluate_js('''(() => {
+                    document.getElementById('f-gamepad.detection_haptics.enabled').click();
+                    const input=document.getElementById('f-gamepad.detection_haptics.strength');
+                    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'42');
+                    input.dispatchEvent(new Event('input',{bubbles:true}));
+                })()''')
+                time.sleep(.2)
+                window.evaluate_js('document.dispatchEvent(new KeyboardEvent("keydown",{key:"s",ctrlKey:true,bubbles:true}))')
+                deadline=time.monotonic()+10
+                while time.monotonic()<deadline:
+                    saved=service.repo.entries()[0]['config'].get('gamepad',{}).get('detection_haptics',{})
+                    if saved.get('enabled') is True and abs(saved.get('strength',0)-.42)<1e-6:break
+                    time.sleep(.1)
+                else:raise RuntimeError('WebView2 haptics controls did not persist: '+str(saved))
+                window.evaluate_js('Array.from(document.querySelectorAll("button")).find(e=>e.textContent==="首次瞄准").click()')
+                time.sleep(.2)
                 window.evaluate_js("document.querySelector('[aria-label=\"当前配置\"]').focus()")
                 window.evaluate_js('''(() => {
                     const input=document.querySelector('input[id="f-gamepad.ads.output_limit_x"]');
@@ -60,7 +85,7 @@ def main():
                 else:raise RuntimeError('Native close did not protect unsaved draft')
                 window.evaluate_js('Array.from(document.querySelectorAll("[role=dialog] button")).find(e=>e.textContent==="取消").click()')
                 print(json.dumps({'webview2_bootstrap':True,'title':state['title'],'bridge':state['bridge'],
-                    'profile_loaded':True,'native_close_guard':True,'layouts':layouts}),flush=True)
+                    'profile_loaded':True,'native_close_guard':True,'directional_haptics_saved':True,'layouts':layouts}),flush=True)
             except Exception as error:failure.append(error)
             finally:window.run_js('window.pywebview.api.dispatch("window_close")')
         launch(folder,service=service,ready=check)

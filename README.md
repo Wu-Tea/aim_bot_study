@@ -1,12 +1,14 @@
 # yolo-study-001
 
-Windows 上的 C++ 原生视觉辅助控制项目。手柄、鼠标、Vision、Fusion 和离线仿真由原生代码执行。按用户最新合并要求，桌面 GUI 沿用 dev 的 Python/Tk 配置工作室；Python 仅保留 GUI 及其配置、曲线、进程管理、IPC 和界面检查，不恢复 Python 控制器、视觉 fallback、训练或分析工具。
+Windows 上的 C++ 原生视觉辅助控制项目。手柄、鼠标、Vision、Fusion 和离线仿真由原生代码执行。桌面 GUI 使用 React/WebView2，Python 负责桌面宿主、配置、曲线、进程管理、IPC 和界面检查；旧 Tk 界面已移除，不恢复 Python 控制器、视觉 fallback、训练或分析工具。
 
 ## 启动与配置
 
 双击根目录 `启动助手.vbs` 打开现有配置工作室。创建或导入独立配置，选择 TensorRT engine，调整参数与响应曲线后保存并启动。新配置默认不指定模型，需要主动选择可用 engine。切换编辑配置不等于切换实际运行实例。
 
-GUI 使用现有 `D:\env\python\pythonw.exe`，只依赖 Python 3.11+ 标准库和 Tk，无需安装旧 requirements 中的视觉/控制器包。构建好的 runtime 位于 `native/build/Release/cod_native_runtime.exe`。关闭 GUI 保留运行中的 runtime。
+GUI 使用现有 `D:\env\python\pythonw.exe`、pywebview 和 Microsoft Edge WebView2。首次准备依赖或更新前端资源时运行 `scripts/setup_desktop.ps1`。构建好的 runtime 位于 `native/build/Release/cod_native_runtime.exe`。关闭 GUI 保留运行中的 runtime。
+
+USB DSE 的人物方向震动位于“参数调校 → 目标与识别 → 人物震动提醒”。默认关闭，力度默认 24%，可调 0～100%；保存并应用后生效。
 
 完整操作见 [桌面助手](docs/project/DESKTOP_ASSISTANT.md)。个人 config.toml、profiles、模型、数据及运行记录保留。
 

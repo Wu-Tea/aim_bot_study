@@ -35,6 +35,7 @@ public:
     bool reconnect();
     int device_index() const;
     const std::string& device_name() const;
+    std::string device_path() const;
     PhysicalGamepadState read();
 
 private:

@@ -35,11 +35,16 @@ The accepted runtime keeps the complete controller chain in lockstep. Retired
 `ai_proposal_mode`, `ai_proposal_hz`, and `ai_proposal_update_stage` knobs remain
 unknown/inert; deleting validation tooling does not authorize reintroducing them.
 
-## Native runtime and retained dev GUI
+## Native runtime and current desktop GUI
 
-User-confirmed on 2026-10-04: merge the native refactor into dev, exclude the
-new C++ GUI and keep dev's Python/Tk desktop workspace and launch entry.
-Python is retained only for that GUI, configuration/curves, process management,
+User-confirmed on 2026-10-12: keep only the React/WebView2 desktop GUI launched
+by `启动助手.vbs`; remove the old Tk GUI and its dedicated widgets/test tools.
+This supersedes the October 4 requirement to retain dev's Tk workspace.
+`python/desktop_app/gui.py` remains the thin launcher and command-action entry;
+its filename does not mean the old GUI is retained. UI changes belong in
+`python/desktop_app/web_ui/`, with `web_host.py` and `web_service.py` as the host
+and bridge. Do not restore the Tk or excluded C++ GUI without a new request.
+Python remains for the desktop host, configuration/curves, process management,
 IPC and GUI checks. Native build/control/Vision stay Python-free; retired
 Python fallback, training and analysis paths must not be restored from history.
 Preserve user models, datasets, profiles and configuration.

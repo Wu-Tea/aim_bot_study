@@ -1,4 +1,4 @@
-"""Read runtime feedback off the Tk event thread; never own Tk objects."""
+"""Read runtime feedback on a worker thread without owning UI objects."""
 import queue
 import threading
 import time

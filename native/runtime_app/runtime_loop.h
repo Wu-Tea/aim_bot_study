@@ -16,6 +16,7 @@
 #include "runtime_telemetry.h"
 #include "telemetry_collectors.h"
 #include "vision_service.h"
+#include "dse_haptics.h"
 #include "vision_native/vision_engine.h"
 
 #include <atomic>
@@ -75,6 +76,10 @@ private:
     bool perf_log_ = false;
     bool gamepad_perf_log_ = false;
     std::unique_ptr<controller_native::SdlGamepadReader> sdl_input_reader_;
+    DseHaptics dse_haptics_;
+    DetectionHapticsPolicy detection_haptics_policy_;
+    bool haptic_input_connected_ = false; // sole SDL input thread owner
+    bool haptics_was_ready_ = false; // controller thread owner
     controller_native::IoReconnectThrottle sdl_reconnect_throttle_{
         std::chrono::milliseconds(500)};
     unsigned int sdl_reconnect_count_ = 0;

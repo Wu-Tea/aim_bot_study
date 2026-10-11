@@ -3,14 +3,12 @@ import gc
 from pathlib import Path
 import subprocess
 import tempfile
-import tkinter as tk
 import tomllib
 import unittest
 from unittest.mock import Mock, patch
 
 from desktop_app.settings import ConfigStore, UiPreferences, effective, update_text
 from desktop_app.runtime import RuntimeManager, process_identity
-from desktop_app.gui import AssistantWindow
 from desktop_app.fields import validate_fields
 
 CONFIG = '''# 中文注释：保留它
@@ -225,4 +223,4 @@ class DesktopConfigTests(unittest.TestCase):
             manager.stop()
 
 
-# The independent-profile UI contracts are exercised in test_desktop_workspace.py.
+# WebView2 bridge contracts are exercised in test_desktop_web_service.py.

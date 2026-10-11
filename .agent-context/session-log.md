@@ -155,3 +155,13 @@ and machine-local runtime assets out of project context.
 - Final Release + 50 CTest groups + 111 desktop tests pass. 192 simulated scenarios / 1,344,000 steps; 90/96 paired configured-floor cases reduce mean error. Six stationary residual-error regressions explicitly retained. Latest Apex live acceptance still pending.
 - Navigation/evidence: `docs/project/CONFIGURATION_AND_CHECKS.md`, `output/README.md`, `decisions/DEC-2026-10-06-001-assist-parameter-and-continuity-semantics.md`. Prior handoff archived. Output includes historical intermediate failures, not all final verdicts.
 - SyncSet reviewer accept_draft under explicit user authorization. No personal profiles/models or ignored build/raw telemetry force-added; no subagents or external push requested.
+
+
+## 2026-10-12 — DSE directional notifications and WebView2-only GUI
+
+- **User-confirmed:** accepted left/both/right DSE pulse feel, requested notification enable/strength controls, authorized deletion of old Tk GUI, and finally requested recording and committing this conversation's decisions/changes.
+- **Implemented:** native USB DSE WASAPI worker and fresh-person occupancy policy; default off, 24% strength, 100 ms directional pulses, hot reload without resetting controller learning. Actual WebView2 参数调校 → 目标与识别 contains settings. Tk window/widgets/dedicated tools/tests removed; shared Python services and user assets preserved.
+- **Verified before commit preparation:** frontend/native builds, four Feature suites, 79 desktop tests, actual WebView2 persistence/close protection and default/minimum layout. DSE worker playback/disable/shutdown passed. Full live-game automatic notification behavior remains unverified; obsolete Tk tests are not claimed as equivalent replacement coverage.
+- **Commit isolation:** only the haptics hunks in shared runtime-loop files are staged. A HEAD-based native source snapshot with exactly the staged native/config changes independently builds Release runtime and functional tests; all four Feature suites pass. This establishes build independence from concurrent controller/relay/telemetry work.
+- [Decision and implementation boundaries](decisions/DEC-2026-10-12-001-dse-haptics-and-webview-gui.md). Other concurrent controller/Vision/telemetry changes are outside this commit; raw output and personal files remain local.
+- SyncSet `sync-20261012-002`: accept_draft self-review under explicit record/commit authorization. No inferred user acceptance, secrets, raw personal data, subagents or external writes. Historical log retained; separate compaction remains suggested.

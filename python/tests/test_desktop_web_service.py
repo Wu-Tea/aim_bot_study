@@ -75,6 +75,30 @@ class WebServiceTests(unittest.TestCase):
         self.assertFalse(self.service.dispatch('start',self.profile)['ok'])
         self.assertEqual(self.runtime.starts,0)
 
+    def test_directional_haptics_schema_save_reload_and_validation(self):
+        fields = {f['path']: f for f in self.call('bootstrap')['fields']}
+        enabled = 'gamepad.detection_haptics.enabled'
+        strength = 'gamepad.detection_haptics.strength'
+        for path in (enabled, strength):
+            self.assertEqual(fields[path]['group'], '人物震动提醒')
+            self.assertFalse(fields[path]['advanced'])
+            self.assertTrue(fields[path]['hot_reload'])
+        self.assertEqual(fields[strength]['scale'], 100)
+        self.assertEqual(fields[strength]['unit'], '%')
+        p = self.call('reload', {'id': self.profile['id']})
+        self.assertFalse(p['values'][enabled])
+        self.assertAlmostEqual(p['values'][strength], .24)
+        p['values'].update({enabled: True, strength: .42})
+        p = self.call('save', p)['profile']
+        reopened = self.call('reload', {'id': p['id']})
+        self.assertTrue(reopened['values'][enabled])
+        self.assertAlmostEqual(reopened['values'][strength], .42)
+        for value in (-.01, 1.01, float('nan')):
+            bad = deepcopy(reopened); bad['values'][strength] = value
+            self.assertFalse(self.service.dispatch('save', bad)['ok'])
+        bad = deepcopy(reopened); bad['values'][enabled] = 'false'
+        self.assertFalse(self.service.dispatch('save', bad)['ok'])
+
     def test_recoil_one_to_fifty_percent_matches_schema_and_persistence(self):
         field=next(f for f in self.call('bootstrap')['fields'] if f['path']=='gamepad.recoil.output_amount')
         self.assertEqual(tuple(field['limits']),(.01,.5))

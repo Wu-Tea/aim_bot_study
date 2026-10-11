@@ -29,24 +29,24 @@ D:\env\python\python.exe python/tools/check_app.py --build
 
 | 命令选项 | 检查范围 |
 | --- | --- |
-| `--scope config` | 原生配置、字段边界、热加载约束、手动意图区间、开火门及 Python 配置检查；不创建 Tk 窗口 |
-| `--scope gui` | 真实 Tk 交互、配置隔离、菜单键盘与滚轮、曲线编辑和 IPC 展示；使用独立桌面 |
+| `--scope config` | 原生配置、字段边界、热加载约束、手动意图区间、开火门及 Python 配置检查；不创建 GUI 窗口 |
+| `--scope gui` | 配置与桥接回归，以及真实 WebView2 启动、震动控件保存和关闭草稿保护；使用独立桌面 |
 | 默认 `--scope all` | 原生控制器基础与功能测试，以及完整桌面测试 |
 | `--build` | 检查前构建 Release；参数目录变更会触发 CMake 重新生成 |
 
 只验证一个 GUI 回归时，可设置 `PYTHONPATH=python;python/tests` 后执行：
 
 ```powershell
-D:\env\python\python.exe -m desktop_app.test_desktop -m unittest test_desktop_workspace.DesktopWorkspaceTests.test_catalog_advanced_parameters_search_persist_relations_and_native_defaults
+D:\env\python\python.exe -m desktop_app.test_desktop -m unittest test_desktop_web_service.WebServiceTests.test_directional_haptics_schema_save_reload_and_validation
 ```
 
 ## 为什么不再抢屏幕和焦点
 
 旧测试在用户桌面创建 `Toplevel`，菜单测试又调用 `focus_force`，因此会让测试窗口和菜单参与日常桌面的焦点竞争。单纯移动窗口到屏幕外仍不能解决焦点问题。
 
-新的启动器创建临时 Windows desktop，通过真正的 Win32 `STARTUPINFOW.lpDesktop` 启动测试子进程；子进程退出后关闭桌面句柄。测试桌面不会被切换到前台，鼠标不需要移动，Tk 仍可建立真实窗口并测试焦点。Windows 的桌面创建和进程绑定行为分别见 [CreateDesktopW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-createdesktopw) 和 [STARTUPINFOW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/ns-processthreadsapi-startupinfow)。隔离失败会报告错误，不会退回用户桌面执行。
+新的启动器创建临时 Windows desktop，通过真正的 Win32 `STARTUPINFOW.lpDesktop` 启动测试子进程；子进程退出后关闭桌面句柄。测试桌面不会被切换到前台，鼠标不需要移动，WebView2 仍可建立真实窗口并测试交互。Windows 的桌面创建和进程绑定行为分别见 [CreateDesktopW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-createdesktopw) 和 [STARTUPINFOW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/ns-processthreadsapi-startupinfow)。隔离失败会报告错误，不会退回用户桌面执行。
 
-常规测试保留所有真实 Tk 断言，新增回归检查实际 desktop 名称、强制聚焦后的归属、中文输出和失败退出码。交互耗时脚本也自动进入独立桌面。真实游戏手感、实际交付与 DWM 合成表现仍需现场核对，隐藏桌面的检查不替代这些验证。
+旧 Tk 界面及其专用交互测试、截图和耗时脚本已移除；独立配置、曲线数据和原生校验测试保留。实际宿主检查由 `python/tools/benchmarks/desktop_web_host_smoke.py` 执行，涵盖页面布局、人物震动开关与力度保存、原生窗口关闭时的草稿保护。隔离回归检查实际 desktop 名称、原生窗口归属、中文输出和失败退出码。真实游戏手感、实际交付与 DWM 合成表现仍需现场核对，隐藏桌面的检查不替代这些验证。
 
 ## 本次参数发现
 
