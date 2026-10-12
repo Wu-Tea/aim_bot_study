@@ -1,6 +1,8 @@
 #include "runtime_reload_policy.h"
 #include "vision_engine_service_poller.h"
 #include "runtime_loop.h"
+#include "live_pipeline_trace.h"
+#include "async_console.h"
 #include "runtime_control_bridge.h"
 
 #include "runtime_timing.h"
@@ -296,7 +298,7 @@ RuntimeLoop::RuntimeLoop(
     controller_native::RuntimeConfig config,
     bool perf_log,
     unsigned int max_ticks)
-    : config_(std::move(config)),
+    : config_(live_control_config(std::move(config))),
       perf_logger_(gamepad_perf_log_enabled(perf_log)),
       perf_summary_logger_(PerfSummaryOptions{
           config_.performance.enabled,
@@ -320,8 +322,7 @@ RuntimeLoop::RuntimeLoop(
       downward_diagnostics_(DownwardPullDiagnostics::from_environment()),
       perf_log_(perf_log),
       gamepad_perf_log_(gamepad_perf_log_enabled(perf_log)),
-      sdl_input_reader_(open_sdl_input_reader(config_.gamepad)),
-      input_reader_(select_xinput_user_index(config_.gamepad, sdl_input_reader_ == nullptr)),
+      input_reader_(0),
       controller_(config_.gamepad),
       output_composer_(config_.gamepad.output_transfer),
       viewport_controller_(viewport_controller_config_from(config_)),
@@ -334,19 +335,39 @@ RuntimeLoop::RuntimeLoop(
               config_.gamepad.enemy_mark.lt_cooldown_ms)),
       vision_delivery_gate_(config_.gamepad.tracker.max_observation_age_ms) {
     telemetry_.start();
+    live_trace_ = LivePipelineTrace::from_environment();
     max_ticks_ = max_ticks;
+    // Preserve physical forwarding even while model/CUDA initialization is
+    // slow. These callbacks touch only already-constructed input/output owners.
+    (void)runtime_console();
+    const bool output_enabled = config_.output.enabled;
     dse_haptics_.configure(config_.gamepad.detection_haptics.enabled,
                            config_.gamepad.detection_haptics.strength);
-    selected_xinput_user_index_ = input_reader_.user_index();
-    if (input_log_enabled() && sdl_input_reader_ != nullptr) {
-        std::cout << "[NativeRuntime] physical input backend=SDL joystick"
-                  << " index=" << sdl_input_reader_->device_index()
-                  << " name=\"" << sdl_input_reader_->device_name() << "\"\n";
-    } else if (input_log_enabled()) {
-        std::cout << "[NativeRuntime] XInput input index=" << selected_xinput_user_index_
-                  << (config_.gamepad.xinput_auto_detect ? " auto" : " fixed")
-                  << '\n';
-    }
+    manual_relay_ = std::make_unique<ManualRelay>(
+        [this, initialized = false]() mutable {
+            if (!initialized) {
+                // Open, poll/reconnect, and close SDL on its sole I/O owner.
+                sdl_input_reader_ = open_sdl_input_reader(config_.gamepad);
+                input_reader_ = controller_native::XInputReader(
+                    select_xinput_user_index(config_.gamepad, sdl_input_reader_ == nullptr));
+                selected_xinput_user_index_ = input_reader_.user_index();
+                if (input_log_enabled() && sdl_input_reader_) {
+                    AsyncConsoleLine{} << "[NativeRuntime] physical input backend=SDL joystick"
+                        << " index=" << sdl_input_reader_->device_index()
+                        << " name=\"" << sdl_input_reader_->device_name() << "\"\n";
+                } else if (input_log_enabled()) {
+                    AsyncConsoleLine{} << "[NativeRuntime] XInput input index=" << selected_xinput_user_index_ << '\n';
+                }
+                initialized = true;
+            }
+            return read_physical_gamepad();
+        },
+        [this, output_enabled](const controller_native::GamepadOutputState& output) {
+            return output_enabled ? virtual_gamepad_->update(output)
+                : controller_native::VirtualGamepadUpdateResult{};
+        }, config_.scheduler.controller_tick_hz, config_.gamepad.output_transfer,
+        [this] { sdl_input_reader_.reset(); }, live_trace_ != nullptr);
+    manual_relay_->start();
     auto vision_engine = std::make_unique<vision_native::VisionEngine>(
         config_.vision.capture_width,
         config_.vision.capture_height,
@@ -379,6 +400,7 @@ RuntimeLoop::RuntimeLoop(
         initial_viewport.source_frame_id);
     if (config_.vision.gpu_service_enabled) {
         VisionServiceOptions service_options;
+        service_options.live_trace = live_trace_.get();
         service_options.capture_fps = static_cast<double>(config_.vision.capture_fps);
         service_options.idle_fps = static_cast<double>(config_.vision.idle_capture_fps);
         service_options.keepwarm_when_idle = config_.vision.keepwarm_when_idle;
@@ -415,37 +437,32 @@ RuntimeLoop::RuntimeLoop(
     }
 }
 
+RuntimeLoop::~RuntimeLoop() = default;
+
 int RuntimeLoop::run() {
+    (void)runtime_console(); // Create the diagnostic worker before timed I/O.
     (void)set_current_thread_priority(RuntimeThreadPriority::AboveNormal);
 
     const int tick_hz = std::max(1, config_.scheduler.controller_tick_hz);
-    const auto tick_interval = std::chrono::nanoseconds(1'000'000'000ll / tick_hz);
-    AbsoluteDeadlineState deadlines(std::chrono::steady_clock::now(), tick_interval);
-    PrecisionTickScheduler precision_scheduler(config_.scheduler.spin_tail_us);
-    std::cout << "[NativeRuntime] controller_scheduler="
-              << (config_.scheduler.mode == "legacy" ? "legacy" : precision_scheduler.mode_name())
-              << " tick_hz=" << tick_hz << '\n';
+    std::cout << "[NativeRuntime] controller_scheduler=relay_input_event"
+              << " manual_relay_hz=" << tick_hz << '\n';
     std::exception_ptr failure;
     try {
+        std::uint64_t last_input_sequence = 0;
         while (!should_stop_requested()) {
-            const auto tick_started = std::chrono::steady_clock::now();
-            run_once();
+            const auto input_sample = manual_relay_->wait_next(last_input_sequence);
+            last_input_sequence = input_sample.sequence;
+            run_once(input_sample);
             if (max_ticks_ > 0 && tick_count_ >= max_ticks_) {
                 break;
             }
-
-            if (config_.scheduler.mode == "legacy") {
-                sleep_until_precise(deadlines.next_deadline());
-            } else {
-                precision_scheduler.wait_until(deadlines.next_deadline());
-            }
-            deadlines.advance_after_tick(std::chrono::steady_clock::now());
         }
     } catch (...) {
         failure = std::current_exception();
     }
-    // Revoke controller authority and neutralize before any potentially slow
-    // worker join or telemetry drain, including a Vision worker failure.
+    // Stop the sole I/O writer and neutralize before draining Vision or logs.
+    if (manual_relay_) manual_relay_->stop();
+    dse_haptics_.stop();
     controller_.reset();
     if (config_.output.enabled) {
         controller_native::PhysicalGamepadState neutral_physical{};
@@ -459,13 +476,13 @@ int RuntimeLoop::run() {
             virtual_gamepad_->update(*output_composer_.finalized_output());
         }
     }
-    dse_haptics_.stop();
     frame_rates_.finish(steady_time_point_ns(std::chrono::steady_clock::now()));
     if (control_bridge_) control_bridge_->finish_frame_rates(frame_rates_.snapshot());
     if (vision_service_ != nullptr) {
         vision_service_->stop();
     }
     perf_summary_logger_.stop();
+    if (live_trace_) live_trace_->stop();
     telemetry_collectors_.shutdown(steady_time_point_ns(std::chrono::steady_clock::now()));
     telemetry_.stop();
     log_session_manager_.close();
@@ -481,7 +498,7 @@ void RuntimeLoop::apply_pending_config() {
     if (!control_bridge_) return;
     if (!pending_hot_config_) pending_hot_config_ = control_bridge_->take_prepared();
     if (!pending_hot_config_) return;
-    const auto& next = *pending_hot_config_;
+    const auto next = live_control_config(*pending_hot_config_);
     const bool vision_changed = config_.vision.friendly_filter_enabled != next.vision.friendly_filter_enabled ||
         config_.vision.target_height_ratio != next.vision.target_height_ratio ||
         config_.vision.target_wide_low_height_ratio != next.vision.target_wide_low_height_ratio;
@@ -497,7 +514,7 @@ void RuntimeLoop::apply_pending_config() {
     }
     const bool preserve_learning = preserve_response_learning_on_reload(config_, next);
     if (!haptics_only_reload(config_, next)) controller_.apply_hot_config(next.gamepad, preserve_learning);
-    if (config_.gamepad.detection_haptics.enabled != next.gamepad.detection_haptics.enabled ||
+    if (vision_changed || config_.gamepad.detection_haptics.enabled != next.gamepad.detection_haptics.enabled ||
         (config_.gamepad.detection_haptics.strength == 0) != (next.gamepad.detection_haptics.strength == 0))
         detection_haptics_policy_.reset();
     dse_haptics_.configure(next.gamepad.detection_haptics.enabled, next.gamepad.detection_haptics.strength);
@@ -527,11 +544,47 @@ void RuntimeLoop::submit_vision_result(const vision_native::VisionResult& result
     latest_controller_consume_started_ns_ = controller_consume_ns;
 }
 
-void RuntimeLoop::run_once() {
+void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
+    std::optional<LiveTraceRecord> trace;
+    if (live_trace_) {
+        trace.emplace();
+        trace->lane = 'C';
+        trace->tick_id = static_cast<std::uint64_t>(tick_count_) + 1;
+        trace->input_sequence = input_sample.sequence;
+        trace->input_scope = input_sample.scope_revision;
+        trace->physical_read_ns = steady_time_point_ns(input_sample.read_at);
+    }
+    if (input_sample.scope_revision > last_input_scope_revision_ + 1) {
+        // Record the causal reset before it erases the previous controller ID.
+        if (telemetry_collectors_.enabled()) {
+            TelemetryRecord record;
+            record.type=TelemetryRecordType::SelectionDecision;
+            record.tick_id=static_cast<std::uint64_t>(tick_count_)+1;
+            record.frame_id=latest_vision_result_.frame_id;
+            record.timestamps.physical_read_ns=steady_time_point_ns(input_sample.read_at);
+            record.timestamps.sample_ns=record.timestamps.physical_read_ns;
+            auto& d=record.selection_decision;
+            d.raw_selector_generation=latest_vision_result_.selector_target_generation;
+            d.identity.previous_id=controller_.last_target_plan().target_id;
+            d.identity.transition="input_scope_reset";
+            d.identity.gap_reason="missed_input_scope_edges";
+            d.relay_discontinuity_sequence=manual_relay_->discontinuity_sequence();
+            telemetry_collectors_.observe_selection_decision(record);
+        }
+        controller_.reset_after_input_discontinuity();
+        vision_service_->set_request(pipeline_contract::VisionRequest::Idle,
+            std::chrono::steady_clock::now());
+    }
+    last_input_scope_revision_ = input_sample.scope_revision;
+    const auto discontinuity = manual_relay_->discontinuity_sequence();
+    if (discontinuity != last_relay_discontinuity_) {
+        controller_.observe_delivered_output({}, false, 0.0);
+        last_relay_discontinuity_ = discontinuity;
+    }
     apply_pending_config();
     const auto tick_started = std::chrono::steady_clock::now();
-    const controller_native::PhysicalGamepadState physical = read_physical_gamepad();
-    const std::uint64_t physical_read_at_ns = steady_time_point_ns(std::chrono::steady_clock::now());
+    const controller_native::PhysicalGamepadState physical = input_sample.physical;
+    const std::uint64_t physical_read_at_ns = steady_time_point_ns(input_sample.read_at);
     const auto& tick_preparation = controller_.begin_tick(
         physical,
         static_cast<std::uint64_t>(tick_count_) + 1u);
@@ -578,8 +631,18 @@ void RuntimeLoop::run_once() {
         const std::uint64_t expected_aim_transition_sequence =
             vision_service_->set_request(pipeline_contract::vision_request(tick_preparation.activation, vision_requested), tick_started);
         vision_service_->set_user_aim_intent(user_aim_intent);
+        if (trace) trace->mailbox_read_begin_ns = trace_now_ns();
         VisionServiceSnapshot service_snapshot =
             vision_service_->latest_snapshot(latest_vision_service_sequence_);
+        if (trace) {
+            trace->mailbox_read_end_ns = trace_now_ns();
+            trace->sequence = service_snapshot.sequence;
+            trace->policy_revision = service_snapshot.policy_revision;
+            trace->epoch = service_snapshot.aim_transition_sequence;
+            trace->request = static_cast<std::uint64_t>(service_snapshot.request);
+            trace->published_ns = service_snapshot.published_at_ns;
+            trace->status = service_snapshot.sequence ? 5 : 0;
+        }
         if (
             service_snapshot.sequence != 0 && service_snapshot.policy_revision == vision_policy_revision_ &&
             service_snapshot.sequence != latest_vision_service_sequence_) {
@@ -592,11 +655,21 @@ void RuntimeLoop::run_once() {
                 service_snapshot.request == pipeline_contract::vision_request(tick_preparation.activation, vision_requested) &&
                 service_snapshot.aim_transition_sequence ==
                     expected_aim_transition_sequence;
+            if (trace) {
+                trace_vision_fields(*trace, result);
+                trace->consume_ns = controller_consume_ns;
+                trace->epoch_current = current_control_epoch;
+                trace->status = service_snapshot.freshness != VisionSnapshotFreshness::Fresh ? 2 : !current_control_epoch ? 3 : 4;
+            }
             if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh &&
                 current_control_epoch &&
                 vision_delivery_gate_.accept(result, controller_consume_ns)) {
                 submit_vision_result(result, controller_consume_ns, service_snapshot.published_at_ns);
                 fresh_vision = true;
+                if (trace) {
+                    trace->status = 1;
+                    trace->controller_submit_ns = latest_controller_submit_complete_ns_;
+                }
             }
         }
     } else {
@@ -633,6 +706,9 @@ void RuntimeLoop::run_once() {
             dpad.up = true;
         }
     }
+    const bool visual_expired = controller_.expire_visual_output(control_frame,
+        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(),
+        config_.gamepad.tracker.max_observation_age_ms);
     const auto compose_status = output_composer_.compose(control_frame);
     const auto* composed_output = output_composer_.finalized_output();
     if (compose_status != controller_native::OutputComposeStatus::Ok ||
@@ -642,21 +718,30 @@ void RuntimeLoop::run_once() {
     const controller_native::GamepadOutputState output = *composed_output;
     controller_.observe_composed_output(output);
     const auto vigem_update_started = std::chrono::steady_clock::now();
+    if (trace) {
+        trace->control_begin_ns = steady_time_point_ns(controller_pipeline_started);
+        trace->control_end_ns = steady_time_point_ns(vigem_update_started);
+        trace->relay_submit_ns = trace_now_ns();
+    }
     controller_native::VirtualGamepadUpdateResult output_result;
+    const auto receipt = manual_relay_->submit(output, input_sample,
+        visual_expired ? 0.0 : controller_.visual_output_deadline_seconds(
+            config_.gamepad.tracker.max_observation_age_ms), config_.gamepad.output_transfer);
+    if (trace) trace->receipt_ns = trace_now_ns();
+    output_result = receipt.output;
     if (config_.output.enabled) {
-        output_result = virtual_gamepad_->update(output);
         if (output_result.reconnect_attempted && output_result.delivered) {
-            std::cout << "[NativeRuntime][Output] ViGEm recovered"
+            AsyncConsoleLine{} << "[NativeRuntime][Output] ViGEm recovered"
                       << " reconnect_count=" << output_result.reconnect_count << '\n';
         } else if (output_result.reconnect_attempted && !output_result.delivered) {
-            std::cerr << "[NativeRuntime][Output] ViGEm recovery pending"
+            AsyncConsoleLine{} << "[NativeRuntime][Output] ViGEm recovery pending"
                       << " error=0x" << std::hex << output_result.error_code << std::dec << '\n';
         }
     }
     auto delivered_output = output;
     delivered_output.right_x = output_result.delivered_right_x;
     delivered_output.right_y = output_result.delivered_right_y;
-    if (output_result.reconnect_attempted) {
+    if (output_result.reconnect_attempted || receipt.continuity_broken) {
         // Recreating the device publishes a neutral report before this report.
         // Even a successful same-tick reconnect breaks camera-work continuity.
         controller_.observe_delivered_output({}, false, 0.0);
@@ -664,6 +749,22 @@ void RuntimeLoop::run_once() {
     controller_.observe_delivered_output(delivered_output,
         output_result.delivered, output_result.submitted_at_seconds);
     const auto vigem_update_finished = std::chrono::steady_clock::now();
+    if (trace) {
+        trace->active_sequence = latest_vision_result_.service_sequence;
+        trace->aiming = aiming;
+        trace->left_trigger = physical.left_trigger;
+        trace->right_trigger = physical.right_trigger;
+        trace->output_enabled = config_.output.enabled;
+        trace->output_delivered = output_result.delivered;
+        trace->relay_accepted = receipt.request_accepted;
+        trace->relay_input_current = receipt.input_current;
+        trace->relay_visual_fresh = receipt.visual_fresh;
+        trace->relay_dequeue_ns = receipt.dequeued_ns;
+        trace->device_begin_ns = receipt.device_begin_ns;
+        trace->device_end_ns = receipt.device_end_ns;
+        trace->visual_expired = visual_expired;
+        live_trace_->controller(*trace);
+    }
     // Everything below is observation, diagnostics, or future-frame setup.
     // It must never delay the output calculated from a newly consumed result.
     if (fresh_vision && haptics_ready) {
@@ -682,7 +783,7 @@ void RuntimeLoop::run_once() {
             fusion_publisher_.publish_vision_result(latest_vision_result_,
                 config_.vision.capture_width, config_.vision.capture_height);
             if (!fusion_publisher_.enabled())
-                std::cout << "[Fusion][CPP] self-disabled after repeated publish failures\n";
+                AsyncConsoleLine{} << "[Fusion][CPP] self-disabled after repeated publish failures\n";
         }
 
         record_vision_diagnostics(aiming);
@@ -715,7 +816,7 @@ void RuntimeLoop::run_once() {
                 viewport_request.sequence,
                 viewport_request.source_frame_id);
         }
-        std::cout << "[VisionViewport][CPP]"
+        AsyncConsoleLine{} << "[VisionViewport][CPP]"
                   << " level=" << viewport_level_name(viewport_request.level)
                   << " size=" << viewport_request.width << 'x'
                   << viewport_request.height
@@ -750,7 +851,7 @@ controller_native::PhysicalGamepadState RuntimeLoop::read_physical_gamepad() {
             if (sdl_input_reader_->reconnect()) {
                 ++sdl_reconnect_count_;
                 sdl_reconnect_throttle_.record_success();
-                std::cout << "[NativeRuntime][Input] SDL physical gamepad recovered"
+                AsyncConsoleLine{} << "[NativeRuntime][Input] SDL physical gamepad recovered"
                           << " index=" << sdl_input_reader_->device_index()
                           << " name=\"" << sdl_input_reader_->device_name() << "\""
                           << " reconnect_count=" << sdl_reconnect_count_ << '\n';
@@ -759,7 +860,7 @@ controller_native::PhysicalGamepadState RuntimeLoop::read_physical_gamepad() {
             sdl_reconnect_throttle_.record_failure(now);
             const unsigned int failures = sdl_reconnect_throttle_.failure_count();
             if (failures == 1 || failures % 10 == 0) {
-                std::cerr << "[NativeRuntime][Input] SDL physical gamepad detached;"
+                AsyncConsoleLine{} << "[NativeRuntime][Input] SDL physical gamepad detached;"
                           << " waiting for the original device"
                           << " name=\"" << sdl_input_reader_->device_name() << "\""
                           << " attempts=" << failures << '\n';

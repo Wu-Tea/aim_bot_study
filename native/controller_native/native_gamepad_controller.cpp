@@ -785,8 +785,16 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     if (config_.ai_aim.normalized_assist_parameters && !config_.ai_aim.adapter_direct_mouse_manual &&
         last_target_plan_.target_id != 0 && continuation_seconds > 0 && continuation_seconds <= .032) {
         pipeline_contract::Vec2f average{}, tracking{};bool ambiguous=false;
-        if (average_aim_response_command(continuation_begin-aim_response_effect_delay_seconds_,
-            now-aim_response_effect_delay_seconds_, &average, &tracking, &ambiguous) && !ambiguous) {
+        const bool history_available = average_aim_response_command(
+            continuation_begin-aim_response_effect_delay_seconds_,
+            now-aim_response_effect_delay_seconds_, &average, &tracking, &ambiguous);
+        // `ambiguous` belongs to response calibration: firing must not train
+        // stick sensitivity, but does not erase the commands actually sent.
+        // Strong manual motion still owns the camera; do not extrapolate its
+        // target while the user is actively overriding the assist.
+        const bool manual_override = std::hypot(physical.right_x, physical.right_y) >= .35f;
+        if (manual_override) control_feedback.continuation_rejection = "manual_prediction_override";
+        if (history_available && !manual_override) {
             // Consume the already-qualified motion (including firing/POV
             // ownership), never bypass that policy with a raw observer value.
             const auto target=last_target_plan_.bodylock_target_motion_valid
@@ -915,34 +923,34 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         !plan.cue_continuation &&
         observations.frame_id != 0 &&
         observations.frame_id != last_aim_response_frame_id_;
-    if (new_observed_frame) {
-        const double capture_seconds = observations.source_time_seconds;
-        pipeline_contract::Vec2f motion_anchor_error_px{};
-        bool has_motion_anchor = false;
-        if (plan.direct_person_observation) {
-            for (std::size_t index = 0; index < observations.count; ++index) {
-                const auto& candidate = observations.candidates[index];
-                if (candidate.source_id != plan.source_observation_id) continue;
-                const auto& box = candidate.body_box_px;
-                const auto anchor = candidate.motion_anchor_px;
-                // Match the existing tracked-anchor quality boundary. A new
-                // template has score .35 and establishes position, not a
-                // correspondence with the previous feature. Require current
-                // person-box support at this measurement trust boundary.
-                has_motion_anchor = candidate.has_motion_anchor &&
-                    candidate.motion_anchor_score >= 0.45f &&
-                    candidate.has_body_box && box.w > 0 && box.h > 0 &&
-                    pipeline_contract::finite(anchor) &&
-                    anchor.x >= box.x && anchor.x <= box.x + box.w &&
-                    anchor.y >= box.y && anchor.y <= box.y + box.h;
-                if (has_motion_anchor) {
-                    motion_anchor_error_px = {
-                        anchor.x - screen_center.x,
-                        anchor.y - screen_center.y};
-                }
-                break;
+    const double capture_seconds = observations.source_time_seconds;
+    pipeline_contract::Vec2f motion_anchor_error_px{};
+    bool has_motion_anchor = false;
+    if (plan.direct_person_observation) {
+        for (std::size_t index = 0; index < observations.count; ++index) {
+            const auto& candidate = observations.candidates[index];
+            if (candidate.source_id != plan.source_observation_id) continue;
+            const auto& box = candidate.body_box_px;
+            const auto anchor = candidate.motion_anchor_px;
+            // Match the existing tracked-anchor quality boundary. A new
+            // template has score .35 and establishes position, not a
+            // correspondence with the previous feature. Require current
+            // person-box support at this measurement trust boundary.
+            has_motion_anchor = candidate.has_motion_anchor &&
+                candidate.motion_anchor_score >= 0.45f &&
+                candidate.has_body_box && box.w > 0 && box.h > 0 &&
+                pipeline_contract::finite(anchor) &&
+                anchor.x >= box.x && anchor.x <= box.x + box.w &&
+                anchor.y >= box.y && anchor.y <= box.y + box.h;
+            if (has_motion_anchor) {
+                motion_anchor_error_px = {
+                    anchor.x - screen_center.x,
+                    anchor.y - screen_center.y};
             }
+            break;
         }
+    }
+    if (new_observed_frame) {
         bool advance_response_anchor = true;
         const bool same_response_target =
             has_last_aim_response_observation_ &&
@@ -951,7 +959,6 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         if (!same_response_target) {
             aim_response_estimator_.begin_target(plan.target_id);
             ads_response_estimator_.begin_target(plan.target_id);
-            bodylock_target_motion_observer_.begin_target(plan.target_id);
         } else {
             if (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
                 plan.physical_ads_epoch != 0 &&
@@ -1041,12 +1048,35 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                 }
             }
         }
+        last_aim_response_frame_id_ = observations.frame_id;
+        if (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
+            plan.physical_ads_epoch != 0) {
+            last_ads_response_epoch_ = plan.physical_ads_epoch;
+        }
+        if (advance_response_anchor) {
+            last_aim_response_target_id_ = plan.target_id;
+            last_aim_response_capture_seconds_ = capture_seconds;
+            last_aim_response_source_error_px_ = source_error_px;
+            last_aim_response_motion_anchor_error_px_ = motion_anchor_error_px;
+            has_last_aim_response_motion_anchor_ = has_motion_anchor;
+            has_last_aim_response_observation_ = plan.target_id != 0 &&
+                std::isfinite(capture_seconds) &&
+                pipeline_contract::finite(source_error_px);
+        }
+    }
+    // Motion consumes either current person pixels or current marker pixels.
+    // Response calibration above remains direct-person-only. Never difference
+    // across person/marker transitions: their anatomical offsets may differ.
+    if (plan.direct_person_observation || plan.current_cue_observation) {
         // Use a motion-owned capture pair. Response identification deliberately
         // accumulates longer evidence, but it must not halve motion updates at
         // 220 Hz merely because 1/220 s is shorter than its 5 ms window.
         auto& motion_anchor = motion_observation_anchor_;
+        if (motion_anchor.target_id != plan.target_id)
+            bodylock_target_motion_observer_.begin_target(plan.target_id);
         const bool same_motion_target = motion_anchor.valid &&
-            plan.target_id != 0 && motion_anchor.target_id == plan.target_id;
+            plan.target_id != 0 && motion_anchor.target_id == plan.target_id &&
+            motion_anchor.cue_continuation == plan.cue_continuation;
         const double motion_interval = capture_seconds-motion_anchor.capture_seconds;
         const bool advance_motion_anchor = !same_motion_target ||
             !std::isfinite(motion_interval) || motion_interval <= 0.0 ||
@@ -1067,29 +1097,14 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                     plan.target_id, capture_seconds, static_cast<float>(motion_interval),
                     {static_cast<float>((current.x-previous.x)/motion_interval),
                      static_cast<float>((current.y-previous.y)/motion_interval)},
-                    tracking, plan.response_scale, plan.reliability, plan.direct_person_observation});
+                    tracking, plan.response_scale, plan.reliability, plan.direct_person_observation, plan.current_cue_observation});
             }
         }
         if (advance_motion_anchor) {
             motion_anchor = {plan.target_id, capture_seconds, source_error_px,
                 motion_anchor_error_px, has_motion_anchor,
-                plan.target_id != 0 && plan.direct_person_observation &&
-                std::isfinite(capture_seconds) && pipeline_contract::finite(source_error_px)};
-        }
-        last_aim_response_frame_id_ = observations.frame_id;
-        if (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
-            plan.physical_ads_epoch != 0) {
-            last_ads_response_epoch_ = plan.physical_ads_epoch;
-        }
-        if (advance_response_anchor) {
-            last_aim_response_target_id_ = plan.target_id;
-            last_aim_response_capture_seconds_ = capture_seconds;
-            last_aim_response_source_error_px_ = source_error_px;
-            last_aim_response_motion_anchor_error_px_ = motion_anchor_error_px;
-            has_last_aim_response_motion_anchor_ = has_motion_anchor;
-            has_last_aim_response_observation_ = plan.target_id != 0 &&
-                std::isfinite(capture_seconds) &&
-                pipeline_contract::finite(source_error_px);
+                plan.target_id != 0 &&
+                std::isfinite(capture_seconds) && pipeline_contract::finite(source_error_px), plan.cue_continuation};
         }
     }
     if (plan.target_id == 0 ||
@@ -1142,9 +1157,13 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             nonfiring_pov_motion_ads_epoch_ = plan.physical_ads_epoch;
             nonfiring_pov_motion_seconds_ = now;
         }
-        bool cue_motion_eligible = false;
+        bool cue_motion_eligible = target_motion.valid &&
+            target_motion.current_cue_observation &&
+            motion_observation_anchor_.valid &&
+            motion_observation_anchor_.cue_continuation;
         if (plan.lifecycle ==
-                pipeline_contract::TargetLifecycle::CueContinuation) {
+                pipeline_contract::TargetLifecycle::CueContinuation &&
+            !cue_motion_eligible) {
             // Do not turn a valid pre-fire observation into a longer-lived
             // motion model. This matches BodylockTargetMotionObserver's
             // existing 55 ms maximum hold horizon and remains well inside the
@@ -1186,12 +1205,15 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                 target_motion = {};
             }
         }
-        // A cue never trains motion. It may consume only the bounded clean
-        // snapshot above, under matching same-target and current-POV evidence.
-        // The existing cue authority scale remains the force ceiling.
+        // Current marker displacement can sustain motion under the existing
+        // cue force ceiling. Before a marker pair exists, only the bounded
+        // clean POV snapshot above may bridge the transition. Neither path
+        // trains camera response from a reconstructed person box.
         plan.bodylock_target_motion_valid = target_motion.valid &&
             (plan.lifecycle == pipeline_contract::TargetLifecycle::Observed ||
              cue_motion_eligible);
+        plan.bodylock_target_motion_from_cue =
+            cue_motion_eligible && target_motion.current_cue_observation;
         plan.bodylock_target_motion_confidence = target_motion.confidence;
         plan.bodylock_aligned_delivered_stick =
             target_motion.aligned_delivered_stick;
@@ -1204,6 +1226,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         }
     }
     last_target_plan_ = plan;
+    resolved_visual_source_seconds_ = now - static_cast<double>(plan.source_capture_age_ms) * .001;
     last_frame_vision_state_ = vision_state_from_plan(
         plan, now, observations.capture_fresh, plan.error_px);
     last_ai_aim_mode_ = mode_name(plan.mode);
@@ -1320,8 +1343,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     AssistControlStateMachineInput control_input;
     control_input.activation = last_tick_preparation_.activation;
     control_input.target_authoritative = target_authoritative;
-    control_input.fresh_observation = observations.capture_fresh &&
-        plan.lifecycle == pipeline_contract::TargetLifecycle::Observed;
+    control_input.fresh_observation = plan.direct_person_observation;
     control_input.cue_continuation = plan.cue_continuation;
     control_input.target_id = plan.target_id;
     control_input.selector_target_generation =
@@ -1540,6 +1562,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             sample_sequence);
 
     frame.fire_command() = fire_reduction.command;
+    pending_visual_fire_ = fire_reduction.command.synthetic_active && !touch_fire.pressed;
     if (touch_triangle) {
         auto& command = frame.auxiliary_buttons();
         command.header.controller_tick = controller_tick;
@@ -1564,6 +1587,52 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     return frame;
 }
 
+void NativeGamepadController::reset_after_input_discontinuity() {
+    // A lost release/repress is a new control lifecycle, not a continuous
+    // held gesture. Preserve calibrated response, never old target authority.
+    const auto response = aim_response_estimator_;
+    const auto ads_response = ads_response_estimator_;
+    const auto epoch = ads_epoch_;
+    const auto next_tick = next_controller_tick_id_;
+    const auto next_command = next_command_sequence_;
+    reset();
+    ads_epoch_ = epoch;
+    next_controller_tick_id_ = next_tick;
+    next_command_sequence_ = next_command;
+    aim_response_estimator_ = response;
+    ads_response_estimator_ = ads_response;
+    aim_response_estimator_.begin_target(0);
+    ads_response_estimator_.begin_target(0);
+}
+
+bool NativeGamepadController::expire_visual_output(
+    ControlFrame& frame, double now, float max_source_age_ms) noexcept {
+    if (last_target_plan_.target_id == 0) return false;
+    const double deadline = resolved_visual_source_seconds_ +
+        static_cast<double>(max_source_age_ms) * .001;
+    if (std::isfinite(now) && std::isfinite(deadline) &&
+        now >= resolved_visual_source_seconds_ && now < deadline) return false;
+    const auto& physical = frame.physical();
+    frame.pre_recoil_command() = pipeline_contract::PreRecoilStickCommand::from_stick(
+        {physical.right_x, physical.right_y}, frame.sample_sequence());
+    if (pending_visual_fire_) {
+        frame.fire_command() = {};
+        if (!manual_fire_pressed(physical)) frame.recoil_contribution() = {};
+        pending_auto_fire_active_ = false;
+        pending_visual_fire_ = false;
+        last_output_components_.auto_fire_active = false;
+        last_output_components_.auto_fire_pulse_pressed = false;
+        auto_fire_gate_.reset_readiness();
+    }
+    frame.auxiliary_dpad() = {};
+    // Keep delivered-camera learning consistent with the command actually
+    // composed. Revoked AI must not be misclassified as recoil compensation.
+    last_output_components_.before_recoil_stick = {physical.right_x, physical.right_y};
+    last_output_components_.assist_authority_reason = "visual_output_expired";
+    last_acquisition_trace_.shaped_ai = {};
+    return true;
+}
+
 void NativeGamepadController::observe_delivered_output(
     const GamepadOutputState& output,
     bool delivered, double submitted_at_seconds) {
@@ -1578,17 +1647,20 @@ void NativeGamepadController::observe_delivered_output(
     }
     const auto delivered_stick = transfer_game_stick(
         {output.right_x, output.right_y}, config_.output_transfer, true);
-    // Recoil feed-forward compensates an independent weapon disturbance. Its
-    // contribution must not become another sustaining target-motion command
-    // and then receive recoil again downstream. Remove it in stick space,
-    // BEFORE the nonlinear vector curve; subtracting normalized Y afterwards
-    // would also corrupt the horizontal camera-work coordinate.
-    const pipeline_contract::Vec2f tracking_delivered{
-        delivered_stick.x - last_output_components_.recoil_stick.x,
-        delivered_stick.y - last_output_components_.recoil_stick.y};
+    // The curve maps the complete delivered vector into camera velocity.
+    // Remove only the modeled recoil-only baseline in that response space:
+    // F(delivered) - F(recoil), not F(delivered - recoil). A radial nonlinear
+    // curve couples X and Y; removing Y before F loses actual horizontal work.
+    // This is a compensation baseline, not a measurement of weapon kick;
+    // any uncompensated disturbance remains in the observed residual motion.
+    const auto camera_response = forward_aim_response_curve(
+        delivered_stick, config_.aim_response_curve);
+    const auto recoil_response = forward_aim_response_curve(
+        {last_output_components_.recoil_stick.x, last_output_components_.recoil_stick.y},
+        config_.aim_response_curve);
     record_aim_response_command(submitted_at_seconds,
-        forward_aim_response_curve(delivered_stick, config_.aim_response_curve),
-        forward_aim_response_curve(tracking_delivered, config_.aim_response_curve),
+        camera_response,
+        {camera_response.x - recoil_response.x, camera_response.y - recoil_response.y},
         pending_response_ambiguous_);
 }
 

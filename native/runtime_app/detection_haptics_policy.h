@@ -4,13 +4,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 
 namespace runtime_app {
 enum class HapticDirection : unsigned char { None, Left, Center, Right };
 
-// Notification-only occupancy. Never changes selector identity or control authority.
-// Re-arm only from a continuous run of fresh empty captures, not a stalled feed.
+// Consume selector ownership, never elect another target or apply another
+// admission threshold. One pulse per selected identity, including handover.
 class DetectionHapticsPolicy {
 public:
     void reset() noexcept { *this = {}; }
@@ -19,34 +18,21 @@ public:
         if (!result.frame_updated || !time || !result.frame_id ||
             result.frame_id <= last_frame_ || time <= last_capture_ ||
             !std::isfinite(capture_width) || capture_width <= 0) return HapticDirection::None;
-        if (time - last_capture_ > 100'000'000) empty_since_ = 0;
         last_frame_ = result.frame_id;
         last_capture_ = time;
-        float nearest = std::numeric_limits<float>::max(), x = 0;
-        bool present = false;
-        for (const auto& box : result.detections) {
-            if (box.class_id != 0 || box.is_friendly || !std::isfinite(box.conf) || box.conf <= 0 ||
-                !std::isfinite(box.x1) || !std::isfinite(box.x2) ||
-                !std::isfinite(box.y1) || !std::isfinite(box.y2) ||
-                box.x2 <= box.x1 || box.y2 <= box.y1) continue;
-            const float center = (box.x1 + box.x2) * .5f;
-            const float distance = std::abs(center - capture_width * .5f);
-            if (distance < nearest) { nearest = distance; x = center; present = true; }
-        }
-        if (!present) {
-            if (!empty_since_) empty_since_ = time;
-            if (time - empty_since_ >= 250'000'000) occupied_ = false;
-            return HapticDirection::None;
-        }
-        empty_since_ = 0;
-        if (occupied_) return HapticDirection::None;
-        occupied_ = true;
+        // Idle detection deliberately has no actuator authority. Selection
+        // remains valid there; cue-only continuation cannot start a pulse.
+        if (!result.has_target || !result.has_selected_detection ||
+            !result.selector_target_generation ||
+            result.selector_target_generation == notified_generation_ ||
+            !std::isfinite(result.target_x)) return HapticDirection::None;
+        notified_generation_ = result.selector_target_generation;
+        const float x = result.target_x;
         return x < capture_width / 3 ? HapticDirection::Left :
             x > capture_width * (2.0f / 3) ? HapticDirection::Right : HapticDirection::Center;
     }
 private:
-    std::uint64_t last_frame_ = 0, last_capture_ = 0, empty_since_ = 0;
-    bool occupied_ = false;
+    std::uint64_t last_frame_ = 0, last_capture_ = 0, notified_generation_ = 0;
 };
 
 inline float detection_haptic_sample(double seconds, float strength) noexcept {

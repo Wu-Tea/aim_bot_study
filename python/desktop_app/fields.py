@@ -57,7 +57,7 @@ CHOICE_LABELS = {
 # Display semantics shared by labels, entries, units and validation. Native
 # storage keeps normalized fractions; users never enter ambiguous 0..1 values.
 DISPLAY_FIELDS = {
-    'gamepad.detection_haptics.enabled': {'hot_reload':True, 'help':'通过 USB 连接 DSE 手柄。捕获区域内出现人物时，按左、中、右方向震动一次；人物持续可见时不重复提醒。离开约 250 毫秒后可再次触发。'},
+    'gamepad.detection_haptics.enabled': {'hot_reload':True, 'help':'通过 USB 连接 DSE 手柄。与瞄准共用锁敌规则和准入门槛；选中目标时按左、中、右震动一次。同一目标不重复，策略切换或重新确认新目标时再次提醒。不开镜也可提醒，仅覆盖捕获区域。'},
     'runtime.vision.target_height_ratio': {'label':'瞄点距顶部','display_scale':100,'unit':'%'},
     'runtime.vision.target_wide_low_height_ratio': {'label':'宽矮目标瞄点距顶部','display_scale':100,'unit':'%'},
     'gamepad.recoil.feedback_amount': {'label':'开镜压枪输出','display_scale':100,'unit':'%'},

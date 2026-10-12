@@ -21,6 +21,7 @@ const char* record_type_name(TelemetryRecordType type) {
         return "committed_capture_observation";
     case TelemetryRecordType::DeliveredControlSample: return "delivered_control_sample";
     case TelemetryRecordType::AdsAcquisitionTrace: return "ads_acquisition_trace";
+    case TelemetryRecordType::SelectionDecision: return "selection_decision";
     case TelemetryRecordType::ControllerSample:
     default: return "controller_sample";
     }
@@ -285,6 +286,10 @@ bool RuntimeTelemetry::open_next_file() {
                 << ",\"type\":\"session_metadata\""
                 << ",\"session_id\":\"" << metadata.session_id.data() << '\"'
                 << ",\"build_commit\":\"" << metadata.build_commit.data() << '\"'
+                << ",\"clock_utc_ns\":" << metadata.clock_utc_ns
+                << ",\"clock_steady_ns\":" << metadata.clock_steady_ns
+                << ",\"clock_uncertainty_ns\":" << metadata.clock_uncertainty_ns
+                << ",\"build_stamp\":\"" << metadata.build_stamp.data() << '\"'
                 << ",\"capture_width\":" << metadata.capture_width
                 << ",\"capture_height\":" << metadata.capture_height
                 << ",\"active_capture_fps\":" << metadata.active_capture_fps
@@ -332,7 +337,11 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
     case TelemetryRecordType::SessionMetadata:
         output_ << ",\"session_id\":\"" << record.session_metadata.session_id.data() << '\"'
             << ",\"build_commit\":\"" << record.session_metadata.build_commit.data() << '\"'
-            << ",\"capture_width\":" << record.session_metadata.capture_width
+            << ",\"clock_utc_ns\":" << record.session_metadata.clock_utc_ns
+                << ",\"clock_steady_ns\":" << record.session_metadata.clock_steady_ns
+                << ",\"clock_uncertainty_ns\":" << record.session_metadata.clock_uncertainty_ns
+                << ",\"build_stamp\":\"" << record.session_metadata.build_stamp.data() << '\"'
+                << ",\"capture_width\":" << record.session_metadata.capture_width
             << ",\"capture_height\":" << record.session_metadata.capture_height
             << ",\"active_capture_fps\":"
             << record.session_metadata.active_capture_fps
@@ -576,6 +585,50 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << "\"build_revision\":\"" << provenance.build_commit.data() << '"'
             << ",\"capture_width\":" << provenance.capture_width
             << ",\"capture_height\":" << provenance.capture_height << '}';
+        break;
+    }
+    case TelemetryRecordType::SelectionDecision: {
+        const auto& v=record.selection_decision;
+        const auto& d=v.vision;
+        const auto& i=v.identity;
+        output_ << ",\"fresh_vision\":" << (v.fresh_vision ? "true" : "false")
+            << ",\"vision_has_target\":" << (v.vision_has_target ? "true" : "false")
+            << ",\"output_delivered\":" << (v.output_delivered ? "true" : "false")
+            << ",\"raw_selector_generation\":" << v.raw_selector_generation
+            << ",\"relay_discontinuity_sequence\":" << v.relay_discontinuity_sequence
+            << ",\"identity\":{\"previous\":" << i.previous_id << ",\"current\":" << i.resulting_id
+            << ",\"transition\":\"" << i.transition << "\",\"gap_reason\":\"" << i.gap_reason << '"'
+            << ",\"input_generation\":" << i.input_generation
+            << ",\"source_age_ms\":" << i.source_age_ms
+            << ",\"continuation_valid\":" << (i.continuation_valid ? "true" : "false")
+            << ",\"fresh_capture\":" << (i.fresh_capture ? "true" : "false")
+            << ",\"friendly_rejections\":" << i.friendly_rejections
+            << ",\"reliability_rejections\":" << i.reliability_rejections << '}'
+            << ",\"selection\":{\"outcome\":\"" << d.outcome << '"'
+            << ",\"previous_target\":[" << d.previous_target_x << ',' << d.previous_target_y << ']'
+            << ",\"generation_before\":" << d.generation_before << ",\"generation_after\":" << d.generation_after
+            << ",\"total_boxes\":" << d.total << ",\"recorded_boxes\":" << d.count
+            << ",\"truncated\":" << (d.total>d.count ? "true" : "false")
+            << ",\"admitted\":" << d.admitted << ",\"selected_index\":" << d.selected_index
+            << ",\"cue_reason\":\"" << d.cue_reason << '"'
+            << ",\"cue_best_score\":" << d.cue_best_score << ",\"cue_threshold\":" << d.cue_threshold
+            << ",\"cue_direct_age_ms\":" << d.cue_direct_age_ms << ",\"cue_age_ms\":" << d.cue_age_ms
+            << ",\"boxes\":[";
+        for (std::size_t index=0; index<std::min<std::size_t>(d.count,d.boxes.size()); ++index) {
+            const auto& b=d.boxes[index];
+            if (index) output_ << ',';
+            output_ << "{\"index\":" << index << ",\"box\":[" << b.x1 << ',' << b.y1 << ',' << b.x2 << ',' << b.y2 << ']'
+                << ",\"confidence\":" << b.confidence << ",\"class_id\":" << b.class_id
+                << ",\"color_checked\":" << (b.color_checked ? "true" : "false")
+                << ",\"friendly\":" << (b.friendly ? "true" : "false")
+                << ",\"active_match\":" << (b.active_match ? "true" : "false")
+                << ",\"within_pickup\":" << (b.within_pickup ? "true" : "false")
+                << ",\"has_cue\":" << (b.has_cue ? "true" : "false")
+                << ",\"cue\":[" << b.cue_x << ',' << b.cue_y << ']'
+                << ",\"cue_score\":" << b.cue_score << ",\"rank_score\":" << b.rank_score
+                << ",\"gate\":\"" << b.gate << "\"}";
+        }
+        output_ << "]}";
         break;
     }
     case TelemetryRecordType::AdsAcquisitionTrace: {

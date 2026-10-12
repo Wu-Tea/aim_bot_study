@@ -309,6 +309,7 @@ VisionResult VisionEngine::poll_once() {
         const cudaArray_t frame_array = mapping.array();
         result.cuda_map_ms = ns_to_ms(now_ns() - map_start);
 
+        const auto inference_started_ns = now_ns();
         DetectionBatch batch = engine_->infer_bgra_array_roi(
             frame_array,
             width_,
@@ -318,6 +319,7 @@ VisionResult VisionEngine::poll_once() {
             viewport_width,
             viewport_height,
             kSelectorDecodeConfidenceFloor);
+        result.inference_wall_ms = ns_to_ms(now_ns() - inference_started_ns);
         for (Detection& detection : batch.detections) {
             detection.x1 += static_cast<float>(viewport_left);
             detection.x2 += static_cast<float>(viewport_left);

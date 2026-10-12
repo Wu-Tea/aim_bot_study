@@ -5,6 +5,16 @@
 
 namespace controller_native {
 bool AdsLifecycleReducer::select(const AdsSelectionEvidence& evidence, double now_seconds) noexcept {
+    const bool admitted = select_impl(evidence, now_seconds);
+    if (!evidence.fresh_source) {
+        state_.source_decision_available = false;
+        state_.source_decision_outcome = pipeline_contract::SourceDecisionOutcome::NoDecision;
+        state_.source_decision_reason = pipeline_contract::AdsDecisionReason::None;
+    }
+    return admitted;
+}
+
+bool AdsLifecycleReducer::select_impl(const AdsSelectionEvidence& evidence, double now_seconds) noexcept {
     if (evidence.replacement && evidence.scope_active && state_.epoch_active &&
         !evidence.cue && state_.target_admitted && !state_.snap_consumed) {
         complete(pipeline_contract::AdsDecisionReason::TargetSwitch, now_seconds);

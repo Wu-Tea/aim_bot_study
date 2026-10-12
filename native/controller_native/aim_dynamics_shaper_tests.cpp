@@ -67,6 +67,23 @@ void test_cue_continuation_never_ramps_without_observation() {
                  "cue continuation must not increase assist without a new observation");
 }
 
+void test_measured_cue_motion_uses_bounded_slew() {
+    controller_native::AimDynamicsShaper shaper;
+    auto plan = active_plan();
+    shaper.shape({}, {}, plan, .001f);
+    plan.lifecycle = pipeline_contract::TargetLifecycle::CueContinuation;
+    plan.bodylock_target_motion_valid = true;
+    plan.bodylock_target_motion_from_cue = true;
+    const auto tracking = shaper.shape({.20f, -.10f}, {}, plan, .001f);
+    require_true(tracking.x > 0 && tracking.y < 0 &&
+                 tracking.x <= .081f && tracking.y >= -.081f,
+                 "measured current cue motion must resume through ordinary bounded slew");
+    plan.bodylock_target_motion_from_cue = false;
+    const auto unmeasured = shaper.shape({.40f, -.20f}, {}, plan, .001f);
+    require_true(unmeasured.x <= tracking.x && unmeasured.y >= tracking.y,
+                 "a historical motion hint must not remove blind-rise protection");
+}
+
 void test_cue_continuation_cannot_add_force_from_downstream_hint() {
     controller_native::AimDynamicsShaper shaper;
     auto plan = active_plan();
@@ -296,6 +313,39 @@ void test_mouse_moving_target_keeps_speed_at_zero_error() {
 }  // namespace
 
 void register_aim_dynamics_shaper_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "gap_prediction_never_amplifies_or_reverses", [] {
+        for (float dt : {.0005f, .001f, .004f}) {
+            controller_native::AimDynamicsShaper shaper;
+            auto plan=active_plan();plan.target_id=42;
+            shaper.shape({.2f,-.2f},{},plan,dt);
+            shaper.adopt({.2f,-.2f});
+            plan.observation_gap=true;plan.gap_prediction_valid=true;plan.observation_gap_remaining_ms=25;
+            const auto bounded=shaper.shape({1,-1},{},plan,dt);
+            require_true(bounded.x>0 && bounded.x<.2f && bounded.y<0 && bounded.y>-.2f,"missing pixels must discharge already-supported work");
+            const auto reversed=shaper.shape({-1,1},{},plan,dt);
+            require_true(reversed.x==0 && reversed.y==0,"prediction cannot start opposite work");
+            const auto restart=shaper.shape({1,-1},{},plan,dt);
+            require_true(restart.x==0 && restart.y==0,"an unsupported axis cannot restart during the gap");
+            shaper.adopt({.2f,-.2f});plan.gap_prediction_valid=false;plan.aim_authority=0;
+            const auto identity_only=shaper.shape({1,-1},{},plan,dt);
+            require_true(identity_only.x==0 && identity_only.y==0,"identity alone cannot retain stale force");
+        }
+    });
+    registry.add_case("BaseBodyLock", "gap_discharge_uses_capture_deadline_not_tick_count", [] {
+        for (int hz : {500,1000,2000}) {
+            controller_native::AimDynamicsShaper shaper;
+            auto plan=active_plan();plan.target_id=7;
+            shaper.shape({.2f,0},{},plan,1.f/hz);shaper.adopt({.2f,0});
+            plan.observation_gap=true;plan.gap_prediction_valid=true;
+            pipeline_contract::Vec2f output{};
+            for (int tick=1;tick<=hz*24/1000;++tick) {
+                plan.observation_gap_remaining_ms=32.f-tick*1000.f/hz;
+                output=shaper.shape({1,0},{},plan,1.f/hz);
+            }
+            require_true(std::fabs(output.x-.05f)<1e-5f,"same capture age must spend the same prediction budget at every controller cadence");
+        }
+    });
+    registry.add_case("BaseBodyLock", "measured_cue_motion_uses_bounded_slew", test_measured_cue_motion_uses_bounded_slew);
     registry.add_case("BaseBodyLock", "mouse_bodylock_temporal_boundaries", test_mouse_bodylock_temporal_boundaries);
     registry.add_case("BaseBodyLock", "mouse_moving_target_keeps_speed_at_zero_error", test_mouse_moving_target_keeps_speed_at_zero_error);
     registry.add_case("BaseBodyLock", "shaper_step_and_reversal_are_bounded", test_step_and_reversal_are_bounded);

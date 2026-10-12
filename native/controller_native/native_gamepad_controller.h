@@ -161,6 +161,14 @@ public:
         const PhysicalGamepadState& physical,
         std::uint64_t tick_id = 0);
     ControlFrame resolve_control_frame();
+    void reset_after_input_discontinuity();
+    // Final output boundary: a valid capture may expire during computation.
+    bool expire_visual_output(ControlFrame& frame, double now_seconds,
+                              float max_source_age_ms) noexcept;
+    double visual_output_deadline_seconds(float max_source_age_ms) const noexcept {
+        return last_target_plan_.target_id != 0
+            ? resolved_visual_source_seconds_ + static_cast<double>(max_source_age_ms) * .001 : 0.0;
+    }
     void observe_composed_output(const GamepadOutputState& output);
     // Acknowledgement from the output owner. Timestamp is submission time in
     // the same steady-clock coordinate as capture; false invalidates history.
@@ -277,6 +285,7 @@ private:
         pipeline_contract::Vec2f motion_anchor_error_px{};
         bool has_motion_anchor = false;
         bool valid = false;
+        bool cue_continuation = false;
     } motion_observation_anchor_{};
     PhysicalGamepadState sampled_physical_{};
     pipeline_contract::IntentState sampled_intent_{};
@@ -296,6 +305,8 @@ private:
     pipeline_contract::TargetPlan last_target_plan_{};
     std::string last_ai_aim_mode_ = "manual";
     const double* injected_clock_seconds_ = nullptr;
+    double resolved_visual_source_seconds_ = 0.0;
+    bool pending_visual_fire_ = false;
 };
 
 }  // namespace controller_native

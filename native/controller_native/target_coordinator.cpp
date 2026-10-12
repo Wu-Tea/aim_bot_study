@@ -186,6 +186,7 @@ pipeline_contract::TargetPlan TargetCoordinator::no_target_plan(
     std::uint32_t candidate_count,
     std::uint64_t preferred_source_id) noexcept {
     pipeline_contract::TargetPlan plan{};
+    plan.identity_diagnostics.gap_reason=gap_diagnostic_reason_;
     plan.generation = ++generation_;
     plan.source_frame_id = source_frame_id;
     plan.mode = pipeline_contract::ControlMode::Manual;
@@ -206,6 +207,29 @@ set_firing_disturbance_observer_enabled_for_benchmark(
 }
 
 pipeline_contract::TargetPlan TargetCoordinator::update(
+    const pipeline_contract::VisionObservationBatch& observations,
+    const pipeline_contract::IntentState& intent, double now_seconds,
+    const TargetControlFeedback& feedback) noexcept {
+    gap_diagnostic_reason_="not_needed";
+    const auto previous_id=latest_.target_id;
+    auto plan=update_impl(observations,intent,now_seconds,feedback);
+    auto& d=plan.identity_diagnostics;
+    d.gap_reason=gap_diagnostic_reason_;
+    d.previous_id=previous_id; d.resulting_id=plan.target_id;
+    d.input_generation=observations.selector_target_generation;
+    d.fresh_capture=observations.capture_fresh;
+    d.continuation_valid=feedback.continuation_valid;
+    d.friendly_rejections=observations.rejected_friendly_count;
+    d.reliability_rejections=observations.rejected_low_reliability_count;
+    d.source_age_ms=has_observation_capture_time_ ?
+        static_cast<float>((now_seconds-last_observed_seconds_)*1000.0) : -1.f;
+    if (previous_id!=plan.target_id) d.transition=plan.target_id==0 ? "released" :
+        previous_id==0 ? "acquired_or_reacquired" : "replaced";
+    latest_=plan;
+    return plan;
+}
+
+pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     const pipeline_contract::VisionObservationBatch& observations,
     const pipeline_contract::IntentState& intent,
     double now_seconds,
@@ -237,7 +261,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             (now_seconds - observation_capture_seconds) * 1000.0;
         accepted_fresh_capture =
             source_age_ms >= -0.001 &&
-            source_age_ms <=
+            source_age_ms <
                 static_cast<double>(std::max(0.0f, config_.max_observation_age_ms));
         stale_capture = !accepted_fresh_capture;
     }
@@ -294,6 +318,13 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         frame_width_px_ * 0.5f,
         frame_height_px_ * 0.5f,
     };
+    const auto admit_selection = [&](pipeline_contract::Vec2f point, float size,
+        bool cue, bool replacement, bool fresh_source) {
+        return ads_lifecycle_reducer_.select({
+            pipeline_contract::owns_ads_task(intent.activation), cue, replacement,
+            length(subtract(point, center)) <= target_scaled_radius(
+                config_.ads_pickup_base_radius_px, size), fresh_source}, now_seconds);
+    };
     const auto* candidate = accepted_fresh_capture
         ? choose_candidate(observations, association_anchor)
         : nullptr;
@@ -334,9 +365,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             // rejection from an intentionally empty replay batch.
             pipeline_contract::AdsDecisionReason reason =
                 pipeline_contract::AdsDecisionReason::None;
-            if (ads.snap_consumed) {
-                reason = pipeline_contract::AdsDecisionReason::AdsAlreadyConsumed;
-            } else if (!accepted_fresh_capture) {
+            if (!accepted_fresh_capture) {
                 reason = duplicate_frame
                     ? pipeline_contract::AdsDecisionReason::DuplicateFrame
                     : stale_capture
@@ -390,6 +419,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     pipeline_contract::TargetLifecycle lifecycle =
         target_lifecycle_reducer_.snapshot().lifecycle;
     float reliability = latest_.reliability;
+    bool gap_prediction_valid = false;
     float normalized_size = latest_.normalized_size;
     if (candidate != nullptr) {
         observation_gap_active_ = false;
@@ -402,11 +432,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             !target_lifecycle_reducer_.snapshot().target_present ||
             selector_replacement;
         if (selector_replacement) reset_target_owned_state_for_replacement();
-        const float pickup_radius = target_scaled_radius(
-            config_.ads_pickup_base_radius_px, candidate->normalized_size);
-        current_plan_admitted = ads_lifecycle_reducer_.select({
-            pipeline_contract::owns_ads_task(intent.activation), cue_continuation_candidate, selector_replacement,
-            length(subtract(candidate->aim_px, center)) <= pickup_radius}, now_seconds);
+        current_plan_admitted = admit_selection(candidate->aim_px,
+            candidate->normalized_size, cue_continuation_candidate, selector_replacement, true);
         const bool assisted_motion_model =
             ads.task_mode ==
                 pipeline_contract::ControlMode::BodyLockFollow ||
@@ -606,8 +633,26 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         const float source_age_ms = static_cast<float>(
             std::max(0.0, (now_seconds - last_observed_seconds_) * 1000.0));
         const bool fresh_no_target = accepted_fresh_capture;
-        const bool source_expired = source_age_ms >
+        const bool source_expired = source_age_ms >=
             std::max(0.0f, config_.max_observation_age_ms);
+        // Detection already runs before trigger input. Admit its latest
+        // selector-owned observation using the SAME pickup rule. This is a
+        // lifecycle transition, not another source frame: do not renew age,
+        // train motion/settling, or recover from a newer rejected observation.
+        if (!observations.capture_fresh && !source_expired &&
+            now_seconds >= last_observed_seconds_ &&
+            has_observation_capture_time_ && selector_target_generation_ != 0 &&
+            source_id_ != 0 && !observation_gap_active_ &&
+            lifecycle == pipeline_contract::TargetLifecycle::Observed &&
+            last_processed_capture_seconds_ == last_observation_capture_seconds_ &&
+            ads.epoch_active && !ads.target_admitted && !ads.snap_consumed &&
+            pipeline_contract::owns_ads_task(intent.activation) &&
+            intent.right_purpose != pipeline_contract::UserAimIntentPurpose::HandoverTarget &&
+            !latest_.manual_exit_requested) {
+            current_plan_admitted = admit_selection(
+                geometry_reducer_.snapshot().source_position,
+                last_observed_normalized_size_, false, false, false);
+        }
         const bool same_generation_miss = fresh_no_target &&
             observations.selector_identity_protocol &&
             observations.preferred_source_id == 0 &&
@@ -623,19 +668,40 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
                 observations.rejected_friendly_count == 0 &&
                 observations.rejected_low_reliability_count == 0;
         }
-        const bool can_bridge = config_.missing_observation_grace_ms > 0.f &&
+        const bool retain_identity = config_.missing_observation_grace_ms > 0.f &&
             observation_gap_active_ && !source_expired &&
             source_age_ms <= config_.missing_observation_grace_ms &&
             pipeline_contract::requests_target_search(intent.activation) &&
             intent.right_purpose != pipeline_contract::UserAimIntentPurpose::HandoverTarget &&
-            !latest_.manual_exit_requested &&
-            feedback.continuation_valid &&
-            pipeline_contract::finite(feedback.continuation_offset_px);
-        const auto disposition = can_bridge ? AdsTargetDisposition::Retain :
+            !latest_.manual_exit_requested;
+        const auto& region = geometry_reducer_.snapshot().aim_region;
+        const auto offset = feedback.continuation_offset_px;
+        // A short-lived identity is not permission to extrapolate arbitrarily.
+        // Stop prediction once camera/target displacement leaves the last
+        // observed half-region support; reacquisition still owns new pixels.
+        gap_prediction_valid = feedback.continuation_valid &&
+            pipeline_contract::finite(offset) && geometry_reducer_.snapshot().available && region.w > 0 && region.h > 0 &&
+            std::fabs(offset.x) <= region.w * .5f &&
+            std::fabs(offset.y) <= region.h * .5f;
+        gap_diagnostic_reason_ = retain_identity ?
+            (gap_prediction_valid ? "bridged" : feedback.continuation_valid ?
+                "identity_only_prediction_outside_region" : feedback.continuation_rejection) :
+            source_expired ? "source_expired" :
+            config_.missing_observation_grace_ms<=0 ? "grace_disabled" :
+            (fresh_no_target && !same_generation_miss) ? "selector_generation_not_continuous" :
+            observations.rejected_friendly_count>0 ? "friendly_rejection" :
+            observations.rejected_low_reliability_count>0 ? "reliability_rejection" :
+            !observation_gap_active_ ? "no_active_gap" :
+            source_age_ms>config_.missing_observation_grace_ms ? "gap_deadline" :
+            !pipeline_contract::requests_target_search(intent.activation) ? "scope_inactive" :
+            intent.right_purpose==pipeline_contract::UserAimIntentPurpose::HandoverTarget ? "manual_handover" :
+            latest_.manual_exit_requested ? "manual_exit" :
+            !feedback.continuation_valid ? feedback.continuation_rejection : "invalid_continuation";
+        const auto disposition = retain_identity ? AdsTargetDisposition::Retain :
             ads_lifecycle_reducer_.missing({
                 pipeline_contract::owns_ads_task(intent.activation), true, fresh_no_target,
                 source_expired || observation_gap_active_, same_generation_miss}, now_seconds);
-        if (!can_bridge) observation_gap_active_ = false;
+        if (!retain_identity) observation_gap_active_ = false;
         if (disposition == AdsTargetDisposition::Wait) {
             settled_frames_ = 0;
             last_update_seconds_ = now_seconds;
@@ -686,7 +752,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
             observations.preferred_source_id);
     }
 
-    // Choose bounded automatic D once, after fresh admission and geometry
+    // Choose bounded automatic D once, after admission and source geometry
     // adoption. Never feed it into source association or source velocity, and
     // never reselect it as the crosshair arrives or ADS hands off to BodyLock.
     if (current_plan_admitted) {
@@ -711,6 +777,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         candidate != nullptr && !cue_continuation_candidate &&
         candidate->source_id != 0 && observations.frame_id != 0 &&
         source_frame_id_ == observations.frame_id;
+    plan.current_cue_observation = accepted_fresh_capture &&
+        cue_continuation_candidate && observations.frame_id != 0 &&
+        source_frame_id_ == observations.frame_id;
     const auto& geometry = geometry_reducer_.snapshot();
     const auto& desired = desired_point_reducer_.snapshot();
     plan.source_aim_px = geometry.source_position;
@@ -727,15 +796,20 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.manual_exit_requested = desired.manual_exit_requested;
     if (plan.observation_gap) {
         const auto offset = feedback.continuation_offset_px;
-        plan.aim_px = add_scaled(plan.aim_px, offset, 1.f);
-        plan.source_aim_px = add_scaled(plan.source_aim_px, offset, 1.f);
-        plan.aim_region_px.x += offset.x;plan.aim_region_px.y += offset.y;
+        plan.gap_prediction_valid = gap_prediction_valid;
+        if (plan.gap_prediction_valid) {
+            plan.aim_px = add_scaled(plan.aim_px, offset, 1.f);
+            plan.source_aim_px = add_scaled(plan.source_aim_px, offset, 1.f);
+            plan.aim_region_px.x += offset.x;plan.aim_region_px.y += offset.y;
+        }
     }
     plan.error_px = subtract(plan.aim_px, center);
     const pipeline_contract::Vec2f screen_velocity = velocity_;
     plan.velocity_px_per_sec = screen_velocity;
     plan.acceleration_px_per_sec2 = acceleration_;
     plan.observation_age_ms = static_cast<float>((now_seconds - last_observed_seconds_) * 1000.0);
+    if (plan.observation_gap) plan.observation_gap_remaining_ms = std::max(0.0f,
+        std::min(config_.missing_observation_grace_ms, config_.max_observation_age_ms) - plan.observation_age_ms);
     plan.confidence = reliability;
     plan.reliability = reliability;
     plan.enemy_cue_current = enemy_cue_current_;
@@ -753,7 +827,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     plan.ads_preferred_source_id = observations.preferred_source_id;
     plan.ads_selected_source_id = candidate != nullptr
         ? candidate->source_id : 0;
-    plan.selector_target_generation = observations.selector_target_generation;
+    plan.selector_target_generation = selector_target_generation_;
     // Expose the consumed/effective identity boundary. The raw selector
     // changed pulse is intentionally not authoritative because latest-only
     // delivery may skip it or deliver a spurious pulse for the same gen.
@@ -902,7 +976,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
         : bodylock_visual_authority;
     plan.aim_authority =
         plan.mode == pipeline_contract::ControlMode::Manual ||
-            bodylock_outside_activation_range
+            bodylock_outside_activation_range ||
+            (plan.observation_gap && !plan.gap_prediction_valid)
         ? 0.0f
         : plan.mode == pipeline_contract::ControlMode::AdsAcquire
             ? configured_authority
@@ -943,6 +1018,10 @@ void TargetCoordinator::begin_ads_epoch(
     std::uint64_t epoch, double now_seconds) noexcept {
     cue_continuation_active_ = false;
     observation_gap_active_ = false;
+    // Fire eligibility belongs to an observation in this control epoch.
+    // Warm target geometry may start aiming but cannot replay an old shot.
+    observed_fire_eligible_ = false;
+    fire_requested_ = false;
     ads_lifecycle_reducer_.begin_epoch(epoch, now_seconds);
 }
 

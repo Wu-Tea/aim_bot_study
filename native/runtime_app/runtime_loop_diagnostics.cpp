@@ -1,5 +1,7 @@
 #include "runtime_loop.h"
 #include "runtime_timing.h"
+#include "async_console.h"
+#include <sstream>
 
 #include <algorithm>
 #include <cmath>
@@ -60,20 +62,22 @@ void log_vision_result(
     const vision_native::VisionResult* result,
     bool aiming,
     unsigned int tick_count) {
-    std::cout << "[Vision][CPP]"
+    std::ostringstream line;
+    line << "[Vision][CPP]"
               << " tick=" << tick_count
               << " aiming=" << (aiming ? 1 : 0);
     if (result == nullptr) {
-        std::cout << " updated=0 frame=0 boxes=0 target=0 source=none stage=none"
+        line << " updated=0 frame=0 boxes=0 target=0 source=none stage=none"
                   << " conf=0 dx=0 dy=0 aim_auth=0 fire_auth=0"
                   << " service=none service_state=unknown service_seq=0"
                   << " mode=none"
                   << " cap=0ms copy=0ms pre=0ms infer=0ms enqueue=0ms decode=0ms"
                   << " selector=0ms age=0ms\n";
+        runtime_console().offer(line.str());
         return;
     }
 
-    std::cout
+    line
         << " updated=" << (result->frame_updated ? 1 : 0)
         << " frame=" << result->frame_id
         << " boxes=" << result->boxes_seen
@@ -107,6 +111,7 @@ void log_vision_result(
         << "ms post=" << result->post_ms
         << "ms age=" << result->age_ms
         << "ms\n";
+    runtime_console().offer(line.str());
 }
 
 } // namespace
@@ -227,6 +232,26 @@ void RuntimeLoop::record_tick_diagnostics(
         }
     }
     ++tick_count_;
+    const auto& identity=controller_.last_target_plan().identity_diagnostics;
+    if (telemetry_collectors_.enabled() && (fresh_vision || identity.previous_id!=identity.resulting_id)) {
+        TelemetryRecord decision;
+        decision.type=TelemetryRecordType::SelectionDecision;
+        decision.tick_id=tick_count_;
+        decision.frame_id=latest_vision_result_.frame_id;
+        decision.target_track_id=identity.resulting_id;
+        decision.timestamps.vision_capture_ns=latest_vision_result_.captured_at_ns;
+        decision.timestamps.inference_ready_ns=latest_vision_result_.result_at_ns;
+        decision.timestamps.output_sent_ns=steady_time_point_ns(vigem_update_finished);
+        decision.selection_decision.identity=identity;
+        decision.selection_decision.raw_selector_generation=latest_vision_result_.selector_target_generation;
+        decision.selection_decision.relay_discontinuity_sequence=last_relay_discontinuity_;
+        decision.selection_decision.fresh_vision=fresh_vision;
+        decision.selection_decision.vision_has_target=latest_vision_result_.has_target;
+        decision.selection_decision.output_delivered=output_result.delivered;
+        // A release on a replay tick must not relabel cached boxes as fresh evidence.
+        if (fresh_vision) decision.selection_decision.vision=latest_vision_result_.selection_diagnostics;
+        telemetry_collectors_.observe_selection_decision(decision);
+    }
     if (fresh_vision) {
         const auto& trace = controller_.last_acquisition_trace();
         TelemetryAcquisitionTraceInput acquisition_trace;

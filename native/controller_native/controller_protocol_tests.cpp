@@ -200,12 +200,25 @@ void test_selector_identity_survives_engine_result_copy_and_adapter() {
     targeting.selected_detection_index = 1;
     targeting.enemy_cue_current = true;
     targeting.enemy_identity_confirmed = true;
+    targeting.selection_diagnostics.outcome = "selected_detection";
+    targeting.selection_diagnostics.total = 2;
+    targeting.selection_diagnostics.count = 2;
+    targeting.selection_diagnostics.selected_index = 1;
+    targeting.selection_diagnostics.boxes[0].gate = "friendly_color";
+    targeting.selection_diagnostics.boxes[1].x1 = 70.0f;
     targeting.detections.push_back(
         detection(10.0f, 20.0f, 50.0f, 120.0f, 0.80f, 0.0f, 0));
     targeting.detections.push_back(
         detection(70.0f, 30.0f, 120.0f, 150.0f, 0.90f, 0.2f, 0));
 
     vision_native::copy_selector_identity_fields(result, targeting);
+    require_true(result.selection_diagnostics.total == 2 &&
+        result.selection_diagnostics.count == 2 &&
+        result.selection_diagnostics.selected_index == 1 &&
+        std::string(result.selection_diagnostics.outcome) == "selected_detection" &&
+        std::string(result.selection_diagnostics.boxes[0].gate) == "friendly_color" &&
+        result.selection_diagnostics.boxes[1].x1 == 70.0f,
+        "VisionEngine assembly must preserve selector decision diagnostics");
     result.detections = std::move(targeting.detections);
     const controller_native::ControllerVisionSnapshot snapshot =
         runtime_app::adapt_vision_result(result);

@@ -78,6 +78,14 @@ TelemetryCollectors::TelemetryCollectors(
             metadata.session_metadata.session_id.size(), "%016llx%016llx",
             static_cast<unsigned long long>(now),
             static_cast<unsigned long long>(random_bits));
+        const auto clock_before=std::chrono::steady_clock::now();
+        metadata.session_metadata.clock_utc_ns=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+        const auto clock_after=std::chrono::steady_clock::now();
+        metadata.session_metadata.clock_steady_ns=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            (clock_before+(clock_after-clock_before)/2).time_since_epoch()).count());
+        metadata.session_metadata.clock_uncertainty_ns=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(clock_after-clock_before).count());
+        copy_text(metadata.session_metadata.build_stamp,__DATE__ " " __TIME__);
         copy_text(metadata.session_metadata.build_commit, context.build_commit);
         metadata.session_metadata.capture_width = context.capture_width;
         metadata.session_metadata.capture_height = context.capture_height;
@@ -356,6 +364,11 @@ void TelemetryCollectors::observe_acquisition_trace(
     record.ads_acquisition_trace = input;
     enqueue(record);
     ++counters_.acquisition_traces;
+}
+
+void TelemetryCollectors::observe_selection_decision(const TelemetryRecord& record) noexcept {
+    if (!state_) return;
+    enqueue(record);
 }
 
 void TelemetryCollectors::shutdown(std::uint64_t now_ns) noexcept {

@@ -420,6 +420,90 @@ void high_rate_source_keeps_response_learning(const native_test::TestContext& co
 }
 
 void register_startup_response_prior_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "input_discontinuity_revokes_target_without_reusing_ads_epoch", [] {
+        auto config = incident_fixture::base_config(40.f, 200.f);
+        double now = 10;
+        NativeGamepadController controller(config, &now);
+        incident_fixture::TargetSpec spec;
+        spec.observation_id = spec.selector_generation = 1;
+        spec.has_enemy_cue = true;
+        controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, 1, now, 20, 0));
+        controller.build_output(incident_fixture::ads_input());
+        const auto epoch = controller.ads_epoch();
+        const auto learning = controller.learning_snapshot();
+        require(controller.last_target_plan().target_id != 0, "gap fixture must own a target");
+        controller.reset_after_input_discontinuity();
+        now += .005;
+        const auto output = controller.build_output(incident_fixture::ads_input(.013f, -.021f));
+        require(controller.ads_epoch() > epoch && controller.last_target_plan().target_id == 0,
+            "missed release/repress must invalidate old target and advance ADS identity");
+        require(output.right_x == .013f && output.right_y == -.021f, "gap must retain native manual input");
+        const auto after = controller.learning_snapshot();
+        for (std::size_t i = 0; i < learning.size(); ++i)
+            require(after[i].scale_px_per_stick_second == learning[i].scale_px_per_stick_second,
+                "input gap must preserve calibrated response priors");
+    });
+    registry.add_case("BaseRuntimeFreshness", "expired_visual_fire_does_not_hold_trigger", [] {
+        auto config = incident_fixture::base_config(40.f, 200.f);
+        config.auto_fire.aim_only = false;
+        config.auto_fire.require_aim_ready = false;
+        config.auto_fire.ads_press_delay_ms = 0;
+        double now = 10;
+        NativeGamepadController controller(config, &now);
+        incident_fixture::TargetSpec spec;
+        spec.observation_id = spec.selector_generation = 1;
+        spec.has_enemy_cue = spec.enemy_identity_confirmed = spec.fire_authority = true;
+        bool exercised = false;
+        for (unsigned i = 1; i <= 100; ++i) {
+            now = 10 + i * .001;
+            auto snapshot = incident_fixture::observed_snapshot(spec, i, now, 0, 0);
+            snapshot.state.auto_fire_requested = true;
+            controller.submit_vision_snapshot(snapshot);
+            controller.begin_tick(incident_fixture::ads_input());
+            auto frame = controller.resolve_control_frame();
+            if (frame.fire_command().synthetic_active) {
+                now += .080;
+                require(controller.expire_visual_output(frame, now, 40.f), "late fire frame must expire");
+                require(!frame.fire_command().synthetic_active, "late visual fire must not hold RB/RT");
+                exercised = true;
+                break;
+            }
+            OutputComposer composer;
+            require(composer.compose(frame) == OutputComposeStatus::Ok, "fire fixture output");
+            controller.observe_composed_output(*composer.finalized_output());
+        }
+        require(exercised, "fixture must produce a real visual fire pulse before expiry");
+    });
+    registry.add_case("BaseRuntimeFreshness", "visual_output_expires_after_slow_compute", [] {
+        for (const double delay : {.039, .040, .080, .200}) {
+            auto config = incident_fixture::base_config(40.f, 200.f);
+            config.ai_aim.normalized_assist_parameters = true;
+            double now = 10;
+            NativeGamepadController controller(config, &now);
+            incident_fixture::TargetSpec spec;
+            spec.observation_id = spec.selector_generation = 1;
+            spec.has_enemy_cue = spec.enemy_identity_confirmed = true;
+            const auto physical = incident_fixture::ads_input(.02f, -.01f);
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, 1, now, 25, 0));
+            controller.begin_tick(physical);
+            auto frame = controller.resolve_control_frame();
+            require(controller.last_target_plan().target_id != 0, "fixture must own a real target before delay");
+            now = 10 + delay;
+            const bool expired = controller.expire_visual_output(frame, now, 40.f);
+            require(expired == (delay >= .040), "output must expire at the original capture deadline");
+            OutputComposer composer;
+            require(composer.compose(frame) == OutputComposeStatus::Ok, "expired frame must remain composable");
+            if (expired) {
+                const auto output = *composer.finalized_output();
+                require(output.right_x == physical.right_x && output.right_y == physical.right_y &&
+                    output.left_trigger == physical.left_trigger, "expiry must restore exact physical input");
+                controller.observe_composed_output(output);
+                require(std::fabs(controller.last_output_components().recoil_stick.x) < 1e-6f &&
+                    std::fabs(controller.last_output_components().recoil_stick.y) < 1e-6f,
+                    "revoked aim cannot be recorded as delivered recoil");
+            }
+        }
+    });
     registry.add_case("BaseBodyLock","motion_observation_keeps_220hz_freshness", [] {
         auto config=incident_fixture::base_config(100,200);
         config.ai_aim.ads_completion_fresh_frames=1;

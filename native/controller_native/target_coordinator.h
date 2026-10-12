@@ -58,6 +58,8 @@ struct TargetControlFeedback {
     // Capture-to-now displacement from actual delivered camera history.
     bool continuation_valid = false;
     pipeline_contract::Vec2f continuation_offset_px{};
+    // Static literal, diagnostic only: ineligible evidence is not missing history.
+    const char* continuation_rejection = "camera_history_unavailable";
 };
 
 class TargetCoordinator {
@@ -76,6 +78,12 @@ public:
     void reset() noexcept;
 
 private:
+    const char* gap_diagnostic_reason_="not_needed"; // diagnostic only
+    pipeline_contract::TargetPlan update_impl(
+        const pipeline_contract::VisionObservationBatch& observations,
+        const pipeline_contract::IntentState& intent,
+        double now_seconds,
+        const TargetControlFeedback& feedback) noexcept;
     void reset_target_owned_state_for_replacement() noexcept;
     void adopt_candidate_geometry(
         const pipeline_contract::VisionCandidate& candidate,

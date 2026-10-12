@@ -1,4 +1,5 @@
 #include "target_coordinator.h"
+#include "incident_fixture_support.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -138,6 +139,125 @@ void test_no_source_tick_reuses_immutable_source_plan() {
                  "no-source tick must not invent a lifecycle transition");
     require_true(!continued.source_decision_available,
                  "no-source tick must not fabricate a source decision");
+}
+
+void test_pre_aim_selection_admitted_without_new_source() {
+    controller_native::TargetCoordinator coordinator;
+    const auto idle = coordinator.update(selected_frame(1, 1.0, 280.f), {}, 1.0);
+    require_true(idle.target_id != 0 && idle.aim_authority == 0.f,
+        "pre-aim observation must retain selection without moving aim");
+    coordinator.begin_ads_epoch(1, 1.003);
+    const auto acquired = coordinator.update(no_source_tick(), ads_intent(), 1.003);
+    require_true(acquired.ads_plan_admitted && acquired.ads_acquisition_active,
+        "opening ADS must admit the still-current pre-aim selection without waiting for a source frame");
+    require_true(acquired.target_id == idle.target_id && acquired.aim_authority > 0.f,
+        "warm admission must preserve canonical identity and enable aim");
+    require_true(!acquired.source_decision_available && !acquired.fire_authority &&
+        !acquired.fire_requested && near(acquired.source_capture_age_ms, 3.f),
+        "warm admission must not fabricate a fresh capture, source decision, or fire authority");
+}
+
+void test_pre_aim_controller_output() {
+    using namespace controller_native;
+    double now = 1.0;
+    auto config = incident_fixture::base_config(40.f, 135.f);
+    NativeGamepadController controller(config, &now);
+    incident_fixture::TargetSpec spec;
+    spec.observation_id = 41; spec.selector_generation = 7;
+    auto snapshot = incident_fixture::observed_snapshot(spec, 1, now, 70.f, 0.f);
+    snapshot.state.aim_authority = false; // VisionService idle policy
+    controller.submit_vision_snapshot(snapshot);
+    auto physical = incident_fixture::ads_input(); physical.left_trigger = 0.f;
+    auto output = controller.build_output(physical);
+    require_true(output.right_x == 0.f && controller.last_target_plan().target_id != 0,
+        "idle must prepare target without moving the controller");
+    now += .003; physical.left_trigger = 1.f;
+    output = controller.build_output(physical);
+    require_true(controller.last_target_plan().ads_plan_admitted && output.right_x > 0.f,
+        "rapid full trigger must produce actual ADS output without another vision publication");
+    require_true(!controller.last_target_plan().direct_person_observation && output.right_trigger == 0.f,
+        "warm controller tick must not invent source evidence or fire");
+    now += .001; physical.left_trigger = 0.f; physical.right_x = -.21f; physical.right_y = .13f;
+    output = controller.build_output(physical);
+    require_true(output.right_x == physical.right_x && output.right_y == physical.right_y,
+        "release after warm admission must preserve exact manual passthrough");
+}
+
+void test_pre_aim_randomized(unsigned seed) {
+    std::mt19937 rng(seed);
+    for (unsigned scenario = 0; scenario < 160; ++scenario) {
+        controller_native::TargetCoordinatorConfig config;
+        config.max_observation_age_ms = 40.f;
+        controller_native::TargetCoordinator coordinator(config);
+        double now = 1.; unsigned frame = 1;
+        const unsigned frames = (scenario / 8) % 2 ? 2000 : 5;
+        std::uint64_t generation = 7;
+        pipeline_contract::TargetPlan idle;
+        for (unsigned step = 0; step < frames; ++step) {
+            now += .005;
+            if (rng()%37 == 0) ++generation;
+            idle = coordinator.update(selected_frame(frame++, now,
+                270.f + float(rng()%30), 208.f, 41, generation), {}, now);
+            require_true(idle.aim_authority == 0.f, "idle history generated aim authority");
+        }
+        const unsigned variant = scenario % 8;
+        if (variant == 1) {
+            now += .005;
+            coordinator.update(fresh_no_selection(frame++, now, generation), {}, now);
+        } else if (variant == 2) {
+            now += .005;
+            coordinator.update(selected_frame(frame++, now, 470.f, 208.f, 41, generation), {}, now);
+        } else if (variant == 3) {
+            now += .045; // original source expires, regardless of long history
+        }
+        now += (.001 + double(rng()%20)*.001);
+        coordinator.begin_ads_epoch(1, now);
+        auto input = no_source_tick();
+        auto intent = ads_intent();
+        if (variant == 4) input = fresh_no_selection(frame++, now, generation);
+        if (variant == 5) input = selected_frame(frame++, now, 290.f, 208.f, 42, generation+1);
+        if (variant == 6) intent.right_purpose = pipeline_contract::UserAimIntentPurpose::HandoverTarget;
+        if (variant == 7) { input = selected_frame(frame-1, now-.02, 280.f); }
+        const auto plan = coordinator.update(input, intent, now);
+        const bool expected = variant == 0 || variant == 5;
+        require_true(plan.ads_plan_admitted == expected && plan.ads_acquisition_active == expected,
+            "pre-aim admission ignored freshness, newer rejection, manual handover, or pickup envelope");
+        if (variant == 0) {
+            require_true(plan.target_id == idle.target_id && plan.selector_target_generation == generation &&
+                !plan.direct_person_observation && !plan.source_decision_available &&
+                !plan.fire_authority && plan.source_capture_age_ms > 0.f,
+                "warm admission changed identity, source age, or source/fire evidence");
+        }
+        if (variant == 5) require_true(plan.selector_target_generation == generation+1 &&
+            plan.direct_person_observation, "fresh replacement must take precedence over pre-aim memory");
+        now += .06;
+        const auto expired = coordinator.update(no_source_tick(), ads_intent(), now);
+        require_true(expired.aim_authority == 0.f, "warm target extended its original source lifetime");
+    }
+}
+
+void test_pre_aim_new_epoch_cannot_replay_fire() {
+    controller_native::TargetCoordinator coordinator;
+    coordinator.begin_ads_epoch(1, 1.);
+    auto firing = selected_frame(1, 1., 280.f);
+    firing.fire_requested = firing.observed_fire_eligible = true;
+    const auto previous = coordinator.update(firing, ads_intent(), 1.);
+    require_true(previous.fire_requested && previous.fire_authority,
+        "fixture must carry previous-epoch fire evidence");
+    coordinator.update(no_source_tick(), {}, 1.001);
+    coordinator.begin_ads_epoch(2, 1.002);
+    const auto warm = coordinator.update(no_source_tick(), ads_intent(), 1.002);
+    require_true(warm.ads_plan_admitted && !warm.fire_requested && !warm.fire_authority,
+        "new ADS epoch may reuse valid geometry but never old fire evidence");
+    const auto held = coordinator.update(no_source_tick(), ads_intent(), 1.003);
+    require_true(held.ads_acquisition_active && !held.ads_plan_admitted && !held.fire_requested &&
+        !held.fire_authority && !held.direct_person_observation,
+        "warm admission must remain one-shot until fresh source evidence arrives");
+    firing = selected_frame(2, 1.004, 279.f);
+    firing.fire_requested = firing.observed_fire_eligible = true;
+    const auto current = coordinator.update(firing, ads_intent(), 1.004);
+    require_true(current.fire_requested && current.fire_authority && current.direct_person_observation,
+        "fresh current-epoch observation must restore ordinary fire eligibility");
 }
 
 void test_fresh_no_selection_drops_generic_authority() {
@@ -359,11 +479,22 @@ void test_same_generation_cue_is_only_continuity_path() {
                  "cue evidence may update current geometry");
     require_true(!cue.fire_authority && !cue.fire_requested,
                  "cue continuation must remain aim-only");
+    require_true(cue.current_cue_observation && !cue.direct_person_observation,
+                 "fresh marker pixels must have their own measurement provenance");
+    const auto duplicate = coordinator.update(
+        cue_frame(61, 7.006, 300.0f), intent, 7.007);
+    require_true(!duplicate.current_cue_observation &&
+                     near(duplicate.aim_px.x, cue.aim_px.x),
+                 "a repeated marker frame must not produce a new motion sample");
+    const auto gap = coordinator.update(no_source_tick(), intent, 7.008);
+    require_true(!gap.current_cue_observation,
+                 "retained marker geometry must not be labeled current evidence");
 
     const auto wrong_generation = coordinator.update(
         cue_frame(62, 7.012, 276.0f, 8), intent, 7.012);
     require_true(wrong_generation.target_id == 0 &&
-                     wrong_generation.aim_authority == 0.0f,
+                     wrong_generation.aim_authority == 0.0f &&
+                     !wrong_generation.current_cue_observation,
                  "wrong-generation cue must not become generic hold authority");
 }
 
@@ -648,6 +779,72 @@ void test_unconfirmed_bodylock_keeps_conservative_safety_budget() {
                  "cue-only continuation must not exceed direct-observation authority");
 }
 
+
+void test_intermittent_selection_diagnostics(const native_test::TestContext& context) {
+    std::filesystem::create_directories(context.artifact_directory);
+    std::ofstream report(context.artifact_path("intermittent_selection.csv"));
+    report << "seed,duration_ms,case,misses,bridges,releases,rebuilds\n";
+    for (unsigned seed : {174805u, 917431u}) for (int duration : {800,8000})
+    for (int scenario=0; scenario<16; ++scenario) for (int mode=0; mode<4; ++mode) {
+        std::mt19937 random(seed+scenario);
+        controller_native::TargetCoordinatorConfig config;
+        config.settle_frames=1;
+        config.missing_observation_grace_ms=32;
+        config.max_observation_age_ms=50;
+        controller_native::TargetCoordinator coordinator(config);
+        auto intent=ads_intent();
+        double now=10;
+        coordinator.begin_ads_epoch(1,now);
+        auto plan=coordinator.update(selected_frame(1,now,240),intent,now);
+        require_true(plan.mode==pipeline_contract::ControlMode::BodyLockFollow,"fixture must consume Snap first");
+        std::uint64_t frame=1;
+        int misses=0,bridges=0,releases=0,rebuilds=0;
+        for (int elapsed=7;elapsed<duration;) {
+            const int dt=5+random()%4;
+            now=10.+elapsed*.001;
+            const auto previous=plan.target_id;
+            const bool miss=random()%7==0;
+            controller_native::TargetControlFeedback feedback;
+            feedback.continuation_valid=mode!=1;
+            if (miss) {
+                auto batch=fresh_no_selection(++frame,now);
+                if (mode==2) batch.rejected_friendly_count=1;
+                if (mode==3) now+=.060;
+                plan=coordinator.update(batch,intent,now,feedback);
+                ++misses;
+                bridges+=plan.observation_gap && plan.gap_prediction_valid;
+                releases+=previous!=0 && plan.target_id==0;
+                require_true(plan.source_decision_reason==(mode==3 ? pipeline_contract::AdsDecisionReason::StaleCapture : pipeline_contract::AdsDecisionReason::SelectorNoSelection),
+                    "consumed Snap must not hide the actual no-selection reason");
+                if (previous!=0) {
+                    const auto* reason=plan.identity_diagnostics.gap_reason;
+                    if(mode==0) require_true(plan.target_id==previous && plan.observation_gap && std::string(reason)=="bridged",
+                        "fresh same-generation short miss with camera history must preserve identity");
+                    else if (mode==1) require_true(plan.target_id==previous && plan.observation_gap &&
+                        !plan.gap_prediction_valid && plan.aim_authority==0 && std::string(reason)=="camera_history_unavailable",
+                        "missing camera history must suspend prediction without destroying same-target identity");
+                    else require_true(plan.target_id==0 &&
+                        std::string(reason)==(mode==2?"friendly_rejection":"source_expired"),
+                        "release must name the actual failed continuation boundary");
+                }
+                // Restore fresh current measurements, never replay old geometry.
+                elapsed+=mode==3?60:0;
+                now+=dt*.001;
+                plan=coordinator.update(selected_frame(++frame,now,240.f+float(random()%21)-10.f),intent,now,feedback);
+                rebuilds+=previous!=0 && plan.target_id!=previous;
+                require_true(plan.target_id!=0 && plan.mode==pipeline_contract::ControlMode::BodyLockFollow,
+                    "same-generation recovery must not mint a second Snap");
+            } else {
+                plan=coordinator.update(selected_frame(++frame,now,240.f+float(random()%21)-10.f),intent,now,feedback);
+            }
+            elapsed+=dt+(miss?dt:0);
+        }
+        require_true(misses>0,"fixture must exercise a dropout");
+        require_true(mode<2 ? rebuilds==0 : rebuilds==misses,"identity rebuilding must follow the diagnosed release");
+        report<<seed<<','<<duration<<','<<mode<<','<<misses<<','<<bridges<<','<<releases<<','<<rebuilds<<'\n';
+    }
+}
+
 }  // namespace
 
 namespace {
@@ -803,6 +1000,7 @@ void test_bounded_acquisition_point_geometry(const native_test::TestContext& con
 }  // namespace
 
 void register_target_coordinator_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseBodyLock", "intermittent_selection_diagnostics", test_intermittent_selection_diagnostics);
     registry.add_context_case("BaseAds", "bounded_acquisition_point_geometry", test_bounded_acquisition_point_geometry);
     registry.add_case("BaseBodyLock", "randomized_gap_deadlines_and_invalidations", [] {
         for(unsigned seed : {10632u,938117u}) {
@@ -866,6 +1064,29 @@ void register_target_coordinator_tests(native_test::Registry& registry) {
         const auto expired=coordinator.update(no_source_tick(),intent,2.033,feedback);
         require_true(expired.aim_authority==0,"32ms is a hard capture-age deadline, not renewable per miss");
     });
+    registry.add_case("BaseBodyLock", "gap_identity_prediction_and_expiry_are_separate", [] {
+        controller_native::TargetCoordinatorConfig config;
+        config.missing_observation_grace_ms=32;config.settle_frames=1;
+        controller_native::TargetCoordinator coordinator(config);
+        auto intent=ads_intent();coordinator.begin_ads_epoch(2,2.0);
+        const auto first=coordinator.update(selected_frame(1,2.,240),intent,2.);
+        const auto held=coordinator.update(fresh_no_selection(2,2.006),intent,2.006);
+        require_true(held.target_id==first.target_id && held.observation_gap && !held.gap_prediction_valid &&
+            held.aim_authority==0 && !held.fire_authority,"identity must survive independently of prediction authority");
+        controller_native::TargetControlFeedback feedback;feedback.continuation_valid=true;
+        feedback.continuation_offset_px={10000,0};
+        const auto unsupported=coordinator.update(fresh_no_selection(3,2.012),intent,2.012,feedback);
+        require_true(unsupported.target_id==first.target_id && unsupported.aim_authority==0 &&
+            near(unsupported.aim_px.x,first.aim_px.x),"unbounded extrapolation cannot move held identity geometry");
+        const auto recovered=coordinator.update(selected_frame(4,2.018,244),intent,2.018);
+        require_true(recovered.target_id==first.target_id && recovered.direct_person_observation &&
+            !recovered.observation_gap && recovered.mode==pipeline_contract::ControlMode::BodyLockFollow,
+            "fresh pixels resume the same identity without another Snap");
+        coordinator.update(fresh_no_selection(5,2.024),intent,2.024);
+        const auto expired=coordinator.update(fresh_no_selection(6,2.052),intent,2.052);
+        require_true(expired.target_id==0 && expired.aim_authority==0,
+            "repeated misses cannot renew identity beyond original capture deadline");
+    });
     registry.add_case("BaseBodyLock", "desired_point_wall_time_across_cadences", test_desired_point_uses_wall_time_at_all_supported_cadences);
     registry.add_case("BaseBodyLock", "boundary_exit_wall_time_across_cadences", test_boundary_exit_uses_wall_time_at_all_supported_cadences);
     registry.add_case("BaseBodyLock", "no_source_tick_reuses_immutable_plan", test_no_source_tick_reuses_immutable_source_plan);
@@ -883,5 +1104,10 @@ void register_target_coordinator_tests(native_test::Registry& registry) {
     registry.add_case("BaseBodyLock", "target_replacement_resets_corrected_point", test_target_replacement_resets_corrected_d);
     registry.add_case("BaseBodyLock", "firing_downward_does_not_arm_handover", test_firing_downward_input_moves_d_without_arming_handover);
     registry.add_case("BaseAds", "size_scaled_pickup_revalidated_per_epoch", test_size_scaled_pickup_is_revalidated_only_on_new_ads_epoch);
+    registry.add_case("BaseAds", "pre_aim_selection_admitted_without_new_source", test_pre_aim_selection_admitted_without_new_source);
+    registry.add_case("BaseAds", "pre_aim_controller_output", test_pre_aim_controller_output);
+    registry.add_case("BaseAds", "pre_aim_new_epoch_cannot_replay_fire", test_pre_aim_new_epoch_cannot_replay_fire);
+    registry.add_case("BaseAds", "pre_aim_random_development", [] { test_pre_aim_randomized(20261012); });
+    registry.add_case("BaseAds", "pre_aim_random_validation", [] { test_pre_aim_randomized(0x71935ac2); });
     registry.add_case("BaseBodyLock", "unconfirmed_budget_keeps_safety_ceiling", test_unconfirmed_bodylock_keeps_conservative_safety_budget);
 }

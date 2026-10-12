@@ -101,7 +101,8 @@ calibration_reference_stick = 0.50
 
 [gamepad.detection_haptics]
 # USB DualSense Edge: directional person-appearance notification, independent of aim/fire.
-# Enabling keeps detection running while idle. Re-arm after 250 ms of fresh empty frames.
+# Enabling keeps idle detection running. One pulse per selector-owned target identity;
+# admission and direction use the same selected target as aiming.
 enabled = false
 strength = 0.24
 

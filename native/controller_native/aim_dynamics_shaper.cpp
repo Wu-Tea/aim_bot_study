@@ -32,6 +32,25 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
     previous_target_id_ = plan.target_id;
     previous_mode_ = plan.mode;
     context_initialized_ = true;
+    if (plan.observation_gap) {
+        // Open-loop prediction is aim-only, not new evidence for more force.
+        // It may keep or reduce already-supported work, never start an axis,
+        // amplify it, or reverse it. The coordinator owns the capture deadline.
+        // With identity alone, revoke AI immediately rather than slewing stale work.
+        const float remaining = std::max(0.f, plan.observation_gap_remaining_ms);
+        // Integrating the remaining-time ratio produces a linear discharge
+        // toward the original capture deadline, independent of tick cadence.
+        const float remaining_fraction = remaining / (remaining + dt * 1000.f);
+        auto bounded_axis = [remaining_fraction](float requested, float previous) {
+            if (!std::isfinite(requested) || requested * previous <= 0.f) return 0.f;
+            return std::copysign(std::min(std::fabs(requested), std::fabs(previous) * remaining_fraction), previous);
+        };
+        current_ = !plan.gap_prediction_valid || plan.aim_authority <= 0 || target_changed
+            ? pipeline_contract::Vec2f{}
+            : pipeline_contract::Vec2f{bounded_axis(requested_ai.x, current_.x),
+                                      bounded_axis(requested_ai.y, current_.y)};
+        return current_;
+    }
     const bool timed_bodylock = plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
         (config_.bodylock_accel_ms > 0 || config_.bodylock_decel_ms > 0);
     const auto step_for = [&](bool decaying, float force, float legacy_limit) {
@@ -90,7 +109,10 @@ pipeline_contract::Vec2f AimDynamicsShaper::shape(
         // envelope acquire it on subsequent ticks.
         current_ = {};
     }
-    if (plan.lifecycle == pipeline_contract::TargetLifecycle::CueContinuation) {
+    const bool measured_cue_motion = plan.bodylock_target_motion_valid &&
+        plan.bodylock_target_motion_from_cue && !plan.observation_gap;
+    if (plan.lifecycle == pipeline_contract::TargetLifecycle::CueContinuation &&
+        !measured_cue_motion) {
         auto prevent_blind_rise = [](float requested, float current) {
             if (requested * current >= 0.0f &&
                 std::fabs(requested) > std::fabs(current)) {

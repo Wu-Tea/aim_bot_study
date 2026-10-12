@@ -1,4 +1,6 @@
 #pragma once
+
+#include "live_control_policy.h"
 #include "runtime_timing.h"
 
 #include "pipeline_contract/target_snapshot.h"
@@ -15,6 +17,7 @@
 #include <thread>
 
 namespace runtime_app {
+class LivePipelineTrace;
 
 enum class VisionSnapshotFreshness {
     None,
@@ -34,6 +37,7 @@ struct VisionServiceOptions {
     bool keepwarm_when_idle = true;
     // Cadence only: inactive snapshots never gain aim/fire authority.
     int aim_release_hold_ms = 0;
+    LivePipelineTrace* live_trace = nullptr; // diagnostic owner outlives service
 };
 
 struct VisionServiceSnapshot {
@@ -66,7 +70,7 @@ struct VisionDetectionPolicy {
 // a unique, forward-moving, recent capture before it can become control input.
 class VisionDeliveryGate {
 public:
-    explicit VisionDeliveryGate(float max_source_age_ms = 50.0f) noexcept;
+    explicit VisionDeliveryGate(float max_source_age_ms = kLiveVisualLifetimeMs) noexcept;
 
     bool accept(
         const vision_native::VisionResult& result,
@@ -74,7 +78,7 @@ public:
     void reset() noexcept;
 
 private:
-    float max_source_age_ms_ = 50.0f;
+    float max_source_age_ms_ = kLiveVisualLifetimeMs;
     std::uint64_t last_frame_id_ = 0;
     std::uint64_t last_capture_ns_ = 0;
     std::uint64_t last_source_ns_ = 0;
@@ -141,7 +145,7 @@ private:
     std::uint64_t applied_policy_revision_ = 0;
     std::chrono::steady_clock::time_point last_poll_at_{};
     bool has_last_poll_ = false;
-    VisionServiceSnapshot latest_snapshot_;
+    std::shared_ptr<const VisionServiceSnapshot> latest_snapshot_;
     std::exception_ptr worker_failure_;
     std::uint64_t sequence_ = 0;
     std::uint64_t aim_transition_sequence_ = 0;

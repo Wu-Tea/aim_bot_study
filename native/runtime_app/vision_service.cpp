@@ -1,4 +1,5 @@
 #include "vision_service.h"
+#include "live_pipeline_trace.h"
 
 #include "runtime_timing.h"
 #include "vision_native/observation_time.h"
@@ -7,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
+#include <optional>
 
 namespace runtime_app {
 namespace {
@@ -65,7 +67,7 @@ void stamp_service_metadata(VisionServiceSnapshot& snapshot) {
 } // namespace
 
 VisionDeliveryGate::VisionDeliveryGate(float max_source_age_ms) noexcept
-    : max_source_age_ms_(std::max(0.0f, max_source_age_ms)) {}
+    : max_source_age_ms_(live_visual_lifetime_ms(max_source_age_ms)) {}
 
 bool VisionDeliveryGate::accept(
     const vision_native::VisionResult& result,
@@ -86,7 +88,7 @@ bool VisionDeliveryGate::accept(
         (result.source_present_steady_available
             ? static_cast<double>(result.source_present_calibration_uncertainty_ns)
             : 0.0)) / 1'000'000.0;
-    if (age_ms > static_cast<double>(max_source_age_ms_)) {
+    if (age_ms >= static_cast<double>(max_source_age_ms_)) {
         return false;
     }
     if (result.source_present_available &&
@@ -198,10 +200,16 @@ void VisionService::set_detection_policy(VisionDetectionPolicy policy) {
 }
 
 VisionServiceSnapshot VisionService::latest_snapshot(std::uint64_t after_sequence) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (worker_failure_) std::rethrow_exception(worker_failure_);
-    if (latest_snapshot_.sequence == after_sequence) return {};
-    return latest_snapshot_;
+    std::shared_ptr<const VisionServiceSnapshot> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (worker_failure_) std::rethrow_exception(worker_failure_);
+        if (!latest_snapshot_ || latest_snapshot_->sequence == after_sequence) return {};
+        snapshot = latest_snapshot_;
+    }
+    // Detection vectors may allocate/copy here. They must not hold the mutex
+    // used by input activation and the producer's next dispatch.
+    return *snapshot;
 }
 
 bool VisionService::step_for_test(std::chrono::steady_clock::time_point now) {
@@ -218,6 +226,11 @@ bool VisionService::full_rate_requested(std::chrono::steady_clock::time_point no
 }
 
 bool VisionService::step(std::chrono::steady_clock::time_point now) {
+    std::optional<LiveTraceRecord> trace;
+    if (options_.live_trace) {
+        trace.emplace();
+        trace->poll_enter_ns = trace_now_ns();
+    }
     auto request = pipeline_contract::VisionRequest::Idle;
     bool engine_aiming = false;
     pipeline_contract::UserAimIntent intent;
@@ -240,6 +253,9 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
             now - last_poll_at_ < interval_for_fps(fps)) {
             return false;
         }
+        if (trace) trace->poll_due_ns = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                (immediate_poll_requested_ || !has_last_poll_ ? now : last_poll_at_ + interval_for_fps(fps)).time_since_epoch()).count());
         immediate_poll_requested_ = false;
         last_poll_at_ = now;
         has_last_poll_ = true;
@@ -262,6 +278,16 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     const auto capture_at = std::chrono::steady_clock::now();
     vision_native::VisionResult result = poller_->poll_once();
     const auto result_at = std::chrono::steady_clock::now();
+    if (trace) {
+        trace_vision_fields(*trace, result);
+        trace->dispatch_ns = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(dispatch_at.time_since_epoch()).count());
+        trace->poll_return_ns = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(result_at.time_since_epoch()).count());
+        trace->producer_updated = result.frame_updated;
+        trace->request = static_cast<std::uint64_t>(request);
+        trace->epoch = aim_transition_sequence;
+        trace->policy_revision = applied_policy_revision_;
+        trace->requested_fps = requested_fps;
+    }
 
     VisionServiceSnapshot snapshot;
     snapshot.request = request;
@@ -280,35 +306,52 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     snapshot.policy_revision = applied_policy_revision_;
     snapshot.result = std::move(result);
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    auto published = std::make_shared<VisionServiceSnapshot>(std::move(snapshot));
+    auto& final_snapshot = *published;
+    std::shared_ptr<const VisionServiceSnapshot> retired;
+    if (trace) trace->publish_wait_ns = trace_now_ns();
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (trace) trace->publish_lock_ns = trace_now_ns();
     const bool control_epoch_current =
         request == request_ &&
         aim_transition_sequence == aim_transition_sequence_;
     if (!control_epoch_current) {
-        snapshot.result.frame_updated = false;
-        clear_reused_authority(snapshot.result);
+        final_snapshot.result.frame_updated = false;
+        clear_reused_authority(final_snapshot.result);
     }
-    snapshot.sequence = ++sequence_;
+    final_snapshot.sequence = ++sequence_;
     if (!control_epoch_current) {
-        snapshot.freshness = VisionSnapshotFreshness::NoUpdate;
-        snapshot.source_state = VisionSourceState::NoUpdate;
-    } else if (snapshot.result.frame_updated) {
-        snapshot.freshness = VisionSnapshotFreshness::Fresh;
-        snapshot.source_state = VisionSourceState::FreshFrame;
+        final_snapshot.freshness = VisionSnapshotFreshness::NoUpdate;
+        final_snapshot.source_state = VisionSourceState::NoUpdate;
+    } else if (final_snapshot.result.frame_updated) {
+        final_snapshot.freshness = VisionSnapshotFreshness::Fresh;
+        final_snapshot.source_state = VisionSourceState::FreshFrame;
         if (request != pipeline_contract::VisionRequest::AssistSearch) {
-            clear_reused_authority(snapshot.result);
+            clear_reused_authority(final_snapshot.result);
         }
     } else {
-        clear_reused_authority(snapshot.result);
-        snapshot.freshness = VisionSnapshotFreshness::NoUpdate;
-        snapshot.source_state = VisionSourceState::NoUpdate;
+        clear_reused_authority(final_snapshot.result);
+        final_snapshot.freshness = VisionSnapshotFreshness::NoUpdate;
+        final_snapshot.source_state = VisionSourceState::NoUpdate;
     }
-    stamp_service_metadata(snapshot);
-    snapshot.published_at_ns = static_cast<std::uint64_t>(
+    stamp_service_metadata(final_snapshot);
+    final_snapshot.published_at_ns = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch())
             .count());
-    latest_snapshot_ = std::move(snapshot);
+    retired = std::move(latest_snapshot_);
+    latest_snapshot_ = std::move(published);
+    if (trace) {
+        trace->sequence = final_snapshot.sequence;
+        trace->epoch_current = control_epoch_current;
+        trace->status = !control_epoch_current ? 3 : trace->producer_updated ? 1 : 2;
+        trace->published_ns = final_snapshot.published_at_ns;
+    }
+    lock.unlock(); // Release any old detection allocation outside the mutex.
+    if (trace) {
+        trace->publish_unlock_ns = trace_now_ns();
+        options_.live_trace->vision(*trace);
+    }
     return true;
 }
 
@@ -329,7 +372,7 @@ std::chrono::steady_clock::time_point VisionService::next_poll_due(
 }
 
 void VisionService::run_loop() {
-    (void)set_current_thread_priority(RuntimeThreadPriority::Highest);
+    (void)set_current_thread_priority(RuntimeThreadPriority::AboveNormal);
     try {
         while (running_.load()) {
             const auto now = std::chrono::steady_clock::now();

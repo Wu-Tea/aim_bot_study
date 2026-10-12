@@ -1,10 +1,17 @@
 #include "vision_service.h"
+#include "live_pipeline_trace.h"
+#include "async_console.h"
+#include "manual_relay.h"
+#include "controller_native/incident_fixture_support.h"
 #include "vision_controller_adapter.h"
 #include "test_support/native_test_registry.h"
 
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <future>
+#include <fstream>
+#include <random>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -597,7 +604,7 @@ void test_delivery_gate_uses_source_image_age_and_identity() {
 
     gate.reset();
     result.source_present_steady_available = true;
-    result.source_present_steady_ns = 951'000'000;
+    result.source_present_steady_ns = 961'000'000;
     result.source_present_calibration_uncertainty_ns = 2'000'000;
     REQUIRE(!gate.accept(result, 1'000'000'000));
     result.source_present_calibration_uncertainty_ns = 500'000;
@@ -620,7 +627,319 @@ void test_hot_policy_cannot_relabel_inflight_frame() {
     REQUIRE(raw->last_policy.revision == 7 && !raw->last_policy.friendly && raw->last_policy.height == .35f);
 }
 
+void test_blocked_inference_does_not_block_controller_mailbox() {
+    auto poller = std::make_unique<FakeVisionPoller>(std::vector<bool>{true});
+    auto* raw = poller.get();
+    runtime_app::VisionService service(std::move(poller), {});
+    std::promise<void> entered, release;
+    auto entered_future = entered.get_future();
+    auto release_future = release.get_future();
+    raw->on_poll = [&] {
+        entered.set_value();
+        release_future.wait();
+    };
+    service.set_request(pipeline_contract::VisionRequest::AssistSearch);
+    auto producer = std::async(std::launch::async, [&] {
+        return service.step_for_test(std::chrono::steady_clock::now());
+    });
+    const bool started = entered_future.wait_for(std::chrono::seconds(2)) ==
+        std::future_status::ready;
+    auto consumer = std::async(std::launch::async, [&] {
+        // The real runtime performs these operations before sending output.
+        // Releasing ADS must be accepted even while inference cannot finish.
+        service.set_request(pipeline_contract::VisionRequest::Idle);
+        service.set_user_aim_intent({});
+        return service.latest_snapshot().sequence;
+    });
+    const bool independent = consumer.wait_for(std::chrono::milliseconds(100)) ==
+        std::future_status::ready;
+    // Always unblock and join before assertions, including the failure path.
+    release.set_value();
+    producer.get();
+    const auto sequence = consumer.get();
+    REQUIRE(started);
+    REQUIRE(independent);
+    REQUIRE(sequence == 0);
+    const auto stale = service.latest_snapshot();
+    REQUIRE(!stale.result.aim_authority && !stale.result.fire_authority);
+}
+
 void register_vision_service_tests(native_test::Registry& registry) {
+    registry.add_case("BaseRuntimeFreshness", "trace_queue_counts_loss_and_preserves_fifo", [] {
+        runtime_app::LiveTraceQueue<2> queue;
+        runtime_app::LiveTraceRecord r;
+        r.sequence=1; REQUIRE(queue.push(r));
+        r.sequence=2; REQUIRE(queue.push(r));
+        r.sequence=3; REQUIRE(!queue.push(r));
+        REQUIRE(queue.dropped()==1);
+        REQUIRE(queue.pop(r) && r.sequence==1);
+        r.sequence=4; REQUIRE(queue.push(r));
+        REQUIRE(queue.pop(r) && r.sequence==2);
+        REQUIRE(queue.pop(r) && r.sequence==4);
+        REQUIRE(!queue.pop(r));
+    });
+    registry.add_context_case("BaseRuntimeFreshness", "trace_records_empty_and_fenced_polls_without_changing_selection", [](const native_test::TestContext& context) {
+        auto trace=std::make_unique<runtime_app::LivePipelineTrace>(context.artifact_directory);
+        for (bool enabled : {false, true}) {
+            runtime_app::VisionServiceOptions options;
+            options.live_trace=enabled?trace.get():nullptr;
+            auto poller=std::make_unique<FakeVisionPoller>(std::vector<bool>{true,false,true});
+            auto* fake=poller.get();fake->authority_on_update=true;
+            runtime_app::VisionService service(std::move(poller), options);
+            service.set_request(pipeline_contract::VisionRequest::AssistSearch, at_ms(1));
+            REQUIRE(service.step_for_test(at_ms(1)));
+            const auto selected=service.latest_snapshot();
+            REQUIRE(selected.result.has_target && selected.result.aim_authority);
+            REQUIRE(service.step_for_test(at_ms(21)));
+            REQUIRE(!service.latest_snapshot().result.frame_updated);
+            fake->on_poll=[&]{service.set_request(pipeline_contract::VisionRequest::Idle,at_ms(42));};
+            REQUIRE(service.step_for_test(at_ms(41)));
+            REQUIRE(!service.latest_snapshot().result.frame_updated);
+            REQUIRE(!service.latest_snapshot().result.aim_authority);
+        }
+        trace->stop();
+        std::ifstream csv(trace->directory()/"pipeline.csv");std::string line;
+        REQUIRE(bool(std::getline(csv,line)));
+        const auto columns=std::count(line.begin(),line.end(),',');
+        unsigned rows=0;
+        while(std::getline(csv,line)){REQUIRE(std::count(line.begin(),line.end(),',')==columns);++rows;}
+        REQUIRE(rows==3);
+        std::ifstream done(trace->directory()/"completion.json");
+        std::getline(done,line);
+        REQUIRE(line.find("\"complete\":true")!=std::string::npos);
+        REQUIRE(line.find("\"vision_dropped\":0")!=std::string::npos);
+    });
+    registry.add_context_case("BaseRuntimeFreshness", "trace_drains_two_producers_on_shutdown", [](const native_test::TestContext& context) {
+        auto trace=std::make_unique<runtime_app::LivePipelineTrace>(context.artifact_directory);
+        std::thread vision([&]{for(unsigned i=1;i<=1000;++i){runtime_app::LiveTraceRecord r;r.sequence=i;trace->vision(r);}});
+        std::thread control([&]{for(unsigned i=1;i<=1000;++i){runtime_app::LiveTraceRecord r;r.lane='C';r.tick_id=i;trace->controller(r);}});
+        vision.join();control.join();trace->stop();
+        std::ifstream csv(trace->directory()/"pipeline.csv");std::string line;std::getline(csv,line);
+        unsigned v=0,c=0;while(std::getline(csv,line)){if(line[0]=='V')++v;if(line[0]=='C')++c;}
+        REQUIRE(v==1000 && c==1000);
+    });
+    registry.add_case("BaseRuntimeFreshness", "relay_trace_times_actual_write_and_rejects_expired_visual", [] {
+        using namespace controller_native;
+        runtime_app::ManualRelay relay([]{return incident_fixture::ads_input();},
+            [](const controller_native::GamepadOutputState&){controller_native::VirtualGamepadUpdateResult r;r.delivered=true;return r;},
+            10, {}, {}, true);
+        relay.start();
+        const auto sample=relay.latest();
+        const auto delivered=relay.submit({},sample,0,{});
+        const auto returned=runtime_app::trace_now_ns();
+        const auto expired=relay.submit({},relay.latest(),1.0,{});
+        relay.stop();
+        REQUIRE(delivered.request_accepted && delivered.output.delivered);
+        REQUIRE(delivered.dequeued_ns>0 && delivered.dequeued_ns<=delivered.device_begin_ns);
+        REQUIRE(delivered.device_begin_ns<=delivered.device_end_ns && delivered.device_end_ns<=returned);
+        REQUIRE(!expired.request_accepted && !expired.visual_fresh && expired.device_begin_ns==0);
+    });
+    registry.add_case("BaseRuntimeFreshness", "native_controller_deliveries_cross_relay_with_stalls", [] {
+        using namespace controller_native;
+        std::atomic<unsigned> writes{0};
+        runtime_app::ManualRelay relay([] { return incident_fixture::ads_input(); },
+            [&](const GamepadOutputState& output) {
+                ++writes;
+                VirtualGamepadUpdateResult result;
+                result.delivered = true;
+                result.submitted_at_seconds = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
+                result.delivered_right_x = output.right_x;
+                result.delivered_right_y = output.right_y;
+                return result;
+            }, 1000, {});
+        relay.start();
+        auto config = incident_fixture::base_config(40.f, 200.f);
+        config.ai_aim.normalized_assist_parameters = true;
+        double now = 0;
+        NativeGamepadController controller(config, &now);
+        incident_fixture::TargetSpec target;
+        target.observation_id = target.selector_generation = 1;
+        target.has_enemy_cue = true;
+        std::uint64_t after = 0, continuity = 0;
+        unsigned accepted = 0, rejected = 0;
+        for (unsigned i = 1; i <= 240; ++i) {
+            const auto sample = relay.wait_next(after);
+            after = sample.sequence;
+            if (relay.discontinuity_sequence() != continuity) {
+                controller.observe_delivered_output({}, false, 0);
+                continuity = relay.discontinuity_sequence();
+            }
+            now = std::chrono::duration<double>(sample.read_at.time_since_epoch()).count();
+            if (i % 5 == 1) controller.submit_vision_snapshot(
+                incident_fixture::observed_snapshot(target, i, now, 20.f + 5.f * std::sin(float(i) * .02f), 0));
+            controller.begin_tick(sample.physical);
+            auto frame = controller.resolve_control_frame();
+            if (i % 80 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(45));
+            now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            const bool expired = controller.expire_visual_output(frame, now, 40);
+            OutputComposer composer;
+            REQUIRE(composer.compose(frame) == OutputComposeStatus::Ok);
+            const auto output = *composer.finalized_output();
+            controller.observe_composed_output(output);
+            const auto receipt = relay.submit(output, sample,
+                expired ? 0 : controller.visual_output_deadline_seconds(40), {});
+            if (receipt.continuity_broken) controller.observe_delivered_output({}, false, 0);
+            controller.observe_delivered_output(output, receipt.output.delivered, receipt.output.submitted_at_seconds);
+            if (receipt.output.delivered) {
+                ++accepted;
+                REQUIRE(receipt.output.delivered_right_x == output.right_x);
+            } else ++rejected;
+        }
+        relay.stop();
+        REQUIRE(accepted > 0 && rejected >= 3 && writes.load() > 240);
+    });
+    registry.add_context_case("BaseRuntimeFreshness", "manual_relay_randomized_short_long_input_streams", [](const native_test::TestContext& context) {
+        std::ofstream report(context.artifact_path("manual-relay-randomized.csv"));
+        REQUIRE(report.good());
+        report << "seed,scenario,algorithm_steps,device_writes,accepted,rejected,mismatches\n";
+        for (unsigned seed : {10091u, 904831u, 71827u, 271009u}) {
+            std::mt19937 random(seed);
+            controller_native::PhysicalGamepadState current;
+            std::atomic<unsigned> mismatches{0}, writes{0};
+            runtime_app::ManualRelay relay([&] {
+                current = {};
+                current.connected = true;
+                current.right_x = (int(random() % 65535) - 32767) / 32767.f;
+                current.right_y = (int(random() % 65535) - 32767) / 32767.f;
+                current.left_x = (int(random() % 65535) - 32767) / 32767.f;
+                current.left_trigger = random() % 2 ? 1.f : 0.f;
+                current.rb = random() % 2 != 0;
+                current.a = random() % 2 != 0;
+                return current;
+            }, [&](const controller_native::GamepadOutputState& output) {
+                if (output.right_x != current.right_x || output.right_y != current.right_y ||
+                    output.left_x != current.left_x || output.left_trigger != current.left_trigger ||
+                    output.rb != current.rb || output.a != current.a) ++mismatches;
+                ++writes;
+                controller_native::VirtualGamepadUpdateResult result;
+                result.delivered = true;
+                result.delivered_right_x = output.right_x;
+                result.delivered_right_y = output.right_y;
+                return result;
+            }, 1000, {});
+            relay.start();
+            std::uint64_t after = 0;
+            unsigned accepted = 0, rejected = 0;
+            for (int scenario = 0; scenario < 16; ++scenario) {
+                const auto initial_writes = writes.load();
+                const auto initial_accepted = accepted, initial_rejected = rejected;
+                const int steps = scenario % 2 ? 48 : 8;
+                for (int i = 0; i < steps; ++i) {
+                    const auto sample = relay.wait_next(after);
+                    after = sample.sequence;
+                    controller_native::OutputComposer composer;
+                    const auto frame = controller_native::ControlFrame::begin(sample.physical,
+                        pipeline_contract::ControllerTickId::from(after),
+                        pipeline_contract::EventSequence::from(after));
+                    REQUIRE(composer.compose(frame) == controller_native::OutputComposeStatus::Ok);
+                    if (i == 3) std::this_thread::sleep_for(std::chrono::milliseconds(scenario % 4 ? 4 : 40));
+                    const auto receipt = relay.submit(*composer.finalized_output(), sample, 0, {});
+                    if (receipt.output.delivered) ++accepted;
+                    else ++rejected;
+                }
+                report << seed << ',' << scenario << ',' << steps << ',' << writes.load() - initial_writes
+                    << ',' << accepted - initial_accepted << ',' << rejected - initial_rejected << ',' << mismatches.load() << '\n';
+            }
+            relay.stop();
+            REQUIRE(writes.load() > 448 && mismatches.load() == 0 && accepted > 0 && rejected > 0);
+        }
+    });
+    registry.add_case("BaseRuntimeFreshness", "manual_relay_survives_algorithm_stall_and_rejects_late_output", [] {
+        std::atomic<float> manual_x{.12f};
+        std::atomic<bool> ads{true};
+        std::atomic<unsigned> writes{0};
+        std::mutex output_mutex;
+        controller_native::GamepadOutputState last;
+        runtime_app::ManualRelay relay([&] {
+            controller_native::PhysicalGamepadState p;
+            p.connected = true; p.right_x = manual_x.load();
+            p.left_trigger = ads.load() ? 1.f : 0.f;
+            return p;
+        }, [&](const controller_native::GamepadOutputState& output) {
+            { std::lock_guard<std::mutex> lock(output_mutex); last = output; }
+            ++writes;
+            controller_native::VirtualGamepadUpdateResult result;
+            result.delivered = true;
+            result.submitted_at_seconds = std::chrono::duration<double>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            result.delivered_right_x = output.right_x;
+            result.delivered_right_y = output.right_y;
+            return result;
+        }, 1000, {});
+        relay.start();
+        auto sample = relay.latest();
+        controller_native::GamepadOutputState ai;
+        ai.right_x = .9f; ai.rb = true; ai.left_trigger = 1;
+        bool delivered = false;
+        for (int i = 0; i < 20 && !delivered; ++i) {
+            sample = relay.wait_next(sample.sequence);
+            delivered = relay.submit(ai, sample, 0, {}).output.delivered;
+        }
+        REQUIRE(delivered);
+        const auto before = writes.load();
+        // No further algorithm deliveries for 60 ms; manual sampling and
+        // sending must continue, including release of synthetic fire.
+        manual_x.store(-.37f); ads.store(false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(60));
+        controller_native::GamepadOutputState observed;
+        { std::lock_guard<std::mutex> lock(output_mutex); observed = last; }
+        REQUIRE(writes.load() >= before + 10);
+        REQUIRE(observed.right_x == -.37f && observed.left_trigger == 0 && !observed.rb);
+        const auto late = relay.submit(ai, sample, 0, {});
+        REQUIRE(!late.output.delivered && late.continuity_broken);
+        auto current = relay.latest();
+        const double expired = std::chrono::duration<double>(
+            std::chrono::steady_clock::now().time_since_epoch()).count() - .001;
+        REQUIRE(!relay.submit(ai, current, expired, {}).output.delivered);
+        { std::lock_guard<std::mutex> lock(output_mutex); observed = last; }
+        REQUIRE(observed.right_x == -.37f && !observed.rb);
+        relay.stop();
+    });
+    registry.add_case("BaseRuntimeFreshness", "blocked_console_cannot_block_producer", [] {
+        std::promise<void> entered, release;
+        auto entered_future = entered.get_future();
+        auto release_future = release.get_future().share();
+        std::atomic<bool> first{true};
+        runtime_app::AsyncConsole console([&](const std::string&) {
+            if (first.exchange(false)) entered.set_value();
+            release_future.wait();
+        });
+        console.offer("block writer");
+        const bool started = entered_future.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+        auto producer = std::async(std::launch::async, [&] {
+            for (int i = 0; i < 1000; ++i) console.offer("diagnostic");
+        });
+        const bool independent = producer.wait_for(std::chrono::milliseconds(100)) == std::future_status::ready;
+        const auto dropped = console.dropped();
+        release.set_value();
+        producer.get();
+        REQUIRE(started && independent && dropped > 0);
+    });
+    registry.add_case("BaseRuntimeFreshness", "live_config_caps_cached_visual_authority", [] {
+        controller_native::RuntimeConfig config;
+        config.vision.gpu_service_enabled = false;
+        config.gamepad.tracker.max_observation_age_ms = 250.f;
+        config.gamepad.auto_fire.max_source_age_ms = 250.f;
+        auto live = runtime_app::live_control_config(config);
+        REQUIRE(live.vision.gpu_service_enabled);
+        REQUIRE(live.gamepad.tracker.max_observation_age_ms == 40.f);
+        REQUIRE(live.gamepad.auto_fire.max_source_age_ms == 40.f);
+        config.gamepad.tracker.max_observation_age_ms = 20.f;
+        REQUIRE(runtime_app::live_control_config(config).gamepad.tracker.max_observation_age_ms == 20.f);
+    });
+    registry.add_case("BaseRuntimeFreshness", "vision_delivery_has_strict_40ms_ceiling", [] {
+        for (const auto age_ns : {39'999'999ull, 40'000'000ull, 40'000'001ull, 80'000'000ull}) {
+            runtime_app::VisionDeliveryGate gate(250.f);
+            vision_native::VisionResult result;
+            result.frame_updated = true;
+            result.frame_id = 1;
+            result.captured_at_ns = 1'000'000'000;
+            result.result_at_ns = result.captured_at_ns + 1'000'000;
+            REQUIRE(gate.accept(result, result.captured_at_ns + age_ns) == (age_ns < 40'000'000));
+        }
+    });
+    registry.add_case("BaseRuntimeFreshness", "blocked_inference_keeps_mailbox_responsive", test_blocked_inference_does_not_block_controller_mailbox);
     registry.add_case("BaseRuntimeFreshness", "hot_policy_inflight_frame_revision", test_hot_policy_cannot_relabel_inflight_frame);
     registry.add_case("BaseRuntimeFreshness", "detection_to_assist_epoch_fence", test_detection_only_to_assist_fences_inflight_result);
     registry.add_case("BaseRuntimeFreshness", "release_hold_cadence_authority_and_expiry", test_release_hold_has_full_cadence_without_authority_and_expires);

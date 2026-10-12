@@ -34,6 +34,7 @@ struct BodylockTargetMotionObservation {
     float response_px_per_stick_second = 500.0f;
     float reliability = 0.0f;
     bool direct_person_observation = false;
+    bool current_cue_observation = false;
 };
 
 struct BodylockTargetMotionEstimate {
@@ -45,6 +46,7 @@ struct BodylockTargetMotionEstimate {
     float confidence = 0.0f;
     std::uint32_t accepted_samples = 0;
     bool valid = false;
+    bool current_cue_observation = false;
 };
 
 class BodylockTargetMotionObserver {
@@ -81,6 +83,7 @@ private:
     float confidence_ = 0.0f;
     std::uint32_t accepted_samples_ = 0;
     bool initialized_ = false;
+    bool last_observation_was_cue_ = false;
 };
 
 }  // namespace controller_native

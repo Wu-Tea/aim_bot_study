@@ -14,6 +14,7 @@ inline void copy_selector_identity_fields(
     destination.selected_detection_index = source.selected_detection_index;
     destination.enemy_cue_current = source.enemy_cue_current;
     destination.enemy_identity_confirmed = source.enemy_identity_confirmed;
+    destination.selection_diagnostics = source.selection_diagnostics;
 }
 
 }  // namespace vision_native

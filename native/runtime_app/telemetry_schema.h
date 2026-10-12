@@ -1,4 +1,5 @@
 #pragma once
+#include "pipeline_contract/selection_diagnostics.h"
 
 #include <cstdint>
 #include <array>
@@ -6,7 +7,7 @@
 
 namespace runtime_app {
 
-inline constexpr std::uint16_t kTelemetrySchemaVersion = 19;
+inline constexpr std::uint16_t kTelemetrySchemaVersion = 20;
 
 enum class TelemetryRecordType : std::uint8_t {
     SessionMetadata,
@@ -18,6 +19,7 @@ enum class TelemetryRecordType : std::uint8_t {
     CommittedCaptureObservation,
     DeliveredControlSample,
     AdsAcquisitionTrace,
+    SelectionDecision,
 };
 
 enum class VisionSampleQuality : std::uint8_t {
@@ -229,6 +231,8 @@ struct ControllerSamplePayload {
 };
 
 struct SessionMetadataPayload {
+    std::uint64_t clock_utc_ns=0, clock_steady_ns=0, clock_uncertainty_ns=0;
+    std::array<char,32> build_stamp{};
     std::array<char, 33> session_id{};
     std::array<char, 41> build_commit{};
     int capture_width = 0;
@@ -381,6 +385,13 @@ struct DeliveredControlPayload {
     bool saturated = false;
 };
 
+struct SelectionDecisionPayload {
+    pipeline_contract::SelectionDiagnostics vision{};
+    pipeline_contract::IdentityDiagnostics identity{};
+    std::uint64_t raw_selector_generation=0, relay_discontinuity_sequence=0;
+    bool fresh_vision=false, vision_has_target=false, output_delivered=false;
+};
+
 struct TelemetryRecord {
     std::uint16_t schema_version = kTelemetrySchemaVersion;
     TelemetryRecordType type = TelemetryRecordType::ControllerSample;
@@ -402,6 +413,7 @@ struct TelemetryRecord {
     CommittedObservationPayload committed_observation;
     DeliveredControlPayload delivered_control;
     AdsAcquisitionTracePayload ads_acquisition_trace;
+    SelectionDecisionPayload selection_decision;
     VisionSampleQuality vision_sample_quality = VisionSampleQuality::Normal;
 };
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "pipeline_contract/selection_diagnostics.h"
 
 #include "pipeline_contract/vision_observation.h"
 
@@ -98,6 +99,7 @@ enum class DesiredPointSource : unsigned char {
 };
 
 struct TargetPlan {
+    IdentityDiagnostics identity_diagnostics{};
     std::uint64_t generation = 0;
     std::uint64_t source_frame_id = 0;
     std::uint64_t source_observation_id = 0;
@@ -105,11 +107,17 @@ struct TargetPlan {
     TargetLifecycle lifecycle = TargetLifecycle::None;
     // Bounded missing-observation continuation, never fresh detector evidence.
     bool observation_gap = false;
+    // Identity can survive a short miss without authority to extrapolate or aim.
+    bool gap_prediction_valid = false;
+    float observation_gap_remaining_ms = 0.0f;
     // True only when this exact controller update consumed a fresh,
     // selector-selected person observation. Replay and cue continuation never
     // inherit this bit; digital actions may therefore use it without creating
     // a second freshness/identity owner.
     bool direct_person_observation = false;
+    // Fresh same-person marker evidence is a position measurement, but must
+    // never become direct-person evidence for response calibration or fire.
+    bool current_cue_observation = false;
     TargetMotion motion = TargetMotion::Ambiguous;
     ControlMode mode = ControlMode::Manual;
     // I/R/D/T contract:
@@ -142,6 +150,7 @@ struct TargetPlan {
     Vec2f bodylock_aligned_delivered_stick{};
     float bodylock_target_motion_confidence = 0.0f;
     bool bodylock_target_motion_valid = false;
+    bool bodylock_target_motion_from_cue = false;
     float observation_age_ms = 0.0f;
     float confidence = 0.0f;
     float reliability = 0.0f;

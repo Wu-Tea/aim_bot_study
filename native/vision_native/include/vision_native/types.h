@@ -1,4 +1,5 @@
 #pragma once
+#include "pipeline_contract/selection_diagnostics.h"
 
 #include "pipeline_contract/target_snapshot.h"
 
@@ -118,6 +119,7 @@ struct DetectionBatch {
 };
 
 struct VisionResult {
+    pipeline_contract::SelectionDiagnostics selection_diagnostics{};
     bool selector_identity_protocol = false;
     std::uint64_t selector_target_generation = 0;
     bool selector_target_changed = false;
@@ -213,6 +215,9 @@ struct VisionResult {
     float capture_acquire_ms = 0.0f;
     float capture_copy_ms = 0.0f;
     float cuda_map_ms = 0.0f;
+    // CPU wall interval for the existing inference call, inclusive of its
+    // GPU waits/decode. Nested CUDA event times must not be added to it.
+    float inference_wall_ms = 0.0f;
     float preprocess_ms = 0.0f;
     float color_copy_ms = 0.0f;
     bool color_copy_required = false;

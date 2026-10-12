@@ -1,3 +1,4 @@
+#include "async_console.h"
 #include "perf_logger.h"
 
 #include <algorithm>
@@ -440,7 +441,8 @@ void PerfLogger::record_sample(const PerfSnapshot& snapshot) const {
     if (!enabled_) {
         return;
     }
-    std::cout
+    std::ostringstream line;
+    line
         << "[Perf][CPP] loop=" << snapshot.loop_fps
         << " FPS | native=" << snapshot.native_ms
         << "ms | consume=" << snapshot.consume_ms
@@ -456,6 +458,7 @@ void PerfLogger::record_sample(const PerfSnapshot& snapshot) const {
         << "ms ctrl_pipeline=" << snapshot.ctrl_pipeline_ms
         << "ms vigem_update=" << snapshot.vigem_update_ms
         << "ms\n";
+    runtime_console().offer(line.str());
 }
 
 struct PerfSummaryLogger::Impl {

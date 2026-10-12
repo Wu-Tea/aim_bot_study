@@ -11,7 +11,7 @@ BodylockTargetMotionObserver::BodylockTargetMotionObserver(
 bool BodylockTargetMotionObserver::update(
     const BodylockTargetMotionObservation& observation) noexcept {
     if (observation.target_id == 0 ||
-        !observation.direct_person_observation ||
+        (!observation.direct_person_observation && !observation.current_cue_observation) ||
         !std::isfinite(observation.capture_seconds) ||
         !std::isfinite(observation.interval_seconds) ||
         observation.interval_seconds < config_.minimum_interval_seconds ||
@@ -63,6 +63,7 @@ bool BodylockTargetMotionObserver::update(
         measurements_.size(), measurement_count_ + 1);
     ++accepted_samples_;
     last_capture_seconds_ = observation.capture_seconds;
+    last_observation_was_cue_ = observation.current_cue_observation;
     last_aligned_delivered_stick_ = observation.average_delivered_stick;
     const float evidence = std::clamp(observation.reliability, 0.0f, 1.0f);
     confidence_ += 0.25f * (evidence - confidence_);
@@ -104,6 +105,7 @@ BodylockTargetMotionEstimate BodylockTargetMotionObserver::estimate(
     result.target_motion_stick = filtered_motion_stick_;
     result.aligned_delivered_stick = last_aligned_delivered_stick_;
     result.confidence = std::clamp(confidence_, 0.0f, 1.0f);
+    result.current_cue_observation = last_observation_was_cue_;
     result.valid = pipeline_contract::finite(result.target_motion_stick) &&
         pipeline_contract::finite(result.aligned_delivered_stick);
     return result;
@@ -122,6 +124,7 @@ void BodylockTargetMotionObserver::begin_target(
     confidence_ = 0.0f;
     accepted_samples_ = 0;
     initialized_ = false;
+    last_observation_was_cue_ = false;
 }
 
 void BodylockTargetMotionObserver::reset() noexcept {

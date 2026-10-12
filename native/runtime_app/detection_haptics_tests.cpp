@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <limits>
 #include <stdexcept>
 
 namespace {
@@ -21,52 +22,70 @@ vision_native::VisionResult frame(unsigned milliseconds, float center = -1) {
     }
     return result;
 }
+vision_native::VisionResult selected(unsigned ms, float x, unsigned generation = 1) {
+    auto result = frame(ms, x);
+    result.has_target = result.has_selected_detection = true;
+    result.selector_target_generation = generation;
+    result.target_x = x;
+    return result;
+}
 void directions_and_admission() {
+    DetectionHapticsPolicy rejected;
+    require(rejected.observe(frame(1,30),600) == HapticDirection::None,
+        "unselected raw person must not bypass canonical selector admission");
     for (auto pair : {std::pair<float,HapticDirection>{50.f,HapticDirection::Left},
                       {300.f,HapticDirection::Center}, {550.f,HapticDirection::Right}}) {
         DetectionHapticsPolicy policy;
-        auto visible = frame(1, pair.first);
-        require(!visible.has_target && policy.observe(visible,600) == pair.second, "raw person detection must not require a selected aim target");
-        require(policy.observe(frame(2,pair.first),600) == HapticDirection::None, "continuous presence repeats");
+        auto visible = selected(1, pair.first);
+        // Idle observations are selected but have no actuator authority.
+        require(!visible.aim_authority && policy.observe(visible,600) == pair.second,
+            "canonical selection must own idle notification direction");
+        require(policy.observe(selected(2,pair.first),600) == HapticDirection::None,
+            "same selected identity must not repeat");
     }
-    DetectionHapticsPolicy policy;
-    auto invalid = frame(1,30); invalid.detections[0].is_friendly = true;
-    require(policy.observe(invalid,600) == HapticDirection::None, "friendly notification");
-    invalid = frame(2,30); invalid.detections[0].class_id = 1;
-    require(policy.observe(invalid,600) == HapticDirection::None, "non-person notification");
-    invalid = frame(3,30); invalid.detections[0].x2 = std::numeric_limits<float>::quiet_NaN();
-    require(policy.observe(invalid,600) == HapticDirection::None, "invalid box notification");
-    auto multiple = frame(4,20); multiple.detections.push_back(frame(4,320).detections[0]);
-    require(policy.observe(multiple,600) == HapticDirection::Center, "nearest-to-center person must own combined notification");
+    auto multiple = selected(2,20);
+    multiple.detections.push_back(frame(2,320).detections[0]);
+    require(rejected.observe(multiple,600) == HapticDirection::Left,
+        "unselected central person must not override selected target direction");
+    auto cue = selected(3,580,2); cue.has_selected_detection = false;
+    require(rejected.observe(cue,600) == HapticDirection::None,"cue cannot acquire a notification");
+    auto malformed = selected(4,580,2); malformed.target_x = std::numeric_limits<float>::quiet_NaN();
+    require(rejected.observe(malformed,600) == HapticDirection::None,"invalid target position");
+    auto no_identity = selected(5,580,0);
+    require(rejected.observe(no_identity,600) == HapticDirection::None,"missing canonical identity");
+    require(rejected.observe(selected(6,580,2),600) == HapticDirection::Right,
+        "new canonical identity must notify during continuous person presence");
 }
 void absence_and_stalls() {
     DetectionHapticsPolicy policy;
-    require(policy.observe(frame(1,20),600) == HapticDirection::Left,"initial appearance");
+    require(policy.observe(selected(1,20),600) == HapticDirection::Left,"initial selection");
     policy.observe(frame(20),600);
-    require(policy.observe(frame(35,580),600) == HapticDirection::None,"one missing frame / handover must not repeat");
-    policy.observe(frame(50),600);
-    auto cached = frame(2000); cached.frame_updated = false;
-    policy.observe(cached,600);
-    policy.observe(frame(2010),600);
-    require(policy.observe(frame(2020,300),600) == HapticDirection::None,"stall must not count as confirmed empty time");
-    for (unsigned time=2030; time<=2290; time+=10) policy.observe(frame(time),600);
-    require(policy.observe(frame(2300,580),600) == HapticDirection::Right,"confirmed absence re-arms");
-    require(policy.observe(frame(2300,580),600) == HapticDirection::None,"duplicate frame");
-    require(policy.observe(frame(2200,580),600) == HapticDirection::None,"out of order frame");
+    require(policy.observe(selected(35,580),600) == HapticDirection::None,"same identity after missing frame");
+    auto cached = selected(2000,580,2); cached.frame_updated = false;
+    require(policy.observe(cached,600) == HapticDirection::None,"cached selection cannot notify");
+    for(unsigned time=2010;time<=2290;time+=10) policy.observe(frame(time),600);
+    require(policy.observe(selected(2300,580),600) == HapticDirection::None,"absence cannot invent selector identity");
+    require(policy.observe(selected(2301,580,2),600) == HapticDirection::Right,"selector reacquisition notifies");
+    require(policy.observe(selected(2301,50,3),600) == HapticDirection::None,"duplicate frame");
+    require(policy.observe(selected(2200,50,3),600) == HapticDirection::None,"out of order frame");
     policy.reset();
-    require(policy.observe(frame(1,300),600) == HapticDirection::Center,"device session reset");
+    require(policy.observe(selected(1,300),600) == HapticDirection::Center,"device session reset");
 }
 void randomized(unsigned seed) {
     std::mt19937 rng(seed);
     DetectionHapticsPolicy policy;
-    bool armed=true; unsigned empty_frames=0;
+    unsigned generation=1, notified=0;
     for(unsigned step=1;step<=100000;++step) {
-        const bool present = rng()%100 < 6;
-        const bool expected=present && armed;
-        if(present) { armed=false; empty_frames=0; }
-        else { ++empty_frames; if(empty_frames>=26) armed=true; }
-        auto result=policy.observe(frame(step*10,present?50.f:-1.f),600);
-        require((result!=HapticDirection::None)==expected,"randomized occupancy lifecycle mismatch");
+        if(rng()%100 < 8) ++generation;
+        const bool admitted = rng()%100 < 65;
+        const bool fresh = rng()%100 < 90;
+        const bool direct = rng()%100 < 95;
+        auto input=selected(step*10,50.f,generation);
+        input.has_target=admitted; input.frame_updated=fresh; input.has_selected_detection=direct;
+        const bool expected=fresh && admitted && direct && generation != notified;
+        if(expected) notified=generation;
+        require((policy.observe(input,600)!=HapticDirection::None)==expected,
+            "randomized selector identity notification mismatch");
     }
 }
 void waveform_contract() {

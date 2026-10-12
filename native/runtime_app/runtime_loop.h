@@ -16,6 +16,7 @@
 #include "runtime_telemetry.h"
 #include "telemetry_collectors.h"
 #include "vision_service.h"
+#include "manual_relay.h"
 #include "dse_haptics.h"
 #include "vision_native/vision_engine.h"
 
@@ -33,6 +34,7 @@ int probe_physical_input(const controller_native::GamepadRuntimeConfig& config);
 class RuntimeLoop {
 public:
     RuntimeLoop(controller_native::RuntimeConfig config, bool perf_log, unsigned int max_ticks = 0);
+    ~RuntimeLoop();
 
     int run();
     void request_stop();
@@ -44,7 +46,7 @@ private:
             output_started, output_finished;
         std::uint64_t physical_read_ns;
     };
-    void run_once();
+    void run_once(const ManualRelay::Sample& input_sample);
     void record_vision_diagnostics(bool aiming);
     void record_tick_diagnostics(
         const controller_native::PhysicalGamepadState& physical,
@@ -88,7 +90,11 @@ private:
     controller_native::OutputComposer output_composer_;
     ViewportController viewport_controller_;
     std::unique_ptr<controller_native::VirtualGamepad> virtual_gamepad_;
+    std::unique_ptr<ManualRelay> manual_relay_;
+    std::uint64_t last_relay_discontinuity_ = 0;
+    std::uint64_t last_input_scope_revision_ = 0;
     PersonDetectionGesture person_detection_gesture_;
+    std::unique_ptr<LivePipelineTrace> live_trace_;
     std::unique_ptr<vision_native::VisionEngine> vision_engine_;
     std::unique_ptr<VisionService> vision_service_;
     VisionDeliveryGate vision_delivery_gate_;

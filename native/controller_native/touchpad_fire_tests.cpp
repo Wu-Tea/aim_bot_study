@@ -141,7 +141,15 @@ void touch_aim_target_and_physical_scope_handover() {
                                 "the last held source must release aim");
             (void)controller.build_output_from_sampled_input();
         }
-
+        input=touching();now+=.1;
+        controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,300,now,40,-12));
+        (void)controller.begin_tick(input);
+        auto frame=controller.resolve_control_frame();
+        require(controller.expire_visual_output(frame,now+.1,40),"stale target fixture must revoke visual output");
+        OutputComposer composer;
+        require(composer.compose(frame)==OutputComposeStatus::Ok && composer.finalized_output()->rb &&
+                composer.finalized_output()->right_x==input.right_x,
+                "visual expiry revokes aim but must preserve the explicitly requested touch shot");
     }
 }
 

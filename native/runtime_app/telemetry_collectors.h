@@ -95,6 +95,7 @@ public:
     TelemetryCollectors& operator=(const TelemetryCollectors&) = delete;
 
     bool enabled() const noexcept;
+    void observe_selection_decision(const TelemetryRecord& record) noexcept;
     void observe_tick(const TelemetryTickInput& input) noexcept;
     void observe_new_vision(const TelemetryVisionInput& input) noexcept;
     void observe_acquisition_trace(

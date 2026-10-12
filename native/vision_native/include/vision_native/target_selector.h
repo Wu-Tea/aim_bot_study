@@ -112,6 +112,11 @@ private:
         const DetectionBatch& batch,
         const ColorFrameView* frame,
         const pipeline_contract::UserAimIntent* intent);
+    VisionResult select_impl_core(
+        const DetectionBatch& batch,
+        const ColorFrameView* frame,
+        const pipeline_contract::UserAimIntent* intent);
+    mutable pipeline_contract::SelectionDiagnostics diagnostics_{};
 
     Rect to_rect(const Detection& detection) const;
     std::pair<float, float> target_point(const Rect& box) const;
@@ -120,6 +125,9 @@ private:
     DetectionBatch annotate_colors(const DetectionBatch& batch, const ColorFrameView& frame) const;
     void update_selected_motion_anchor(
         Detection& detection,
+        const ColorFrameView& frame);
+    void update_selected_cue_template(
+        const Detection& detection,
         const ColorFrameView& frame);
     void reset_motion_anchor();
     void clear_tracking_state();
@@ -231,6 +239,10 @@ private:
     // a neighbour on the following frame. This is identity-only memory: while
     // missing, Vision still publishes no target and no actuation authority.
     std::optional<std::pair<float, float>> last_cue_point_;
+    // Direct person+cue evidence owns this reference. Continuation never
+    // teaches itself a replacement appearance from its predicted output.
+    std::array<std::int8_t, 256> cue_template_{};
+    bool has_cue_template_ = false;
     std::optional<std::pair<float, float>> last_target_offset_from_cue_;
     std::uint64_t cue_tracking_generation_ = 0;
     std::uint64_t last_direct_cue_observation_ns_ = 0;

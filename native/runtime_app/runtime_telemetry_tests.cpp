@@ -273,9 +273,50 @@ void test_writer_failure_is_nonthrowing_and_counted_once() {
     std::filesystem::remove(parent);
 }
 
+
+void test_selection_decision_keeps_source_and_release_separate(const native_test::TestContext& context) {
+    runtime_app::RuntimeTelemetryOptions options;
+    options.enabled=true;
+    options.directory=context.artifact_path("selection-decisions");
+    options.queue_capacity=32;
+    runtime_app::RuntimeTelemetry telemetry(options);
+    telemetry.start();
+    runtime_app::TelemetryRecord record;
+    record.type=runtime_app::TelemetryRecordType::SelectionDecision;
+    record.frame_id=101; record.tick_id=700;
+    auto& v=record.selection_decision;
+    v.fresh_vision=true; v.raw_selector_generation=780;
+    v.vision.total=10; v.vision.count=1;
+    v.vision.outcome="no_admitted_candidate";
+    v.vision.boxes[0].gate="friendly_color";
+    v.vision.boxes[0].friendly=true;
+    v.vision.cue_best_score=.625f;
+    v.vision.cue_threshold=.75f;
+    v.identity.previous_id=3671; v.identity.resulting_id=0;
+    v.identity.transition="released";
+    v.identity.gap_reason="friendly_rejection";
+    REQUIRE(telemetry.enqueue(record));
+    // A transition on the next controller tick is not a duplicate Vision frame.
+    record.tick_id=701; v.fresh_vision=false; v.vision={};
+    v.identity.gap_reason="source_expired";
+    REQUIRE(telemetry.enqueue(record));
+    telemetry.stop();
+    REQUIRE(telemetry.counters().serialized_records==2);
+    const auto text=read_files(options.directory);
+    REQUIRE(text.find("\"type\":\"selection_decision\"")!=std::string::npos);
+    REQUIRE(text.find("\"gate\":\"friendly_color\"")!=std::string::npos);
+    REQUIRE(text.find("\"truncated\":true")!=std::string::npos);
+    REQUIRE(text.find("\"raw_selector_generation\":780")!=std::string::npos);
+    REQUIRE(text.find("\"cue_best_score\":0.625")!=std::string::npos);
+    REQUIRE(text.find("\"previous\":3671,\"current\":0")!=std::string::npos);
+    REQUIRE(text.find("\"gap_reason\":\"source_expired\"")!=std::string::npos);
+    REQUIRE(text.find("\"fresh_vision\":false")!=std::string::npos);
+}
+
 } // namespace
 
 void register_runtime_telemetry_tests(native_test::Registry& registry) {
+    registry.add_context_case("FeatureTelemetryAndDiagnostics", "selection_decision_source_and_release", test_selection_decision_keeps_source_and_release_separate);
     registry.add_case("FeatureTelemetryAndDiagnostics", "disabled_mode_has_zero_side_effects", test_disabled_mode_has_zero_side_effects);
     registry.add_case("FeatureTelemetryAndDiagnostics", "bounded_queue_counts_exact_overflow", test_bounded_queue_counts_exact_overflow_without_writer);
     registry.add_case("FeatureTelemetryAndDiagnostics", "writer_serializes_and_deduplicates_frames", test_writer_serializes_current_controller_and_deduplicates_source_frames);

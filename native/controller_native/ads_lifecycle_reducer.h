@@ -17,6 +17,7 @@ struct AdsSelectionEvidence {
     bool cue = false;
     bool replacement = false;
     bool within_pickup = false;
+    bool fresh_source = true;
 };
 enum class AdsTargetDisposition : unsigned char { Absent, Retain, Wait, Release };
 struct AdsMissingEvidence {
@@ -82,6 +83,7 @@ public:
     const AdsLifecycleSnapshot& snapshot() const noexcept { return state_; }
 
 private:
+    bool select_impl(const AdsSelectionEvidence&, double now_seconds) noexcept;
     void release_scope() noexcept;
     void admit_target(double now_seconds) noexcept;
     void accept_continuation() noexcept;

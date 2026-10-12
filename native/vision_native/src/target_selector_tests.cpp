@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <random>
 #include <string>
 #include <stdexcept>
 #include <vector>
@@ -949,6 +950,160 @@ void test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold() {
                   "cue must lose authority after the bounded ADS continuation ceiling");
 }
 
+void test_cue_identity_matches_image_instead_of_nearest_color() {
+    vision_native::VisionTargetSelector selector(640, 512);
+    auto observed = single_target_batch(320.f, 256.f, .82f);
+    observed.captured_at_ns = 2'000'000'000ull;
+    const auto diamond = [](ColorFrameFixture& frame, int cx, int cy) {
+        for (int y = -3; y <= 3; ++y) for (int x = -3; x <= 3; ++x)
+            if (std::abs(x) + std::abs(y) <= 3)
+                paint_solid_yellow_bgra(frame, cx + x, cy + y, 0);
+    };
+    auto initial = full_bgra_frame();
+    diamond(initial, 320, 190);
+    auto locked = selector.select_with_frame(observed, initial.view);
+    require_true(locked.has_target, "appearance fixture must acquire a person with a marker");
+    auto moved = full_bgra_frame();
+    diamond(moved, 344, 194);
+    // Same-color blood/health/UI-like strip is closer than the actual marker.
+    for (int x = 280; x <= 335; ++x)
+        paint_solid_yellow_bgra(moved, x, 180, 1);
+    auto missing = observed;
+    missing.detections.clear();
+    missing.captured_at_ns += 10'000'000ull;
+    const auto held = selector.select_with_frame(missing, moved.view);
+    require_true(held.has_target, "current marker must survive nearer same-color clutter");
+    require_near(held.target_x, locked.target_x + 24.f, 1.f,
+                 "cue continuation replaced the original marker with nearer same-color pixels");
+    require_near(held.target_y, locked.target_y + 4.f, 1.f,
+                 "cue continuation must preserve marker-to-person geometry");
+    require_true(!held.fire_authority && held.selector_target_generation == locked.selector_target_generation,
+                 "image association must preserve aim-only authority and identity");
+    auto absent = full_bgra_frame();
+    for (int x = 270; x <= 410; ++x)
+        paint_solid_yellow_bgra(absent, x, 180, 1);
+    missing.captured_at_ns += 10'000'000ull;
+    require_true(!selector.select_with_frame(missing, absent.view).has_target,
+                 "a different same-color shape must not extend missing-person authority");
+    auto inverted = full_bgra_frame();
+    for (int y = -7; y <= 8; ++y) for (int x = -7; x <= 8; ++x) {
+        if (std::abs(x) + std::abs(y) <= 3) continue;
+        const auto index = static_cast<std::size_t>(((194 + y) * 640 + 344 + x) * 4);
+        inverted.pixels[index + 2] = 255; // Red background, empty marker-shaped hole.
+    }
+    missing.captured_at_ns += 10'000'000ull;
+    require_true(!selector.select_with_frame(missing, inverted.view).has_target,
+                 "red background around an empty hole must not match a yellow marker");
+    selector.reset();
+    require_true(!selector.select_with_frame(missing, moved.view).has_target,
+                 "old marker appearance must not acquire a person after reset");
+}
+
+void test_cue_appearance_randomized_current_frame_tracking() {
+    for (unsigned seed : {6829u, 29023u}) {
+        std::mt19937 random(seed);
+        for (int scenario = 0; scenario < 32; ++scenario) {
+            vision_native::VisionTargetSelector selector(640, 512);
+            int cx = 320, cy = 190;
+            const int radius = scenario % 3 == 0 ? 4 : 3;
+            const bool red = scenario % 2 == 0;
+            const int length = scenario % 4 < 2 ? 20 : 200;
+            std::uint64_t generation = 0;
+            for (int tick = 0; tick < length; ++tick) {
+                const int old_x = cx, old_y = cy;
+                const bool kick = tick % 13 == 12;
+                cx = std::clamp(cx + (kick ? (cx < 320 ? 24 : -24) : int(random() % 7) - 3), 270, 370);
+                cy = std::clamp(cy + int(random() % 5) - 2, 160, 215);
+                auto frame = full_bgra_frame();
+                const auto paint = [&](int x, int y, bool is_red) {
+                    const auto index = static_cast<std::size_t>((y * 640 + x) * 4);
+                    frame.pixels[index + 1] = is_red ? 0 : 255;
+                    frame.pixels[index + 2] = 255;
+                };
+                for (int y = -radius; y <= radius; ++y) for (int x = -radius; x <= radius; ++x)
+                    if (std::abs(x) + std::abs(y) <= radius) paint(cx + x, cy + y, red);
+                const bool direct = tick % 20 == 0;
+                if (!direct && kick) {
+                    // A nearer same-color strip must not steal the fast marker.
+                    for (int y = -1; y <= 1; ++y) for (int x = -12; x <= 12; ++x)
+                        paint(old_x + x, old_y + y, red);
+                }
+                auto batch = single_target_batch(float(cx), float(cy + 66), .92f);
+                batch.captured_at_ns = 3'000'000'000ull + tick * 5'000'000ull;
+                if (!direct) batch.detections.clear();
+                const auto roi = selector.required_color_region(batch);
+                require_true(roi.has_value(), "fresh marked sequence must request image evidence");
+                auto view = frame.view;
+                view.data += roi->top * view.row_pitch + roi->left * 4;
+                view.origin_x = roi->left; view.origin_y = roi->top;
+                view.width = roi->right - roi->left; view.height = roi->bottom - roi->top;
+                const auto result = selector.select_with_frame(batch, view);
+                require_true(result.has_target && result.aim_authority,
+                             "randomized current marker lost tracking");
+                require_near(result.target_x, float(cx), 1.f, "randomized marker X identity drifted");
+                require_near(result.target_y, float(cy + 66), 1.f, "randomized marker Y identity drifted");
+                if (!generation) generation = result.selector_target_generation;
+                require_true(result.selector_target_generation == generation,
+                             "appearance tracking changed the person identity");
+                if (!direct) require_true(!result.fire_authority && !result.auto_fire,
+                                         "pixel continuation gained fire authority");
+            }
+        }
+    }
+}
+
+void test_cue_readback_includes_active_search_with_unrelated_detection() {
+    // A friendly detection still needs color readback before it can be rejected.
+    // It must not replace the active enemy's readback requirements.
+    for (unsigned seed : {731u, 1949u}) {
+        std::mt19937 random(seed);
+        std::uniform_int_distribution<int> step(-12, 12);
+        for (int scenario = 0; scenario < 32; ++scenario) {
+            vision_native::VisionTargetSelector full(640, 512), cropped(640, 512);
+            auto observed = single_target_batch(320.f, 256.f, .82f);
+            observed.captured_at_ns = 2'000'000'000ull;
+            observed.detections[0] = marked_detection_for_target(320, 256, 320, 190, .82f);
+            auto initial = full_bgra_frame();
+            paint_solid_yellow_bgra(initial, 320, 190, 1);
+            const auto acquired = full.select_with_frame(observed, initial.view);
+            require_true(acquired.has_target && cropped.select_with_frame(observed, initial.view).has_target,
+                         "readback fixture must acquire the same person");
+            int x = 320, y = 190;
+            const int length = scenario % 2 ? 24 : 1;
+            for (int tick = 1; tick <= length; ++tick) {
+                x = std::clamp(x + step(random), 240, 390);
+                y = std::clamp(y + step(random), 130, 230);
+                auto frame = full_bgra_frame();
+                paint_solid_yellow_bgra(frame, x, y, 1);
+                auto missing = single_target_batch(530.f, 370.f, .82f);
+                missing.captured_at_ns = observed.captured_at_ns + tick * 5'000'000ull;
+                paint_sparse_bgra(frame, color_region_for(missing.detections[0]), 0, 255, 0);
+                const auto expected = full.select_with_frame(missing, frame.view);
+                require_true(expected.has_target, "full-frame reference must follow the visible cue");
+                const auto roi = cropped.required_color_region(missing);
+                require_true(roi.has_value(), "active cue requires a color readback");
+                auto view = frame.view;
+                view.data += roi->top * view.row_pitch + roi->left * 4;
+                view.origin_x = roi->left;
+                view.origin_y = roi->top;
+                view.width = roi->right - roi->left;
+                view.height = roi->bottom - roi->top;
+                const auto actual = cropped.select_with_frame(missing, view);
+                require_true(actual.has_target && actual.aim_authority,
+                             "unrelated detection readback omitted the active cue search region");
+                require_near(actual.target_x, expected.target_x, .001f,
+                             "partial readback changed current cue X");
+                require_near(actual.target_y, expected.target_y, .001f,
+                             "partial readback changed current cue Y");
+                require_true(actual.selector_target_generation == acquired.selector_target_generation
+                             && !actual.fire_authority && !actual.auto_fire,
+                             "readback repair must preserve identity and aim-only authority");
+                require_text(actual.target_source, "cue_hold", "readback must retain cue evidence type");
+            }
+        }
+    }
+}
+
 void test_yellow_cue_continuation_uses_current_marker_after_fast_motion() {
     constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
     constexpr std::uint64_t kLockTimeNs = 2'000'000'000ull;
@@ -964,7 +1119,9 @@ void test_yellow_cue_continuation_uses_current_marker_after_fast_motion() {
     observed.frame_height = 512;
     observed.captured_at_ns = kLockTimeNs;
     observed.detections.push_back(enemy);
-    const auto locked = selector.select(observed);
+    auto initial = full_bgra_frame();
+    paint_solid_yellow_bgra(initial, 320, 190, 1);
+    const auto locked = selector.select_with_frame(observed, initial.view);
     require_true(locked.has_target, "fixture must acquire a marked person");
 
     auto moved_frame = full_bgra_frame();
@@ -1004,7 +1161,9 @@ void test_yellow_cue_continuation_selects_nearest_component_not_color_average() 
     observed.frame_height = 512;
     observed.captured_at_ns = kLockTimeNs;
     observed.detections.push_back(enemy);
-    const auto locked = selector.select(observed);
+    auto initial = full_bgra_frame();
+    paint_solid_yellow_bgra(initial, 320, 190, 1);
+    const auto locked = selector.select_with_frame(observed, initial.view);
     require_true(locked.has_target, "fixture must acquire a marked person");
 
     auto cluttered_frame = full_bgra_frame();
@@ -1619,6 +1778,12 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         occluded.frame_height = 512;
         occluded.frame_id = 104;
         occluded.captured_at_ns = replacement.captured_at_ns + 5'000'000ull;
+        // This fixture supplies cue geometry externally, including a cue
+        // inside the body. It has no directly sampled image appearance.
+        occluded.has_external_cue = true;
+        occluded.external_cue_x = 340.f;
+        occluded.external_cue_y = 210.f;
+        occluded.external_cue_score = .95f;
         auto frame = full_bgra_frame();
         paint_solid_yellow_bgra(frame, 340, 210, 3);
         const auto held = selector.select_with_frame(occluded, frame.view);
@@ -1635,8 +1800,10 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         observed.captured_at_ns = 2'000'000'000ull;
         observed.detections[0] = marked_detection_for_target(
             320.0f, 256.0f, 320.0f, 180.0f, 0.92f);
-        selector.select(observed);
-        const auto locked = selector.select(observed);
+        auto initial = full_bgra_frame();
+        paint_solid_yellow_bgra(initial, 320, 180, 3);
+        selector.select_with_frame(observed, initial.view);
+        const auto locked = selector.select_with_frame(observed, initial.view);
 
         vision_native::DetectionBatch occluded;
         occluded.frame_width = 640;
@@ -1703,8 +1870,10 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         observed.captured_at_ns = 4'000'000'000ull;
         observed.detections[0] = marked_detection_for_target(
             320.0f, 256.0f, 320.0f, 180.0f, 0.92f);
-        selector.select(observed);
-        const auto locked = selector.select(observed);
+        auto initial = full_bgra_frame();
+        paint_solid_yellow_bgra(initial, 320, 180, 3);
+        selector.select_with_frame(observed, initial.view);
+        const auto locked = selector.select_with_frame(observed, initial.view);
         vision_native::DetectionBatch empty;
         empty.frame_width = 640;
         empty.frame_height = 512;
@@ -1769,9 +1938,34 @@ void test_cue_geometry_identity_and_residual_regressions() {
                  "same-generation cue continuation gained fire authority");
 }
 
+
+void test_selection_diagnostics_explain_rejected_boxes() {
+    vision_native::VisionTargetSelector selector(640,512);
+    vision_native::DetectionBatch batch;
+    batch.frame_width=640; batch.frame_height=512;
+    auto friendly=detection_for_target(320,256,.9f); friendly.is_friendly=true; friendly.color_classified=true;
+    auto other=friendly; other.is_friendly=false; other.class_id=2;
+    auto weak=detection_for_target(320,256,.01f);
+    batch.detections={friendly,other,weak};
+    const auto rejected=selector.select(batch);
+    const auto& d=rejected.selection_diagnostics;
+    require_true(!rejected.has_target && d.total==3 && d.count==3 && d.admitted==0,"all rejected candidates must be visible diagnostically");
+    require_text(d.boxes[0].gate,"friendly_color","friendly rejection must identify its source gate");
+    require_text(d.boxes[1].gate,"wrong_class","class rejection must not be confused with confidence");
+    require_text(d.boxes[2].gate,"pickup_confidence","weak candidate must expose confidence rejection");
+    batch.detections.assign(12,friendly);
+    const auto crowded=selector.select(batch);
+    require_true(crowded.selection_diagnostics.total==12 && crowded.selection_diagnostics.count==8,
+        "diagnostic bounds must disclose truncation without changing selection");
+}
+
 }  // namespace
 
 void register_target_selector_tests(native_test::Registry& registry) {
+    registry.add_case("BaseVisionSelection", "selection_diagnostics_rejected_boxes", test_selection_diagnostics_explain_rejected_boxes);
+    registry.add_case("BaseVisionSelection", "cue_appearance_randomized_current_frame", test_cue_appearance_randomized_current_frame_tracking);
+    registry.add_case("BaseVisionSelection", "cue_image_identity_not_nearest_color", test_cue_identity_matches_image_instead_of_nearest_color);
+    registry.add_case("BaseVisionSelection", "cue_readback_with_unrelated_detection", test_cue_readback_includes_active_search_with_unrelated_detection);
     registry.add_case("BaseVisionSelection", "motion_anchor_person_support", test_motion_anchor_cannot_retain_background_outside_person);
     registry.add_context_case("BaseVisionSelection", "cue_geometry_identity_and_residual_regressions", [](const native_test::TestContext& context) {
         if (g_cue_geometry_regression_report_path.empty()) {
