@@ -189,7 +189,7 @@ void test_gamepad_deadzone_is_shared_by_intent_and_final_arbitration() {
     }
 }
 
-void test_approach_selected_point_reaches_native_output() {
+void test_source_point_reaches_native_output() {
     double now = 12.0;
     NativeGamepadController controller(current_config(), &now);
     auto snapshot = observed_snapshot(1, now, 0, 52, 1201, 71);
@@ -206,10 +206,10 @@ void test_approach_selected_point_reaches_native_output() {
         "fresh upper acquisition never reached native ADS output");
     require_near(first.source_aim_px.y, source.y, .001f,
         "native adapter changed source point");
-    require_near(first.aim_px.y, source.y - 7.2f, .001f,
-        "native adapter lost bounded approach selection");
-    require(controller.last_output_components().desired_point_source == "approach_selected",
-        "telemetry mislabeled the automatic desired point");
+    require_near(first.aim_px.y, source.y, .001f,
+        "gamepad acquisition changed the source chest reference");
+    require(controller.last_output_components().desired_point_source == "vision_default",
+        "telemetry mislabeled the source-owned desired point");
     require_finite_unit_output(output, "approach acquisition");
     require(output.right_y < 0,
         "upper approach must still move downward toward the selected torso point");
@@ -566,11 +566,10 @@ void test_capture_brakes_alignment_but_allows_opposing_escape() {
                  "capture braking blocked opposing native escape");
 }
 
-void test_small_filtered_input_moves_d_without_a_second_deadzone() {
+void test_small_filtered_input_preserves_d_and_manual_authority() {
     double now = 18.0;
     auto config = current_config();
-    // D-correction-to-target-first-output is a retained legacy integration
-    // contract; the direct production controller sums manual only at output.
+    // The source stays centered; accepted manual input acts at arbitration.
     config.tracker.max_observation_age_ms = 1000.0f;
     NativeGamepadController controller(config, &now);
     controller.submit_vision_snapshot(observed_snapshot(
@@ -578,9 +577,8 @@ void test_small_filtered_input_moves_d_without_a_second_deadzone() {
     (void)controller.build_output(physical_input());
     const auto before = controller.last_target_plan();
 
-    // The 2026-09-19 policy intentionally ignores 5% for AI target edits,
-    // while keeping physical passthrough unchanged. This is not a second
-    // downstream deadzone: accepted input in the 15%-30% band must move D continuously.
+    // Five-percent input has no intent authority. Accepted input in the
+    // 15%-30% band affects output without editing the anatomical reference.
     now += 0.005;
     (void)controller.build_output(physical_input(0.05f, 0.0f));
     require_near(controller.last_target_plan().desired_point_normalized.x,
@@ -596,20 +594,22 @@ void test_small_filtered_input_moves_d_without_a_second_deadzone() {
 
     require(after.target_id == before.target_id && after.target_id != 0,
             "micro correction changed target ownership");
-    require(after.desired_point_normalized.x >
+    require(after.desired_point_normalized.x ==
                 before.desired_point_normalized.x,
-            "shared input filter accepted micro input but D did not move");
+            "accepted manual input edited the anatomical point");
     require(components.manual_correction_x,
-            "micro input was not interpreted as current-target D correction");
-    const float expected_target_output =
-        std::fabs(components.ai_aim_stick.x) > 1.0e-4f
-        ? components.ai_aim_stick.x
-        : accepted_input;
-    require_near(output.right_x, expected_target_output, 1.0e-5f,
-                 "micro D correction did not follow the target-first output contract");
+            "micro input lost its axis correction flag");
+    // Centered source produces no AI motion. The unchanged 15%-30%
+    // authority band must still let this accepted manual input affect output.
+    const float t = (accepted_input - .15f) / (.30f - .15f);
+    const float expected_manual_output = accepted_input * t*t*(3.f-2.f*t);
+    require_near(output.right_x, expected_manual_output, 1.0e-5f,
+                 "manual correction lost its configured per-axis authority");
+    require_near(components.ai_aim_stick.x, 0.f, 1.0e-6f,
+                 "manual input manufactured AI target error");
 }
 
-void test_correction_release_retains_d_without_reverse_authority() {
+void test_correction_release_preserves_source_point() {
     double now = 19.0;
     auto config = current_config();
     config.tracker.max_observation_age_ms = 1000.0f;
@@ -626,9 +626,9 @@ void test_correction_release_retains_d_without_reverse_authority() {
     }
     const auto corrected = controller.last_target_plan();
     require(corrected.manual_correction_y &&
-                corrected.desired_point_normalized.y >
+                corrected.desired_point_normalized.y ==
                     initial.desired_point_normalized.y,
-            "downward correction did not establish a retained D");
+            "downward correction changed the source point or lost manual authority");
 
     now += 0.005;
     const auto released_output = controller.build_output(physical_input());
@@ -638,16 +638,16 @@ void test_correction_release_retains_d_without_reverse_authority() {
     require(released.target_id == corrected.target_id &&
                 released.target_id != 0,
             "stick release detached the current target");
-    require_near(released.desired_point_normalized.y,
-                 corrected.desired_point_normalized.y, 1.0e-6f,
-                 "stick release reset D to Vision's default point");
+    // Manual authority never changes the gamepad anatomical reference.
+    require(released.desired_point_normalized.y == initial.desired_point_normalized.y,
+            "release changed the source point");
     require(released.desired_point_source ==
-                pipeline_contract::DesiredPointSource::UserCorrected,
-            "stick release lost user ownership of D");
+                pipeline_contract::DesiredPointSource::VisionDefault,
+            "stick release changed source ownership of D");
     require(!components.manual_correction_y,
             "neutral stick remained tagged as a manual correction");
     require(released_output.right_y <= 1.0e-4f,
-            "stick release produced authority opposite to retained downward D");
+            "neutral centered source produced unwanted upward authority");
 }
 
 void test_fresh_target_has_one_current_plan_and_one_output_owner() {
@@ -832,8 +832,8 @@ void test_boundary_qualified_handover_releases_then_captures() {
     (void)controller.build_output(physical_input(0.90f, 0.0f));
     require(!controller.last_output_components().handover_requested,
             "ordinary in-region direction was misread as an immediate handover");
-    require(controller.last_target_plan().desired_point_normalized.x > initial_d,
-            "ordinary in-region direction did not move D on the current target");
+    require(controller.last_target_plan().desired_point_normalized.x == initial_d,
+            "manual exit gesture edited the anatomical point");
 
     controller_native::GamepadOutputState seek_output;
     controller_native::NativeControllerOutputComponents seek_components;
@@ -1052,7 +1052,7 @@ void test_production_recoil_never_opens_retired_profile_paths() {
 
 void register_target_pipeline_integration_tests(
     native_test::Registry& registry) {
-    registry.add_case("BaseEndToEnd", "approach_selected_point_reaches_native_output", test_approach_selected_point_reaches_native_output);
+    registry.add_case("BaseEndToEnd", "source_point_reaches_native_output", test_source_point_reaches_native_output);
     registry.add_case("BaseEndToEnd", "no_target_is_physical_passthrough", test_no_target_is_physical_passthrough);
     registry.add_case("BaseEndToEnd", "gamepad_shared_arbitration_deadzone", test_gamepad_deadzone_is_shared_by_intent_and_final_arbitration);
     registry.add_case("BaseEndToEnd", "centered_motion_retains_ai_authority", test_centered_motion_demand_retains_ai_authority);
@@ -1066,8 +1066,8 @@ void register_target_pipeline_integration_tests(
     registry.add_case("BaseEndToEnd", "production_recoil_ignores_retired_paths", test_production_recoil_never_opens_retired_profile_paths);
     registry.add_case("BaseEndToEnd", "track_cooperates_per_axis", test_track_cooperates_per_axis_without_spending_downward_authority);
     registry.add_case("BaseEndToEnd", "capture_brakes_alignment_allows_escape", test_capture_brakes_alignment_but_allows_opposing_escape);
-    registry.add_case("BaseEndToEnd", "small_filtered_input_has_no_second_deadzone", test_small_filtered_input_moves_d_without_a_second_deadzone);
-    registry.add_case("BaseEndToEnd", "correction_release_retains_direction", test_correction_release_retains_d_without_reverse_authority);
+    registry.add_case("BaseEndToEnd", "small_filtered_input_has_no_second_deadzone", test_small_filtered_input_preserves_d_and_manual_authority);
+    registry.add_case("BaseEndToEnd", "correction_release_preserves_source_point", test_correction_release_preserves_source_point);
     registry.add_case("BaseEndToEnd", "fresh_target_has_one_plan_and_output_owner", test_fresh_target_has_one_current_plan_and_one_output_owner);
     registry.add_case("BaseEndToEnd", "source_gap_does_not_project_observation", test_controller_tick_without_source_does_not_project_observation);
     registry.add_case("BaseEndToEnd", "fresh_no_target_removes_authority", test_fresh_no_target_removes_authority_immediately);

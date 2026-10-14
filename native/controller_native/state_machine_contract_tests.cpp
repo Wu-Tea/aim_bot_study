@@ -301,16 +301,16 @@ const AdsSample no_cue = ads_sample(false);
             fusion.mixed_axis.x > 0.18f + kEpsilon;
         const bool ads_owns_wrong_manual =
             std::fabs(fusion.opposing_ads.x + 0.60f) <= kEpsilon;
-        const bool firing_down_updates_d =
+        const bool firing_down_preserves_d =
             desired.manual_correction_y &&
-            desired.after_y > desired.before_y + 0.5f;
+            std::fabs(desired.after_y - desired.before_y) <= kEpsilon;
         const bool pass = ads_full_without_cue && ads_full_with_cue &&
             cue_does_not_change_ads_gain && firing_down_is_not_opposed &&
             compatible_axis_still_gets_fill && ads_owns_wrong_manual &&
-            firing_down_updates_d;
+            firing_down_preserves_d;
 
 
-require(pass, "current ADS authority, compatible manual axes and desired-point correction contract");
+require(pass, "current ADS authority, compatible manual axes and source-owned desired-point contract");
 }
 } // namespace product_contract
 }  // namespace

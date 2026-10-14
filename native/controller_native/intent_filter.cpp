@@ -9,9 +9,12 @@ namespace {
 pipeline_contract::AxisIntentState gamepad_stick_intent(float raw, float begin, float full) noexcept {
     const float t = std::clamp((std::fabs(raw) - begin) / (full - begin), 0.0f, 1.0f);
     const float weight = t * t * (3.0f - 2.0f * t);
-    // D receives a continuously attenuated correction. The final arbiter uses
-    // this same weight on raw manual authority, so it must not attenuate twice.
-    return {raw, raw * weight, 0.0f, 0.0f, weight, weight};
+    // Axis intent and the final arbiter share this continuous authority weight.
+    // Strong-input travel below qualifies manual exit, never an aim-point edit.
+    const float exit_t = std::clamp((std::fabs(raw) - full) /
+        std::max(1.0f - full, 1.0e-6f), 0.0f, 1.0f);
+    const float exit_velocity = raw * exit_t * exit_t * (3 - 2 * exit_t);
+    return {raw, raw * weight, 0.0f, 0.0f, weight, weight, exit_velocity};
 }
 } // namespace
 
@@ -137,6 +140,27 @@ pipeline_contract::IntentState IntentFilter::update(
             ? pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget
             : pipeline_contract::UserAimIntentPurpose::AcquireTarget;
     }
+    if (config_.gamepad_right_stick_curve) {
+        using Purpose = pipeline_contract::UserAimIntentPurpose;
+        using Phase = pipeline_contract::StickPhase;
+        const auto update_purpose = [&](StickState& stick, float value, Purpose& purpose) {
+            const auto phase = phase_for(stick, {value, 0});
+            if (!ads || !target_owned) purpose = Purpose::AcquireTarget;
+            else if (handover_requested) purpose = Purpose::HandoverTarget;
+            else if (phase == Phase::Onset || phase == Phase::Reversal)
+                purpose = Purpose::CorrectCurrentTarget;
+        };
+        update_purpose(right_x_stick_, result.filtered_right.x, right_x_purpose_);
+        update_purpose(right_y_stick_, result.filtered_right.y, right_y_purpose_);
+        result.independent_right_axes = true;
+        result.right_x_purpose = right_x_purpose_;
+        result.right_y_purpose = right_y_purpose_;
+        // Aggregate remains for diagnostics and whole-target handover only.
+        right_purpose_ = handover_requested && ads ? Purpose::HandoverTarget :
+            (right_x_purpose_ == Purpose::CorrectCurrentTarget ||
+             right_y_purpose_ == Purpose::CorrectCurrentTarget)
+                ? Purpose::CorrectCurrentTarget : Purpose::AcquireTarget;
+    }
     result.right_purpose = right_purpose_;
     result.left_confidence = std::max(result.left_x.confidence, result.left_y.confidence);
     result.right_confidence = std::max(result.right_x.confidence, result.right_y.confidence);
@@ -153,6 +177,8 @@ void IntentFilter::reset() noexcept {
     right_y_ = {};
     left_stick_ = {};
     right_stick_ = {};
+    right_x_stick_ = {}; right_y_stick_ = {};
+    right_x_purpose_ = right_y_purpose_ = pipeline_contract::UserAimIntentPurpose::AcquireTarget;
     previous_sample_seconds_ = 0.0;
     right_purpose_ = pipeline_contract::UserAimIntentPurpose::AcquireTarget;
 }

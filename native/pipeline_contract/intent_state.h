@@ -27,9 +27,12 @@ struct AxisIntentState {
     float noise_envelope = 0.0f;
     float confidence = 0.0f;
     // Continuous manual authority. Gamepad input rises from zero at 15% to
-    // full at 30%, shared by desired-point edits and final arbitration.
+    // full at 30%, used by per-axis intent and final arbitration.
     // Adaptive input uses twice its learned threshold. Raw is never modified.
     float activity = 0.0f;
+    // Sustained strong gamepad travel qualifies explicit manual exit only.
+    // It never changes the source-owned anatomical aim point.
+    float manual_exit_velocity = 0.0f;
 };
 
 struct IntentState {
@@ -45,6 +48,12 @@ struct IntentState {
     StickPhase right_phase = StickPhase::Neutral;
     UserAimIntentPurpose right_purpose =
         UserAimIntentPurpose::AcquireTarget;
+    bool independent_right_axes = false;
+    UserAimIntentPurpose right_x_purpose = UserAimIntentPurpose::AcquireTarget;
+    UserAimIntentPurpose right_y_purpose = UserAimIntentPurpose::AcquireTarget;
+    UserAimIntentPurpose axis_purpose(bool vertical) const noexcept {
+        return independent_right_axes ? (vertical ? right_y_purpose : right_x_purpose) : right_purpose;
+    }
     IntentRelationship relationship = IntentRelationship::Ambiguous;
     float left_confidence = 0.0f;
     float right_confidence = 0.0f;

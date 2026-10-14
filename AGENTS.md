@@ -19,6 +19,32 @@ User-confirmed on 2026-09-26; apply to controller fixes and optimization:
 - Keep scenario inputs and simulation assumptions explicit; report per-case
   behavior and fidelity gaps. Simulation success is not live-game acceptance.
 
+## Controller intent and motion ownership
+
+User-confirmed on 2026-10-14; keep this architectural boundary stable:
+
+- Interpret manual onset, reversal, release, correction purpose and authority
+  independently on X and Y. A change on one axis must not reclassify or revoke
+  the other axis's held input. Do not alternate between whole-stick attenuation
+  and axis ownership as a tuning technique.
+- Estimate target/camera motion, solve tracking and enforce the final physical
+  output envelope in two dimensions. Per-axis authority supports arbitrary
+  diagonal corrections; it does not mean two unrelated target trackers.
+- Preserve raw passthrough, explicit manual exit, ADS Snap, Body Lock, existing
+  manual authority weights, Profile values and force limits unless separately
+  authorized. Opposing AI does not by itself prove the user is wrong.
+- User superseded aim-point retention on 2026-10-14: gamepad manual input
+  affects actual output through per-axis authority, never the AI anatomical
+  reference. Keep the source-selected chest estimate during hold and release;
+  do not integrate either light or strong input into a new aim point.
+- Preserve sustained manual exit/handover gesture recognition separately from
+  anatomical point ownership. Mouse/legacy semantics are outside this change.
+- Do not add chest-to-head switching without reliable anatomical visibility
+  evidence. Current body-box geometry is an estimate, not a visibility label.
+- Cover source-point invariance, per-axis manual authority, explicit exit,
+  gaps and release in regressions and full-chain simulations. Simulation
+  success is not live-game acceptance.
+
 ## Validation tooling cleanup
 
 User-authorized on 2026-10-04: retire the old SHA256 provenance/checking and

@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <vector>
 #include "firing_gap_simulation_tests.h"
+#include "manual_axis_simulation_tests.h"
 
 namespace {
 struct Result {
@@ -331,6 +332,7 @@ void delivered_recoil_coordinates(const native_test::TestContext& context) {
 }
 
 void register_bodylock_recoil_feedback_incident_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseBodyLock", "manual_axis_motion_simulation", manual_axis_motion_simulation);
     registry.add_context_case("BaseBodyLock", "nonlinear_recoil_motion_coordinates", nonlinear_recoil_motion_coordinates);
     registry.add_context_case("BaseBodyLock", "firing_gap_composition_validation", firing_gap_composition_validation);
     registry.add_context_case("BaseBodyLock", "firing_gap_causal_ablation", firing_gap_causal_ablation);

@@ -83,7 +83,8 @@ struct AssistControlStateMachineInput {
     // A material gesture that began before ADS target ownership must not be
     // reinterpreted as permission for BodyLock to reverse the player's stick
     // after a real ADS handoff.
-    bool carried_acquisition_gesture = false;
+    bool carried_acquisition_x = false;
+    bool carried_acquisition_y = false;
     // Produced by IntentFilter against each axis's AI intent threshold.
     // Explicit activity is required: a 2-D purpose alone is not a held axis.
     pipeline_contract::Vec2f manual_axis_activity{};

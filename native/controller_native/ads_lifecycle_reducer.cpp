@@ -315,16 +315,17 @@ void AdsLifecycleReducer::advance(bool scope_active, bool settled, bool center_c
             // 220 ms is extra time after the nominal phase, not the total ADS
             // lifetime. Exhaustion cannot manufacture success. Keep the same
             // full ADS solver alive for neutral input, while publishing a
-            // phase that final arbitration treats as manual-safe.
+            // legacy manual-safe phase. Gamepad arbitration preserves the
+            // independent per-axis intent owner across this timing change.
             enter_manual_safe();
             state_.task_mode = pipeline_contract::ControlMode::AdsAcquire;
         } else if (nominal_elapsed &&
                    state_.state ==
                        pipeline_contract::AdsAcquisitionState::AcquiringNominal) {
-            // Ending exclusive input ownership is a clock invariant, not a
-            // detector decision. A replay tick therefore enters the extension
-            // phase on time; fresh evidence is still required for every real
-            // completion path above.
+            // Phase timing is independent of detector decisions. A replay
+            // tick enters extension on time, but the clock cannot manufacture
+            // a new gamepad correction gesture. Fresh evidence remains
+            // required for every real completion path above.
             extend();
             state_.task_mode = pipeline_contract::ControlMode::AdsAcquire;
         } else if (state_.state ==

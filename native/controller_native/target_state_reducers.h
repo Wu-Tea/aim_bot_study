@@ -105,6 +105,10 @@ private:
     DesiredPointConfig config_{};
     DesiredPointSnapshot state_{};
     bool approach_selected_ = false;
+    pipeline_contract::Vec2f persistent_normalized_{};
+    pipeline_contract::Vec2f manual_exit_position_{}; // Exit gesture travel, never an aim point.
+    bool persistent_user_active_ = false;
+    bool cue_continuation_ = false;
     float boundary_seconds_x_ = 0.0f;
     float boundary_seconds_y_ = 0.0f;
 };

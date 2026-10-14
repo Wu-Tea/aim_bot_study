@@ -118,7 +118,7 @@ pipeline_contract::Vec2f AssistControlStateMachine::cooperative_output(
         // gesture that predates ownership back into T can stop or reverse
         // the snap. An explicit exit is handled before this solve; absent
         // that event, both moving and braking axes follow the target.
-        const bool intentional_d = vertical
+        const bool intentional_correction = vertical
             ? input.manual_correction_y
             : input.manual_correction_x;
         if (input.mode == pipeline_contract::ControlMode::AdsAcquire) {
@@ -127,14 +127,23 @@ pipeline_contract::Vec2f AssistControlStateMachine::cooperative_output(
                     pipeline_contract::AdsAcquisitionState::AcquiringExtended ||
                 input.ads_acquisition_state ==
                     pipeline_contract::AdsAcquisitionState::AcquiringManualSafe;
-            if (manual_safe_phase) {
-                // The nominal target-first interval is over. Keep AI work
-                // when the user is neutral or aligned, but a material
-                // opposing proposal now wins immediately on that axis.
+            // Elapsed acquisition time does not turn a carried gamepad
+            // acquisition gesture into a correction. IntentFilter owns that
+            // per-axis transition; keep its decision through every ADS phase.
+            // Legacy input retains its existing timeout-based arbitration.
+            if (manual_safe_phase || intentional_correction) {
+                // A fresh post-admission correction already owns this axis.
+                // Honor its existing authority band without waiting for ADS
+                // timeout. Carry-in gestures remain target-first. Neutral or
+                // aligned input still permits the target solver's work.
                 if (std::fabs(intent_axis) > material &&
                     (!std::isfinite(desired_axis) ||
                      std::fabs(desired_axis) <= material ||
                      intent_axis * desired_axis < 0.0f)) {
+                    if (config_.use_gamepad_intent_for_arbitration &&
+                        !intentional_correction && std::isfinite(desired_axis)) {
+                        return std::clamp(desired_axis, -1.0f, 1.0f);
+                    }
                     return blend_manual(native_axis);
                 }
             } else {
@@ -142,10 +151,10 @@ pipeline_contract::Vec2f AssistControlStateMachine::cooperative_output(
                     std::fabs(desired_axis) > material) {
                     return std::clamp(desired_axis, -1.0f, 1.0f);
                 }
-                // An owned D correction is a semantic target edit, not
-                // stale carry-in. If the target solver has no material
-                // work on that axis yet, let the correction move D.
-                return intentional_d ? native_axis * manual_weight : 0.0f;
+                // A current-target correction has manual authority, independent
+                // of the source-owned anatomical point. With no material
+                // solver work, apply the existing per-axis intent weight.
+                return intentional_correction ? native_axis * manual_weight : 0.0f;
             }
         }
         if (!std::isfinite(desired_axis)) {
@@ -162,7 +171,7 @@ pipeline_contract::Vec2f AssistControlStateMachine::cooperative_output(
         }
 
         if (input.mode == pipeline_contract::ControlMode::BodyLockFollow &&
-            input.carried_acquisition_gesture &&
+            (vertical ? input.carried_acquisition_y : input.carried_acquisition_x) &&
             std::fabs(intent_axis) > material &&
             intent_axis * desired_axis < 0.0f) {
             const float activity = std::clamp(vertical
@@ -246,7 +255,7 @@ pipeline_contract::Vec2f AssistControlStateMachine::cooperative_output(
             ? -input.target_error_px.y
             : input.target_error_px.x;
         const bool fresh_position_owner = input.fresh_observation &&
-            !input.cue_continuation && !intentional_d &&
+            !input.cue_continuation && !intentional_correction &&
             std::isfinite(control_error) &&
             desired_axis * control_error > 0.0f;
         if (!fresh_position_owner) return cooperative;

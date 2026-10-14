@@ -73,6 +73,10 @@ void TargetGeometryReducer::adopt(
 
 void DesiredPointReducer::reset() noexcept {
     state_ = {};
+    persistent_normalized_ = {};
+    persistent_user_active_ = false;
+    manual_exit_position_ = {};
+    cue_continuation_ = false;
     approach_selected_ = false;
     boundary_seconds_x_ = 0.0f;
     boundary_seconds_y_ = 0.0f;
@@ -87,15 +91,21 @@ void DesiredPointReducer::adopt_geometry(
         reset();
         return;
     }
+    cue_continuation_ = cue_continuation;
     if (reset_desired_point || !previous_geometry_available) {
         state_.normalized = normalized_in_region(
             geometry.source_position, geometry.aim_region);
         state_.user_active = false;
+        persistent_user_active_ = false;
+        manual_exit_position_ = state_.normalized;
         approach_selected_ = false;
-    } else if (!cue_continuation && !state_.user_active && !approach_selected_) {
+    } else if (!cue_continuation && !persistent_user_active_ && !approach_selected_) {
         state_.normalized = normalized_in_region(
             geometry.source_position, geometry.aim_region);
     }
+    if (reset_desired_point || !previous_geometry_available ||
+        (!cue_continuation && !persistent_user_active_ && !approach_selected_))
+        persistent_normalized_ = state_.normalized;
     state_.position = point_in_region(state_.normalized, geometry.aim_region);
     state_.source = state_.user_active
         ? pipeline_contract::DesiredPointSource::UserCorrected
@@ -140,6 +150,7 @@ void DesiredPointReducer::select_acquisition_point(
     }
     approach_selected_ = point.y < geometry.source_position.y;
     state_.normalized = normalized_in_region(point, region);
+    persistent_normalized_ = state_.normalized;
     state_.position = point_in_region(state_.normalized, region);
     state_.source = approach_selected_
         ? pipeline_contract::DesiredPointSource::ApproachSelected
@@ -157,16 +168,32 @@ void DesiredPointReducer::reduce_manual(
     state_.manual_boundary_x = false;
     state_.manual_boundary_y = false;
     state_.manual_exit_requested = false;
-    if (!pipeline_contract::permits_assist(intent.activation) || !target_present || !geometry.available ||
-        intent.right_purpose !=
-            pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget) {
+    if (intent.independent_right_axes && geometry.available) {
+        state_.normalized = normalized_in_region(geometry.source_position, geometry.aim_region);
+        state_.position = geometry.source_position;
+        state_.user_active = false;
+        state_.source = cue_continuation_ ? pipeline_contract::DesiredPointSource::CueCarried
+                                        : pipeline_contract::DesiredPointSource::VisionDefault;
+        approach_selected_ = false;
+    } else {
+        state_.normalized = persistent_normalized_;
+        state_.user_active = persistent_user_active_;
+    }
+    if (!pipeline_contract::permits_assist(intent.activation) || !target_present || !geometry.available) {
+        if (geometry.available) state_.position = point_in_region(state_.normalized, geometry.aim_region);
         boundary_seconds_x_ = 0.0f;
         boundary_seconds_y_ = 0.0f;
         return;
     }
 
-    const float manual_x = bounded_manual_axis(intent.filtered_right.x);
-    const float manual_y = -bounded_manual_axis(intent.filtered_right.y);
+    const bool correct_x = intent.axis_purpose(false) == pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
+    const bool correct_y = intent.axis_purpose(true) == pipeline_contract::UserAimIntentPurpose::CorrectCurrentTarget;
+    const float manual_x = correct_x ? bounded_manual_axis(intent.filtered_right.x) : 0;
+    const float manual_y = correct_y ? -bounded_manual_axis(intent.filtered_right.y) : 0;
+    const float edit_x = intent.independent_right_axes
+        ? (correct_x ? bounded_manual_axis(intent.right_x.manual_exit_velocity) : 0) : manual_x;
+    const float edit_y = intent.independent_right_axes
+        ? (correct_y ? -bounded_manual_axis(intent.right_y.manual_exit_velocity) : 0) : manual_y;
     const float traversal_seconds = std::max(
         0.040f, config_.traversal_ms / 1000.0f);
     const float step_scale = std::max(0.0f, dt_seconds) / traversal_seconds;
@@ -174,7 +201,6 @@ void DesiredPointReducer::reduce_manual(
         float manual,
         float& normalized,
         float& boundary_seconds,
-        bool& correction,
         bool& boundary,
         float dt) {
         if (manual == 0.0f) {
@@ -188,22 +214,36 @@ void DesiredPointReducer::reduce_manual(
             ? boundary_seconds + std::max(0.0f, dt)
             : 0.0f;
         normalized = clamped;
-        correction = true;
     };
+    // Preserve the established sustained-gesture exit contract, independently
+    // of the anatomical point. This cursor is only evidence for manual exit;
+    // it is never published as an AI aim point or used by the motion observer.
+    auto& travel = intent.independent_right_axes ? manual_exit_position_ : persistent_normalized_;
     update_axis(
-        manual_x,
-        state_.normalized.x,
+        edit_x,
+        travel.x,
         boundary_seconds_x_,
-        state_.manual_correction_x,
         state_.manual_boundary_x,
         dt_seconds);
     update_axis(
-        manual_y,
-        state_.normalized.y,
+        edit_y,
+        travel.y,
         boundary_seconds_y_,
-        state_.manual_correction_y,
         state_.manual_boundary_y,
         dt_seconds);
+
+    state_.manual_correction_x = manual_x != 0;
+    state_.manual_correction_y = manual_y != 0;
+    if (!intent.independent_right_axes) {
+        // Mouse/legacy point ownership is outside the gamepad policy change.
+        persistent_user_active_ = persistent_user_active_ || edit_x != 0 || edit_y != 0;
+        state_.normalized = persistent_normalized_;
+        state_.user_active = persistent_user_active_;
+        state_.source = state_.user_active ? pipeline_contract::DesiredPointSource::UserCorrected :
+            cue_continuation_ ? pipeline_contract::DesiredPointSource::CueCarried :
+            approach_selected_ ? pipeline_contract::DesiredPointSource::ApproachSelected :
+            pipeline_contract::DesiredPointSource::VisionDefault;
+    }
 
     const float exit_seconds = std::max(
         0.050f, config_.boundary_exit_ms / 1000.0f);
@@ -215,7 +255,8 @@ void DesiredPointReducer::reduce_manual(
     if (state_.manual_exit_requested) {
         state_.manual_correction_x = false;
         state_.manual_correction_y = false;
-    } else if (state_.manual_correction_x || state_.manual_correction_y) {
+    } else if (!intent.independent_right_axes &&
+               (state_.manual_correction_x || state_.manual_correction_y)) {
         state_.user_active = true;
         state_.source = pipeline_contract::DesiredPointSource::UserCorrected;
     }

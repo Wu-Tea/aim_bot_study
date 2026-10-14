@@ -60,6 +60,9 @@ private:
     AxisState right_y_{};
     StickState left_stick_{};
     StickState right_stick_{};
+    StickState right_x_stick_{}, right_y_stick_{};
+    pipeline_contract::UserAimIntentPurpose right_x_purpose_ = pipeline_contract::UserAimIntentPurpose::AcquireTarget;
+    pipeline_contract::UserAimIntentPurpose right_y_purpose_ = pipeline_contract::UserAimIntentPurpose::AcquireTarget;
     double previous_sample_seconds_ = 0.0;
     pipeline_contract::UserAimIntentPurpose right_purpose_ =
         pipeline_contract::UserAimIntentPurpose::AcquireTarget;

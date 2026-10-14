@@ -165,7 +165,7 @@ void test_gamepad_authority_curve_continuity(const native_test::TestContext& con
             in.target_id = in.selector_target_generation = 1;
             in.now_seconds = 1+tick*.001; in.fresh_observation = fresh;
             in.visual_authority = .65f; in.firing = firing;
-            in.carried_acquisition_gesture = carried;
+            in.carried_acquisition_x = in.carried_acquisition_y = carried;
             in.manual_stick = vec(raw); in.filtered_manual_stick = intent.filtered_right;
             in.manual_axis_activity = {intent.right_x.activity,intent.right_y.activity};
             in.manual_correction_x = !carried && intent.filtered_right.x != 0;
@@ -307,12 +307,12 @@ void test_carried_axis_release_continuity(const native_test::TestContext& contex
             input.centered_manual_stick = vec(physical - state.neutral_bias);
             input.filtered_manual_stick = intent.filtered_right;
             input.manual_axis_activity = {intent.right_x.activity, intent.right_y.activity};
-            input.carried_acquisition_gesture = intent.right_purpose ==
+            input.carried_acquisition_x = input.carried_acquisition_y = intent.right_purpose ==
                 pipeline_contract::UserAimIntentPurpose::AcquireTarget;
             input.ai_stick = vec(-sign * .5f);
             const auto output = machine.update(input);
             const float final = axis == 0 ? output.stick.x : output.stick.y;
-            require_true(input.carried_acquisition_gesture,
+            require_true(input.carried_acquisition_x && input.carried_acquisition_y,
                          "release sweep changed gesture purpose unexpectedly");
             if (i == 0) {
                 require_near(final, physical, 1e-5f, "held gesture lost physical authority");

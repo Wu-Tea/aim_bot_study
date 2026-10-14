@@ -1371,11 +1371,9 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     control_input.manual_correction_x = plan.manual_correction_x;
     control_input.manual_correction_y = plan.manual_correction_y;
     control_input.manual_exit_requested = plan.manual_exit_requested;
-    control_input.carried_acquisition_gesture =
-        plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
-        plan.ads_acquisition_exists &&
-        intent.right_purpose ==
-            pipeline_contract::UserAimIntentPurpose::AcquireTarget;
+    const bool carry_allowed = plan.mode == pipeline_contract::ControlMode::BodyLockFollow && plan.ads_acquisition_exists;
+    control_input.carried_acquisition_x = carry_allowed && intent.axis_purpose(false) == pipeline_contract::UserAimIntentPurpose::AcquireTarget;
+    control_input.carried_acquisition_y = carry_allowed && intent.axis_purpose(true) == pipeline_contract::UserAimIntentPurpose::AcquireTarget;
     const auto decision = assist_control_state_machine_.update(control_input);
     components.mouse_manual_retention = {decision.mouse_x.retention, decision.mouse_y.retention};
     components.mouse_manual_conflict_x = mouse_manual_conflict_name(decision.mouse_x.conflict);
