@@ -54,6 +54,14 @@ sequenceDiagram
 
 将原版回放夹具链接到同步后的控制器，与同步前 DEV 产物比较：两组独立种子的 192 个短长场景、676,544 tick 全部记录一致。详细回放还与 clean 保存的原记录比较了 cue 缺帧/过期/重获、输出撤销、交付历史、学习保留和策略提交。策略提交回放包含对主循环调度的模型，不能替代真实 RuntimeLoop 并发热更新验证；所有模拟结果都不代表实机手感验收。
 
+## clean 产品分支
+
+`codex/runtime-clean` 从 DEV `aa0f918` 重建，产品提交为 `ba679ce`，本地基线 tag 为 `codex/clean-baseline-20261016`。保留完整 React/WebView2 桌面 GUI、原生手柄 runtime、固定压枪、Fusion 和 GUI 实际调用的依赖；测试、实验和历史文档继续在 DEV。旧 clean 已归档到 `codex/runtime-clean-archive-20261016`（`ca0ea11`），对应独立归档工作目录保留了本地资产。
+
+此次按生产依赖裁剪为 232 个跟踪文件，没有改变保留的控制/GUI 实现。验证夹具留在 DEV，使用单一头文件树并链接 clean 实际构建的生产库：448 项原生检查、80 项桌面检查、10 项采集检查通过，7 份回放记录与 DEV 一致。真实 GUI 启动新 runtime、加载模型、热更新固定压枪并收到 Applied、正常停止，以及 Fusion 启停均通过；关闭 Fusion 后 runtime 继续运行。证据与临时验证程序在 `runs/clean-recreate-20261016/`，不进入 clean。真实运行检查关闭手柄输出和震动，不能替代游戏手感或设备实际交付验收。
+
+clean 的 GUI 是 `python/desktop_app/` 和 `启动助手.vbs`；Fusion 是可选显示。维护时不要因为原生控制不依赖 Python 而删除桌面宿主。大改动从已验证 clean 基线开临时分支，验证后再合回。
+
 ## 用一个入口检查应用
 
 在项目根目录执行：
