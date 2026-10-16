@@ -97,9 +97,7 @@ void AdsLifecycleReducer::begin_tick(bool scope_active, double now_seconds) noex
         // The pre-admission opportunity has its own deadline. Expiry consumes
         // the token before candidate selection on this tick, so a later target
         // may use BodyLock but cannot retroactively mint an ADS Snap.
-        expire_wait(
-            pipeline_contract::AdsDecisionReason::NoTarget,
-            now_seconds);
+        expire_wait(pipeline_contract::AdsDecisionReason::NoTarget);
         state_.task_mode = pipeline_contract::ControlMode::Manual;
     }
 
@@ -117,11 +115,8 @@ void AdsLifecycleReducer::begin_epoch(
     state_.target_admitted = false;
     state_.target_acquisition_id = 0;
     state_.acquisition_started_seconds = 0.0;
-    state_.acquisition_completed_seconds = 0.0;
     state_.acquisition_begin_ns = 0;
     state_.acquisition_complete_ns = 0;
-    state_.center_cross_seen = false;
-    state_.target_switch_seen = false;
     state_.source_decision_available = false;
     state_.source_decision_outcome =
         pipeline_contract::SourceDecisionOutcome::NoDecision;
@@ -141,11 +136,8 @@ void AdsLifecycleReducer::release_scope() noexcept {
     state_.target_admitted = false;
     state_.target_acquisition_id = 0;
     state_.acquisition_started_seconds = 0.0;
-    state_.acquisition_completed_seconds = 0.0;
     state_.acquisition_begin_ns = 0;
     state_.acquisition_complete_ns = 0;
-    state_.center_cross_seen = false;
-    state_.target_switch_seen = false;
     state_.terminal_reason = pipeline_contract::AdsDecisionReason::None;
     state_.state = pipeline_contract::AdsAcquisitionState::Idle;
     state_.decision_reason = pipeline_contract::AdsDecisionReason::None;
@@ -160,7 +152,6 @@ void AdsLifecycleReducer::admit_target(double now_seconds) noexcept {
     state_.target_admitted = true;
     state_.target_acquisition_id = next_target_acquisition_id_++;
     state_.acquisition_started_seconds = now_seconds;
-    state_.acquisition_completed_seconds = 0.0;
     state_.acquisition_begin_ns = seconds_to_ns(now_seconds);
     state_.acquisition_complete_ns = 0;
     state_.state =
@@ -196,13 +187,11 @@ void AdsLifecycleReducer::wait_for_target() noexcept {
 }
 
 void AdsLifecycleReducer::expire_wait(
-    pipeline_contract::AdsDecisionReason reason,
-    double now_seconds) noexcept {
+    pipeline_contract::AdsDecisionReason reason) noexcept {
     if (state_.target_admitted) return;
     state_.state = pipeline_contract::AdsAcquisitionState::Completed;
     state_.decision_reason = reason;
     state_.terminal_reason = reason;
-    state_.acquisition_completed_seconds = now_seconds;
     state_.snap_consumed = true;
     state_.evidence_wait = AdsEvidenceWait::None;
 }
@@ -231,7 +220,6 @@ void AdsLifecycleReducer::complete(
     state_.state = pipeline_contract::AdsAcquisitionState::Completed;
     state_.decision_reason = reason;
     state_.terminal_reason = reason;
-    state_.acquisition_completed_seconds = now_seconds;
     state_.acquisition_complete_ns = seconds_to_ns(now_seconds);
     state_.snap_consumed = true;
     state_.evidence_wait = AdsEvidenceWait::None;
@@ -280,7 +268,6 @@ namespace controller_native {
 void AdsLifecycleReducer::advance(bool scope_active, bool settled, bool center_cross, double now_seconds) noexcept {
     const float elapsed_ms = state_.target_admitted ? static_cast<float>(std::max(
         0.0, (now_seconds - state_.acquisition_started_seconds) * 1000.0)) : 0.0f;
-    if (center_cross) note_center_cross();
 
     const bool extension_budget_elapsed = state_.target_admitted &&
         config_.extension_ms > 0.0f &&

@@ -25,12 +25,6 @@ enum class VisionSnapshotFreshness {
     NoUpdate,
 };
 
-enum class VisionSourceState {
-    Unknown,
-    FreshFrame,
-    NoUpdate,
-};
-
 struct VisionServiceOptions {
     double capture_fps = 160.0;
     double idle_fps = 60.0;
@@ -43,7 +37,6 @@ struct VisionServiceOptions {
 struct VisionServiceSnapshot {
     vision_native::VisionResult result;
     VisionSnapshotFreshness freshness = VisionSnapshotFreshness::None;
-    VisionSourceState source_state = VisionSourceState::Unknown;
     std::uint64_t sequence = 0;
     std::uint64_t aim_transition_sequence = 0;
     pipeline_contract::VisionRequest request = pipeline_contract::VisionRequest::Idle;
@@ -84,7 +77,6 @@ private:
     std::uint64_t last_source_ns_ = 0;
     std::uint64_t last_present_qpc_ = 0;
     std::uint64_t last_present_frequency_ = 0;
-    bool has_delivery_ = false;
 };
 
 class IVisionServicePoller {

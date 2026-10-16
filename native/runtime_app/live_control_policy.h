@@ -20,11 +20,21 @@ inline controller_native::RuntimeConfig live_control_config(
     controller_native::RuntimeConfig config) {
     // The native live I/O loop must never execute capture/inference inline.
     // Retain the old configuration field for profile compatibility only.
-    config.vision.gpu_service_enabled = true;
-    config.gamepad.tracker.max_observation_age_ms =
-        live_visual_lifetime_ms(config.gamepad.tracker.max_observation_age_ms);
-    config.gamepad.auto_fire.max_source_age_ms =
-        live_visual_lifetime_ms(config.gamepad.auto_fire.max_source_age_ms);
+    if (!config.vision.gpu_service_enabled) {
+        config.vision.gpu_service_enabled = true;
+        config.effective_sources["runtime.vision.gpu_service_enabled"] = "live-policy";
+    }
+    const auto cap_lifetime = [&config](float& value, const char* key) {
+        const float capped = live_visual_lifetime_ms(value);
+        if (value != capped) {
+            value = capped;
+            config.effective_sources[key] = "live-policy";
+        }
+    };
+    cap_lifetime(config.gamepad.tracker.max_observation_age_ms,
+                 "gamepad.tracker.max_observation_age_ms");
+    cap_lifetime(config.gamepad.auto_fire.max_source_age_ms,
+                 "gamepad.auto_fire.max_source_age_ms");
     return config;
 }
 

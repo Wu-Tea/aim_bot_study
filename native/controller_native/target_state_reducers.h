@@ -31,7 +31,9 @@ struct TargetLifecycleSnapshot {
     pipeline_contract::TargetLifecycle lifecycle =
         pipeline_contract::TargetLifecycle::None;
     std::uint64_t target_id = 0;
-    bool target_present = false;
+    bool has_target() const noexcept {
+        return lifecycle != pipeline_contract::TargetLifecycle::None;
+    }
 };
 
 // Sole owner of controller-persistent target identity and lifecycle.
@@ -42,10 +44,9 @@ public:
         next_target_id_ = 1;
     }
     void observe(bool cue_continuation, bool force_new_identity) noexcept {
-        if (!state_.target_present || force_new_identity) {
+        if (!state_.has_target() || force_new_identity) {
             state_.target_id = next_target_id_++;
         }
-        state_.target_present = true;
         state_.lifecycle = cue_continuation
             ? pipeline_contract::TargetLifecycle::CueContinuation
             : pipeline_contract::TargetLifecycle::Observed;

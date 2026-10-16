@@ -102,7 +102,7 @@ inline void simulate_point_boundary(const native_test::TestContext& context) {
             request.motion_is_sustaining_target_motion=estimate.valid;
             request.relative_velocity_px_per_sec={estimate.valid ? estimate.target_motion_stick.x*gain : 0,0};
             const auto requested=solve_response_model_aim(request).stick;
-            const auto output=filter_ai_input(shaper.shape(requested,{},plan,.001f),.03f);
+            const auto output=filter_ai_input(shaper.shape(requested, plan, .001f),.03f);
             if (!std::isfinite(output.x) || std::abs(output.x)>.80001f)
                 throw std::runtime_error("point simulation violated finite force envelope");
             output_history[tick]=output.x;

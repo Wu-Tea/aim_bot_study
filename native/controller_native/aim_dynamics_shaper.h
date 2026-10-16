@@ -1,6 +1,5 @@
 #pragma once
 
-#include "pipeline_contract/intent_state.h"
 #include "pipeline_contract/target_plan.h"
 
 #include <cstdint>
@@ -26,10 +25,8 @@ public:
 
     pipeline_contract::Vec2f shape(
         pipeline_contract::Vec2f requested_ai,
-        const pipeline_contract::IntentState& intent,
         const pipeline_contract::TargetPlan& plan,
-        float dt_seconds,
-        pipeline_contract::Vec2f confirmed_wrong_axis = {}) noexcept;
+        float dt_seconds) noexcept;
 
     pipeline_contract::Vec2f current() const noexcept;
     void adopt(pipeline_contract::Vec2f output) noexcept;

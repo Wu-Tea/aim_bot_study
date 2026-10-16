@@ -165,3 +165,9 @@ and machine-local runtime assets out of project context.
 - **Commit isolation:** only the haptics hunks in shared runtime-loop files are staged. A HEAD-based native source snapshot with exactly the staged native/config changes independently builds Release runtime and functional tests; all four Feature suites pass. This establishes build independence from concurrent controller/relay/telemetry work.
 - [Decision and implementation boundaries](decisions/DEC-2026-10-12-001-dse-haptics-and-webview-gui.md). Other concurrent controller/Vision/telemetry changes are outside this commit; raw output and personal files remain local.
 - SyncSet `sync-20261012-002`: accept_draft self-review under explicit record/commit authorization. No inferred user acceptance, secrets, raw personal data, subagents or external writes. Historical log retained; separate compaction remains suggested.
+
+## 2026-10-16 — DEV checkpoint and clean optimization sync
+
+- User paused clean deletion and requested DEV checkpoint first, then optimization synchronization. `6496f84` preserves long capture/GUI/Vision diagnostics; the separate sync uses deletion-before archive `5eb02ff` and retains DEV tools/tests/mouse/React GUI.
+- Before 50/50 and after 51/51 CTest groups pass; original DEV replay records match for 192 scenarios / 676,544 ticks, as do clean's detailed replay records. Full build, 80 desktop tests, 10 capture tests, actual WebView2 and output-disabled engine smoke pass. Gameplay acceptance remains unverified; see [configuration and checks](../docs/project/CONFIGURATION_AND_CHECKS.md).
+- Clean's uncommitted cleanup stays paused. No output recordings committed and no remote push. Default DEV runtime rebuilt after user stopped the running process.

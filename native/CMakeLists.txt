@@ -154,6 +154,11 @@ cod_native_defaults(cod_native_scheduler_benchmark)
 target_link_libraries(cod_native_scheduler_benchmark PRIVATE winmm)
 
 include(cmake/ProductTests.cmake)
+add_test(NAME RuntimeConfigurationContract COMMAND "${CMAKE_COMMAND}"
+    "-DRUNTIME=$<TARGET_FILE:cod_native_runtime>"
+    "-DARCHITECTURE=${PROJECT_SOURCE_DIR}/control_contract/architecture.json"
+    "-DCONFIG=${PROJECT_SOURCE_DIR}/../config.native.example.toml"
+    -P "${PROJECT_SOURCE_DIR}/runtime_app/build_metadata_test.cmake")
 
 include(cmake/OfflineBenchmarks.cmake)
 

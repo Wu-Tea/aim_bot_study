@@ -1,4 +1,5 @@
 #include "vision_service.h"
+#include "runtime_reload_policy.h"
 #include "live_pipeline_trace.h"
 #include "async_console.h"
 #include "manual_relay.h"
@@ -11,6 +12,8 @@
 #include <functional>
 #include <future>
 #include <fstream>
+#include <iomanip>
+#include <limits>
 #include <random>
 #include <iostream>
 #include <memory>
@@ -109,6 +112,10 @@ void test_detection_only_to_assist_fences_inflight_result() {
     REQUIRE(service.step_for_test(at_ms(20)));
     const auto stale = service.latest_snapshot();
     REQUIRE(!stale.result.frame_updated && !stale.result.aim_authority);
+    REQUIRE(!stale.result.fire_authority && !stale.result.auto_fire);
+    REQUIRE(stale.freshness == runtime_app::VisionSnapshotFreshness::NoUpdate);
+    REQUIRE(std::string(stale.result.service_freshness) == "no_update");
+    REQUIRE(std::string(stale.result.service_source_state) == "no_update");
     fake->on_poll = {};
     REQUIRE(service.step_for_test(at_ms(21)));
     const auto assist = service.latest_snapshot();
@@ -283,7 +290,6 @@ void test_no_update_does_not_replay_last_snapshot() {
     REQUIRE(service.step_for_test(at_ms(10)));
     const runtime_app::VisionServiceSnapshot no_update = service.latest_snapshot();
     REQUIRE(no_update.freshness == runtime_app::VisionSnapshotFreshness::NoUpdate);
-    REQUIRE(no_update.source_state == runtime_app::VisionSourceState::NoUpdate);
     REQUIRE(std::string(no_update.result.service_freshness) == "no_update");
     REQUIRE(std::string(no_update.result.service_source_state) == "no_update");
     REQUIRE(no_update.result.frame_id != first.result.frame_id);
@@ -308,7 +314,7 @@ void test_aim_release_no_update_has_no_authority() {
 
     const auto snapshot = service.latest_snapshot();
     REQUIRE(snapshot.freshness == runtime_app::VisionSnapshotFreshness::NoUpdate);
-    REQUIRE(snapshot.source_state == runtime_app::VisionSourceState::NoUpdate);
+    REQUIRE(std::string(snapshot.result.service_source_state) == "no_update");
     REQUIRE(!snapshot.result.frame_updated);
     REQUIRE(!snapshot.result.aim_authority);
     REQUIRE(!snapshot.result.fire_authority);
@@ -348,6 +354,64 @@ void test_delivery_gate_accepts_each_recent_capture_once() {
     current.captured_at_ns = 1'030'000'000ull;
     current.result_at_ns = 1'036'000'000ull;
     REQUIRE(gate.accept(current, 1'040'000'000ull));
+}
+
+void test_delivery_gate_rejected_inputs_and_reset_preserve_contract() {
+    runtime_app::VisionDeliveryGate gate;
+    vision_native::VisionResult first;
+    first.frame_updated = true;
+    first.frame_id = 1;
+    // Non-DXGI producers may supply result time without a capture timestamp.
+    first.result_at_ns = 1;
+    auto invalid = first;
+    invalid.frame_id = 0;
+    REQUIRE(!gate.accept(invalid, 1));
+    invalid = first;
+    invalid.result_at_ns = 0;
+    REQUIRE(!gate.accept(invalid, 1));
+    REQUIRE(gate.accept(first, 1));
+    REQUIRE(!gate.accept(first, 1));
+
+    auto present = first;
+    present.frame_id = 10;
+    present.captured_at_ns = 1'000'000'000;
+    present.result_at_ns = 1'001'000'000;
+    present.source_present_available = true;
+    present.source_present_qpc = 900;
+    present.source_present_qpc_frequency = 1000;
+    present.source_present_steady_available = true;
+    present.source_present_steady_ns = 999'000'000;
+    REQUIRE(gate.accept(present, 1'002'000'000));
+
+    // Rejected future input must not advance any delivery watermark.
+    invalid = present;
+    invalid.frame_id = 100;
+    invalid.result_at_ns = invalid.captured_at_ns = 2'000'000'000;
+    invalid.source_present_qpc = 2000;
+    invalid.source_present_steady_ns = 1'999'000'000;
+    REQUIRE(!gate.accept(invalid, 1'010'000'000));
+    auto fallback = first;
+    fallback.frame_id = 11;
+    fallback.result_at_ns = 1'010'000'000;
+    REQUIRE(gate.accept(fallback, 1'011'000'000));
+
+    // A frame without presentation metadata must not erase QPC history.
+    present.frame_id = 12;
+    present.captured_at_ns = 1'020'000'000;
+    present.result_at_ns = 1'021'000'000;
+    present.source_present_steady_ns = 1'019'000'000;
+    REQUIRE(!gate.accept(present, 1'022'000'000));
+    present.source_present_qpc = 901;
+    present.source_present_qpc_frequency = 2000;
+    REQUIRE(!gate.accept(present, 1'022'000'000));
+    present.source_present_qpc_frequency = 1000;
+    REQUIRE(gate.accept(present, 1'022'000'000));
+
+    gate.reset();
+    REQUIRE(gate.accept(first, 1));
+    present.source_present_qpc = 1;
+    present.source_present_qpc_frequency = 2000;
+    REQUIRE(gate.accept(present, 1'022'000'000));
 }
 
 void test_viewport_request_is_forwarded_before_poll() {
@@ -420,7 +484,7 @@ void test_idle_keepwarm_frame_is_not_replayed_after_aim_transition() {
     const runtime_app::VisionServiceSnapshot snapshot = service.latest_snapshot();
 
     REQUIRE(snapshot.freshness == runtime_app::VisionSnapshotFreshness::NoUpdate);
-    REQUIRE(snapshot.source_state == runtime_app::VisionSourceState::NoUpdate);
+    REQUIRE(std::string(snapshot.result.service_source_state) == "no_update");
 }
 
 void test_next_poll_due_uses_capture_fps_interval() {
@@ -538,6 +602,9 @@ void test_mailbox_does_not_copy_an_already_consumed_sequence() {
     const auto unchanged = service.latest_snapshot(initial.sequence);
     REQUIRE(unchanged.sequence == 0);
     REQUIRE(unchanged.result.detections.empty());
+    REQUIRE(unchanged.freshness == runtime_app::VisionSnapshotFreshness::None);
+    REQUIRE(std::string(unchanged.result.service_freshness) == "none");
+    REQUIRE(std::string(unchanged.result.service_source_state) == "unknown");
     REQUIRE(service.step_for_test(at_ms(50)));
     REQUIRE(service.latest_snapshot(initial.sequence).sequence > initial.sequence);
 }
@@ -664,7 +731,315 @@ void test_blocked_inference_does_not_block_controller_mailbox() {
     REQUIRE(!stale.result.aim_authority && !stale.result.fire_authority);
 }
 
+// The schedule models RuntimeLoop's two mailbox reads. Service publication,
+// delivery fencing and controller/output execution below are production code.
+// It does not run the hardware RuntimeLoop or the background config bridge.
+void test_policy_commit_replay(const native_test::TestContext& context) {
+    using namespace runtime_app;
+    using namespace controller_native;
+    // Live normalization changes scheduling/lifetime overrides, never the
+    // three detection fields. Admission must distinguish every combination.
+    for (unsigned mask = 0; mask < 8; ++mask) {
+        RuntimeConfig before;
+        before.vision.gpu_service_enabled = false;
+        auto candidate = before;
+        if (mask & 1) candidate.vision.friendly_filter_enabled = !before.vision.friendly_filter_enabled;
+        if (mask & 2) candidate.vision.target_height_ratio = .35f;
+        if (mask & 4) candidate.vision.target_wide_low_height_ratio = .55f;
+        candidate.gamepad.tracker.max_observation_age_ms = 250;
+        candidate.gamepad.auto_fire.max_source_age_ms = 250;
+        const auto live = live_control_config(candidate);
+        REQUIRE(live.vision.gpu_service_enabled && live.gamepad.tracker.max_observation_age_ms == 40);
+        REQUIRE(candidate.gamepad.tracker.max_observation_age_ms == 250);
+        REQUIRE(live.vision.friendly_filter_enabled == candidate.vision.friendly_filter_enabled &&
+            live.vision.target_height_ratio == candidate.vision.target_height_ratio &&
+            live.vision.target_wide_low_height_ratio == candidate.vision.target_wide_low_height_ratio);
+        REQUIRE(hot_reload_restrictions(before, candidate).empty() == (mask == 0));
+    }
+    class Poller final : public IVisionServicePoller {
+    public:
+        vision_native::VisionResult result;
+        VisionDetectionPolicy applied;
+        std::function<void()> in_flight;
+        unsigned requests = 0;
+        void set_request(pipeline_contract::VisionRequest) override {}
+        void set_user_aim_intent(const pipeline_contract::UserAimIntent&) override {}
+        void set_detection_policy(const VisionDetectionPolicy& policy) override { applied = policy; ++requests; }
+        vision_native::VisionResult poll_once() override {
+            const auto captured = result;
+            if (in_flight) in_flight();
+            return captured;
+        }
+    };
+    const auto directory = context.artifact_directory / context.case_name;
+    std::filesystem::create_directories(directory);
+    std::ofstream csv(directory / "traces.csv");
+    REQUIRE(csv.good());
+    csv << std::setprecision(17);
+    csv << "seed,ticks,scenario,tick,pending,requested,committed,revision,published_revision,freshness,sequence,consumed,accepted,deadline,id,mode,epoch,expired,output_x,output_y,trigger,requests\n";
+    for (unsigned seed : {19031u, 871099u}) for (int ticks : {160, 1600})
+    for (int scenario = 0; scenario < 8; ++scenario) {
+        std::mt19937 random(seed);
+        RuntimeConfig current;
+        current.gamepad = incident_fixture::base_config(40, 200);
+        current.vision.gpu_service_enabled = true;
+        auto candidate = current;
+        candidate.vision.friendly_filter_enabled = false;
+        candidate.effective_values["runtime.vision.friendly_filter_enabled"] = "false";
+        if (scenario == 0) {
+            candidate = current;
+            candidate.gamepad.ai_aim.hipfire_multiplier = .7f;
+            candidate.effective_values["gamepad.ai_aim.hipfire_multiplier"] = "0.7";
+        }
+        // These live overrides do not participate in detection-policy identity.
+        candidate.gamepad.tracker.max_observation_age_ms = 250;
+        candidate.gamepad.auto_fire.max_source_age_ms = 250;
+        REQUIRE(hot_reload_restrictions(current, candidate).empty());
+        double now = 10;
+        NativeGamepadController controller(current.gamepad, &now);
+        auto poller = std::make_unique<Poller>();
+        auto* raw = poller.get();
+        VisionServiceOptions options; options.capture_fps = options.idle_fps = 1000;
+        VisionService service(std::move(poller), options);
+        VisionDeliveryGate gate;
+        bool pending = false, requested = false;
+        std::uint64_t revision = 0, consumed = 0;
+        int committed = -1;
+        const int ready = scenario == 1 || scenario == 5 || scenario == 6 ? 24 : 80;
+        const auto try_commit = [&](int tick) {
+            if (!pending) return;
+            const auto next = live_control_config(candidate);
+            const bool changed = vision_policy_changed(current, next);
+            if (changed) {
+                if (!requested) {
+                    service.set_detection_policy({next.vision.friendly_filter_enabled, next.vision.target_height_ratio,
+                        next.vision.target_wide_low_height_ratio, revision + 1});
+                    requested = true;
+                }
+                const auto snapshot = service.latest_snapshot();
+                if (snapshot.policy_revision != revision + 1 || snapshot.freshness != VisionSnapshotFreshness::Fresh) return;
+                ++revision;
+            }
+            controller.apply_hot_config(next.gamepad, preserve_response_learning_on_reload(current, next));
+            current = next; pending = requested = false; committed = tick;
+        };
+        bool saw_assist = false, saw_wait_passthrough = false, saw_old_inflight = false, saw_age_rejection = false, saw_overwrite = false;
+        for (int tick = 0; tick < ticks; ++tick) {
+            now = 10 + tick * .005;
+            const auto time = std::chrono::steady_clock::time_point{} + std::chrono::milliseconds(10000 + tick * 5);
+            const auto now_ns = std::uint64_t(10'000'000'000ull + tick * 5'000'000ull);
+            auto physical = incident_fixture::ads_input(.013f, -.021f);
+            const bool released = scenario == 4 && tick >= 22 && tick <= 82;
+            if (released) physical.left_trigger = 0;
+            const auto request = released ? pipeline_contract::VisionRequest::DetectionOnly : pipeline_contract::VisionRequest::AssistSearch;
+            const auto epoch = service.set_request(request, time);
+            if (tick == 20 && scenario != 5) pending = true;
+            try_commit(tick);
+            auto& result = raw->result;
+            result = {};
+            result.frame_id = tick + 1;
+            result.captured_at_ns = now_ns;
+            result.result_at_ns = now_ns;
+            result.frame_updated = tick < 20 || (tick >= ready && scenario != 7) || scenario == 0 || (scenario == 5 && tick == 20);
+            if (scenario == 3 && tick == ready) result.captured_at_ns -= 100'000'000;
+            result.has_target = result.aim_authority = result.fire_authority = result.auto_fire = true;
+            if (scenario == 5 && tick == 20) raw->in_flight = [&] { pending = true; try_commit(tick); };
+            else raw->in_flight = {};
+            // Publish once, then leave it unchanged for a duplicate-read tick.
+            if (tick % 2 == 0) REQUIRE(service.step_for_test(time));
+            if (scenario == 6 && tick == ready + 1) {
+                // Commit saw Fresh, then the worker overwrites the mailbox
+                // before the controller's independent delivery read.
+                raw->result.frame_updated = false;
+                REQUIRE(service.step_for_test(time));
+            }
+            const auto published = service.latest_snapshot();
+            auto snapshot = service.latest_snapshot(consumed);
+            bool accepted = false;
+            controller.begin_tick(physical);
+            if (snapshot.sequence != 0 && snapshot.policy_revision == revision && snapshot.sequence != consumed) {
+                consumed = snapshot.sequence;
+                if (snapshot.freshness == VisionSnapshotFreshness::Fresh && snapshot.request == request &&
+                    snapshot.aim_transition_sequence == epoch && gate.accept(snapshot.result, now_ns)) {
+                    accepted = true;
+                    incident_fixture::TargetSpec target;
+                    target.observation_id = target.selector_generation = 1;
+                    target.has_enemy_cue = target.enemy_identity_confirmed = true;
+                    // Freeze selected geometry separately from service policy.
+                    auto observation = incident_fixture::observed_snapshot(target, snapshot.result.frame_id,
+                        double(snapshot.result.captured_at_ns) / 1e9, 25.f + float(random() % 5), 4.f);
+                    observation.state.aim_authority = snapshot.result.aim_authority;
+                    observation.state.fire_authority = snapshot.result.fire_authority;
+                    controller.submit_vision_snapshot(observation);
+                }
+            }
+            auto frame = controller.resolve_control_frame();
+            const auto deadline = controller.visual_output_deadline_seconds(40);
+            const bool expired = controller.expire_visual_output(frame, now, 40);
+            OutputComposer composer;
+            REQUIRE(composer.compose(frame) == OutputComposeStatus::Ok);
+            const auto output = *composer.finalized_output();
+            controller.observe_composed_output(output);
+            controller.observe_delivered_output(output, true, now);
+            const bool passthrough = output.right_x == physical.right_x && output.right_y == physical.right_y;
+            if (tick < 20 && !passthrough) saw_assist = true;
+            if (scenario >= 2 && scenario <= 4 && tick == 60) {
+                REQUIRE(pending && revision == 0 && passthrough); saw_wait_passthrough = true;
+            }
+            if (scenario == 5 && tick == 20) {
+                REQUIRE(pending && accepted && published.policy_revision == 0); saw_old_inflight = true;
+            }
+            if (scenario == 3 && tick == ready + 1) {
+                REQUIRE(committed == tick && !accepted && passthrough); saw_age_rejection = true;
+            }
+            if (scenario == 6 && tick == ready + 1) {
+                REQUIRE(committed == tick && !accepted && !passthrough && deadline > now);
+                saw_overwrite = true;
+            }
+            if (released) REQUIRE(passthrough);
+            if (committed >= 0) REQUIRE(current.gamepad.tracker.max_observation_age_ms == 40);
+            if (pending && published.policy_revision != revision) REQUIRE(!accepted);
+            csv << seed << ',' << ticks << ',' << scenario << ',' << tick << ',' << pending << ',' << requested
+                << ',' << committed << ',' << revision << ',' << published.policy_revision << ',' << int(published.freshness)
+                << ',' << published.sequence << ',' << consumed << ',' << accepted << ',' << deadline
+                << ',' << controller.last_target_plan().target_id << ',' << int(controller.last_target_plan().mode)
+                << ',' << controller.ads_epoch() << ',' << expired << ',' << output.right_x << ',' << output.right_y
+                << ',' << output.right_trigger << ',' << raw->requests << '\n';
+        }
+        REQUIRE(saw_assist && pending == (scenario == 7));
+        REQUIRE(committed == (scenario == 7 ? -1 : scenario == 0 ? 20 : ready + 1));
+        REQUIRE(scenario != 6 || saw_overwrite);
+        REQUIRE(raw->requests == (scenario == 0 ? 0 : 1));
+        REQUIRE((scenario < 2 || scenario > 4) || saw_wait_passthrough);
+        REQUIRE(scenario != 5 || saw_old_inflight);
+        REQUIRE(scenario != 3 || saw_age_rejection);
+    }
+    REQUIRE(csv.good());
+}
+
+
+void test_output_revocation_replay(const native_test::TestContext& context) {
+    using namespace controller_native;
+    const auto directory = context.artifact_directory / context.case_name;
+    std::filesystem::create_directories(directory);
+    std::ofstream csv(directory / "traces.csv");
+    REQUIRE(csv.good());
+    csv << std::setprecision(17);
+    // Deterministic compute-to-submit boundaries. Freeze against the original
+    // implementation, including future/nonfinite clocks and the no-target path.
+    for (unsigned seed : {19031u, 871099u}) {
+        std::mt19937 random(seed);
+        for (int scenario = 0; scenario < 128; ++scenario) {
+            auto config = incident_fixture::base_config(40, 200);
+            double now = 10;
+            NativeGamepadController controller(config, &now);
+            auto physical = incident_fixture::ads_input(
+                (int(random() % 401) - 200) / 1000.f,
+                (int(random() % 401) - 200) / 1000.f, scenario % 2 != 0);
+            incident_fixture::TargetSpec target;
+            target.observation_id = target.selector_generation = 1;
+            target.has_enemy_cue = target.enemy_identity_confirmed = true;
+            if (scenario % 8 != 7) controller.submit_vision_snapshot(
+                incident_fixture::observed_snapshot(target, 1, now, 25, 0));
+            controller.begin_tick(physical);
+            auto frame = controller.resolve_control_frame();
+            const double deadline = controller.visual_output_deadline_seconds(40);
+            const double times[] = {10.039, deadline, 10.080, 9.99,
+                std::numeric_limits<double>::quiet_NaN(),
+                std::numeric_limits<double>::infinity(), 10.001, 10.080};
+            const bool expired = controller.expire_visual_output(frame, times[scenario % 8], 40);
+            const bool expected = scenario % 8 != 0 && scenario % 8 != 6 && scenario % 8 != 7;
+            REQUIRE(expired == expected);
+            OutputComposer composer;
+            REQUIRE(composer.compose(frame) == OutputComposeStatus::Ok);
+            const auto output = *composer.finalized_output();
+            if (expired) REQUIRE(output.right_x == physical.right_x && output.right_y == physical.right_y);
+            REQUIRE(output.right_trigger == physical.right_trigger);
+            controller.observe_composed_output(output);
+            const auto& c = controller.last_output_components();
+            csv << "compute," << seed << ',' << scenario << ',' << deadline << ',' << expired
+                << ',' << controller.last_target_plan().target_id << ',' << output.right_x << ',' << output.right_y
+                << ',' << output.left_trigger << ',' << output.right_trigger << ',' << output.rb
+                << ',' << c.before_recoil_stick.x << ',' << c.before_recoil_stick.y
+                << ',' << c.auto_fire_active << ',' << c.assist_authority_reason << '\n';
+        }
+    }
+    // Run the real relay thread with fake physical/device endpoints. Compare
+    // ordered output transitions and receipts, not nondeterministic wake counts
+    // or wall-clock timestamps. Existing stress tests cover high-rate races.
+    for (int scenario = 0; scenario < 11; ++scenario) {
+        std::mutex mutex;
+        std::condition_variable changed;
+        std::vector<GamepadOutputState> transitions;
+        std::atomic<bool> ai_written{false};
+        runtime_app::ManualRelay relay([&] {
+            auto p = incident_fixture::ads_input(.125f, -.25f);
+            if (scenario == 5 || (scenario == 10 && ai_written.load())) p.connected = false;
+            if (scenario == 7 && ai_written.load()) { p.left_trigger = 0; p.right_x = -.375f; }
+            return p;
+        }, [&](const GamepadOutputState& output) {
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                if (transitions.empty() || transitions.back().right_x != output.right_x ||
+                    transitions.back().right_y != output.right_y || transitions.back().rb != output.rb ||
+                    transitions.back().left_trigger != output.left_trigger)
+                    transitions.push_back(output);
+            }
+            if (output.right_x == .9f) ai_written.store(true);
+            changed.notify_all();
+            VirtualGamepadUpdateResult result;
+            result.delivered = !(scenario == 9 && output.right_x == .9f);
+            result.delivered_right_x = output.right_x;
+            result.delivered_right_y = output.right_y;
+            return result;
+        }, 2, {});
+        relay.start();
+        auto sample = relay.latest();
+        if (scenario == 4) sample.sequence = 0;
+        double deadline = 0;
+        if (scenario == 1) deadline = 1;
+        if (scenario == 2) deadline = std::numeric_limits<double>::quiet_NaN();
+        if (scenario == 3) deadline = std::numeric_limits<double>::infinity();
+        if (scenario == 6) deadline = std::chrono::duration<double>(
+            runtime_app::ManualRelay::Clock::now().time_since_epoch()).count() + .100;
+        GamepadOutputState ai;
+        ai.right_x = .9f; ai.left_trigger = 1; ai.rb = true;
+        const auto receipt = relay.submit(ai, sample, deadline, {});
+        const bool accepted = scenario == 0 || scenario >= 6;
+        REQUIRE(receipt.request_accepted == accepted);
+        REQUIRE(receipt.input_current == (scenario != 4 && scenario != 5));
+        REQUIRE(receipt.visual_fresh == (scenario < 1 || scenario > 3));
+        REQUIRE(receipt.output.delivered == (accepted && scenario != 9));
+        if (scenario == 6 || scenario == 7 || scenario == 8 || scenario == 10) {
+            bool revoked;
+            {
+                std::unique_lock<std::mutex> lock(mutex);
+                revoked = changed.wait_for(lock, std::chrono::seconds(3), [&] {
+                    return transitions.size() >= 3;
+                });
+            }
+            REQUIRE(revoked);
+        }
+        relay.stop();
+        csv << "receipt," << scenario << ',' << receipt.request_accepted << ',' << receipt.input_current
+            << ',' << receipt.visual_fresh << ',' << receipt.output.delivered << ',' << receipt.continuity_broken << '\n';
+        REQUIRE(transitions.size() == (accepted ?
+            (scenario == 6 || scenario == 7 || scenario == 8 || scenario == 10 ? 3 : 2) : 1));
+        if (transitions.size() == 3) {
+            const auto& revoked = transitions.back();
+            REQUIRE(!revoked.rb);
+            REQUIRE(revoked.right_x == (scenario == 10 ? 0.f : scenario == 7 ? -.375f : .125f));
+        }
+        for (const auto& output : transitions) csv << "write," << scenario << ',' << output.right_x
+            << ',' << output.right_y << ',' << output.left_trigger << ',' << output.right_trigger << ',' << output.rb << '\n';
+    }
+    REQUIRE(csv.good());
+}
+
+
 void register_vision_service_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseRuntimeFreshness", "policy_commit_replay", test_policy_commit_replay);
+    registry.add_context_case("BaseRuntimeFreshness", "output_revocation_replay", test_output_revocation_replay);
     registry.add_case("BaseRuntimeFreshness", "trace_queue_counts_loss_and_preserves_fifo", [] {
         runtime_app::LiveTraceQueue<2> queue;
         runtime_app::LiveTraceRecord r;
@@ -787,7 +1162,7 @@ void register_vision_service_tests(native_test::Registry& registry) {
             const auto sample = relay.wait_next(after);
             after = sample.sequence;
             if (relay.discontinuity_sequence() != continuity) {
-                controller.observe_delivered_output({}, false, 0);
+                controller.invalidate_delivery_history();
                 continuity = relay.discontinuity_sequence();
             }
             now = std::chrono::duration<double>(sample.read_at.time_since_epoch()).count();
@@ -804,7 +1179,7 @@ void register_vision_service_tests(native_test::Registry& registry) {
             controller.observe_composed_output(output);
             const auto receipt = relay.submit(output, sample,
                 expired ? 0 : controller.visual_output_deadline_seconds(40), {});
-            if (receipt.continuity_broken) controller.observe_delivered_output({}, false, 0);
+            if (receipt.continuity_broken) controller.invalidate_delivery_history();
             controller.observe_delivered_output(output, receipt.output.delivered, receipt.output.submitted_at_seconds);
             if (receipt.output.delivered) {
                 ++accepted;
@@ -980,6 +1355,7 @@ void register_vision_service_tests(native_test::Registry& registry) {
     registry.add_case("BaseRuntimeFreshness", "no_update_does_not_replay_snapshot", test_no_update_does_not_replay_last_snapshot);
     registry.add_case("BaseRuntimeFreshness", "aim_release_no_update_has_no_authority", test_aim_release_no_update_has_no_authority);
     registry.add_case("BaseRuntimeFreshness", "delivery_gate_accepts_recent_capture_once", test_delivery_gate_accepts_each_recent_capture_once);
+    registry.add_case("BaseRuntimeFreshness", "delivery_gate_rejection_and_reset", test_delivery_gate_rejected_inputs_and_reset_preserve_contract);
     registry.add_case("BaseRuntimeFreshness", "viewport_request_forwarded_before_poll", test_viewport_request_is_forwarded_before_poll);
     registry.add_case("BaseRuntimeFreshness", "disabled_keepwarm_does_not_poll_idle", test_no_keepwarm_does_not_poll_idle);
     registry.add_case("BaseRuntimeFreshness", "idle_keepwarm_has_no_control_authority", test_idle_keepwarm_does_not_publish_control_authority);

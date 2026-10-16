@@ -1,9 +1,8 @@
 # 当前项目模型与任务进度
 
-> 2026-10-06 更新：保留的 Tk GUI 已完成重新排版及参数语义统一；原生加入 32 ms 有界漏检续跟、Vision 高精度等待和连续近点收尾／短历史速度估计。最终验证为 Release、50 组 CTest、111 项桌面检查通过；最新 Apex 实机手感未确认。详见 [配置与检查](CONFIGURATION_AND_CHECKS.md)、[工作记录](../../.agent-context/handoff.md) 和 [产物索引](../../output/README.md)。以下 10 月 4 日的合并叙述是历史结构基线，“未改 GUI／控制算法”仅描述当次合并。
+更新：2026-10-16。当前 DEV 使用 C++ runtime 与 React/WebView2 桌面助手。`启动助手.vbs` 经 Python 宿主打开 GUI；Python 保留配置、曲线、进程管理、IPC 和界面检查，不参与原生控制 tick。旧 Tk 界面已经移除。
 
-
-更新：2026-10-04。现行路径为 dev 的 C++ runtime 与 Python/Tk 配置工作室。用户最新要求合并原生重构，但排除新 C++ GUI、保留 dev GUI。Python 仅保留桌面配置、曲线、进程管理、IPC 和界面检查；控制器、视觉 fallback、训练及分析路径继续退役。
+本次先提交 DEV 未保存的采集和诊断改动，再同步 clean 删除前已完成的控制链精简；DEV 保留测试、鼠标路径及实验工具。运行配置、状态所有权、交互图和本次比较证据见 [配置与检查](CONFIGURATION_AND_CHECKS.md)。以下组件表继续描述完整 DEV；历史验证不能代替当前实机验收。
 
 ## 项目 → 业务组成 → 能力
 
@@ -11,7 +10,7 @@
 
 | 组成/能力 | 用途、入口与输入输出 | 所有者、依赖与调用方 | 验证和未知 |
 | --- | --- | --- | --- |
-| 桌面配置工作室 | [GUI](../../python/desktop_app/gui.py)：独立配置、游戏/模型、曲线、运行反馈 | 保留 dev 的 [workspace](../../python/desktop_app/workspace.py)、[RuntimeManager](../../python/desktop_app/runtime.py) 及 [IPC](../../python/desktop_app/control.py)；Python 仅在 UI/管理层使用，Tk/标准库；不参与控制 tick | 保留 test_desktop 三个模块；当前界面沿用 dev，新 C++ GUI 不合入 |
+| 桌面配置工作室 | [GUI](../../python/desktop_app/gui.py)：独立配置、游戏/模型、曲线、运行反馈 | 保留 dev 的 [workspace](../../python/desktop_app/workspace.py)、[RuntimeManager](../../python/desktop_app/runtime.py) 及 [IPC](../../python/desktop_app/control.py)；Python 仅在 UI/管理层使用，React/WebView2；不参与控制 tick | 80 项桌面检查及真实 WebView2 验证通过；保留 DEV 当前界面 |
 | 启动/配置 | gamepad_start → [main](../../native/runtime_app/main.cpp)；mouse_start → [mouse main](../../native/runtime_app/mouse_runtime_main.cpp)；TOML/profile/game/environment/CLI → RuntimeConfig | [runtime_config](../../native/controller_native/runtime_config.cpp) 解析/派生/验证；main 施加 CLI 覆盖；Loop 保存生效配置 | BaseContracts；显式无效标量/损坏行拒绝，缺省项默认；支持当前配置子集，非完整 TOML 实现 |
 | 感知 | [VisionEngine](../../native/vision_native/src/vision_engine.cpp)：DXGI → CUDA 预处理 → TensorRT → selector → VisionResult | Engine 拥有捕获/推理/selector；[共享 Adapter](../../native/runtime_app/vision_engine_service_poller.h) 唯一持有 Engine，Service 拥有线程/latest-only mailbox；手柄/鼠标共用 | BaseVisionSelection、BaseRuntimeFreshness；真实引擎/policy 热更已运行；游戏识别效果未测 |
 | 物理手柄输入 | [Loop](../../native/runtime_app/runtime_loop.cpp) 读取 SDL/XInput → PhysicalGamepadState | Loop 拥有 reader/选定设备/重连节流；[IO recovery](../../native/controller_native/io_recovery_policy.cpp) 处理设备边界 | 原生协议/reader 测试；设备插拔未重测 |
@@ -29,11 +28,11 @@
 
 ## 生命周期与有效约定
 
-初始化：main 严格加载/覆盖配置，dump/probe 在设备之前返回。Loop 创建输入、日志/会话、按启用状态创建输出，再创建 Engine；GPU service 路径将 Engine 转给 Adapter/Service，direct poll 仍是实际替代路径。停止 listener 的 RAII scope 在 Loop 销毁前 join。
+初始化：main 严格加载/覆盖配置，dump/probe 在设备之前返回。Loop 创建输入、日志/会话、按启用状态创建输出，再创建 Engine；Engine 转给 Adapter/Service，捕获与推理仅在 Vision worker 执行，控制线程消费 mailbox。停止 listener 的 RAII scope 在 Loop 销毁前 join。
 
 正常运行：物理输入 begin_tick → request/intent → epoch/policy 匹配 → DeliveryGate identity/source age → submit_vision_result → resolve → compose → device delivery → observation/learning → diagnostics。没有新 frame 不伪造观测；新 frame 无目标是另一种事件。Service 和 DeliveryGate 保护不同不变量。
 
-配置变更：助手保存文件不改变运行状态；Bridge 后台读文件/验证/diff → rejected/restart/pending。Loop tick 消费 immutable candidate，视觉 policy 变化先申请 revision，等该 revision fresh snapshot 后才更新 config/controller 并 complete；Bridge ACK 后发布 applied。direct poll 不支持相同视觉 policy 热更，鼠标没有手柄 IPC 热更入口。
+配置变更：助手保存文件不改变运行状态；Bridge 后台读文件/验证/diff → rejected/restart/pending。Loop tick 消费 immutable candidate，视觉 policy 变化先申请 revision，等该 revision fresh snapshot 后才更新 config/controller 并 complete；Bridge ACK 后发布 applied。等待不会续期旧观测或缓存输出，候选仅在就绪时归一化一次；鼠标没有手柄 IPC 热更入口。
 
 停止/故障：reset 控制权，启用输出时发送 neutral，停止 Vision，排空 collectors/writer/会话；Bridge 先 join 再 unmap/CloseHandle。鼠标由 session/supervisor 保有物理路径和按钮释放责任。保留的 RuntimeManager 使用 PID、创建时间和可执行路径核验归属，记录在 runs/runtime/background；GUI IPC 使用相同 protocol=1。独立游戏配置无需 games 继承块，但拒绝 CLI 游戏身份不匹配。
 

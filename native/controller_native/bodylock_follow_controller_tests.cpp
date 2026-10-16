@@ -40,15 +40,15 @@ pipeline_contract::TargetPlan active_plan(float error_x, float error_y) {
 void test_inactive_plan_is_neutral() {
     controller_native::BodylockFollowController controller;
     pipeline_contract::TargetPlan plan;
-    const auto output = controller.compute(plan, {}, 0.001f);
+    const auto output = controller.compute(plan);
     require_true(near(output.x, 0.0f) && near(output.y, 0.0f),
                  "inactive plan must produce no target proposal");
 }
 
 void test_current_error_owns_position_proposal() {
     controller_native::BodylockFollowController controller;
-    const auto right = controller.compute(active_plan(24.0f, 0.0f), {}, 0.001f);
-    const auto below = controller.compute(active_plan(0.0f, 24.0f), {}, 0.001f);
+    const auto right = controller.compute(active_plan(24.0f, 0.0f));
+    const auto below = controller.compute(active_plan(0.0f, 24.0f));
     require_true(right.x > 0.0f && near(right.y, 0.0f),
                  "right-side source point must request right stick");
     require_true(below.y < 0.0f && near(below.x, 0.0f),
@@ -60,31 +60,18 @@ void test_cue_lifecycle_uses_same_source_owned_solve() {
     auto observed = active_plan(18.0f, -12.0f);
     auto cue = observed;
     cue.lifecycle = pipeline_contract::TargetLifecycle::CueContinuation;
-    const auto observed_output = controller.compute(observed, {}, 0.001f);
-    const auto cue_output = controller.compute(cue, {}, 0.001f);
+    const auto observed_output = controller.compute(observed);
+    const auto cue_output = controller.compute(cue);
     require_true(near(observed_output.x, cue_output.x) &&
                      near(observed_output.y, cue_output.y),
                  "BodyLock must not maintain fresh/non-fresh alternate solves");
-}
-
-void test_manual_input_does_not_create_a_second_authority_policy() {
-    controller_native::BodylockFollowController controller;
-    const auto plan = active_plan(30.0f, 0.0f);
-    pipeline_contract::IntentState opposing;
-    opposing.filtered_right.x = -1.0f;
-    opposing.right_x.confidence = 1.0f;
-    opposing.right_confidence = 1.0f;
-    const auto neutral = controller.compute(plan, {}, 0.001f);
-    const auto with_manual = controller.compute(plan, opposing, 0.001f);
-    require_true(near(neutral.x, with_manual.x) && near(neutral.y, with_manual.y),
-                 "manual authority must be owned after BodyLock by the state machine");
 }
 
 void test_motion_cannot_reverse_current_position_axis() {
     controller_native::BodylockFollowController controller;
     auto plan = active_plan(-10.0f, 0.0f);
     plan.error_rate_px_per_sec = {260.0f, 120.0f};
-    const auto output = controller.compute_detailed(plan, {}, 0.001f);
+    const auto output = controller.compute_detailed(plan);
     require_true(output.radial_motion_bound_applied,
                  "opposing motion must exercise the current-position bound");
     require_true(output.constraint_reason ==
@@ -101,7 +88,7 @@ void test_orthogonal_motion_cannot_mask_bodylock_axis_reversal() {
     controller_native::BodylockFollowController controller;
     auto plan = active_plan(-7.5f, -18.5f);
     plan.error_rate_px_per_sec = {190.0f, -250.0f};
-    const auto output = controller.compute_detailed(plan, {}, 0.001f);
+    const auto output = controller.compute_detailed(plan);
     const float vector_dot =
         output.position_stick.x * output.motion_stick.x +
         output.position_stick.y * output.motion_stick.y;
@@ -123,7 +110,7 @@ void test_force_envelope_remains_bounded() {
     config.max_force_x = 0.30f;
     config.max_force_y = 0.20f;
     controller_native::BodylockFollowController controller(config);
-    const auto output = controller.compute(active_plan(300.0f, 300.0f), {}, 0.001f);
+    const auto output = controller.compute(active_plan(300.0f, 300.0f));
     const float ellipse = std::hypot(output.x / 0.30f, output.y / 0.20f);
     require_true(ellipse <= 1.0001f,
                  "BodyLock target proposal must stay inside its force ellipse");
@@ -136,7 +123,7 @@ void test_aligned_target_motion_replaces_screen_relative_hint() {
     plan.bodylock_target_motion_px_per_sec = {200.0f, 0.0f};
     plan.bodylock_target_motion_confidence = 0.8f;
     plan.bodylock_target_motion_valid = true;
-    const auto output = controller.compute_detailed(plan, {}, 0.001f);
+    const auto output = controller.compute_detailed(plan);
     require_true(near(output.error_rate_px_per_sec.x, 200.0f),
                  "BodyLock must expose the aligned target-motion demand");
     require_true(near(output.motion_stick.x, 0.4f),
@@ -191,14 +178,14 @@ void test_center_crossing_incident(const native_test::TestContext& context) {
                             ? pipeline_contract::Vec2f{0.0f, value}
                             : pipeline_contract::Vec2f{value, 0.0f};
                     };
-                    const float centered = axis(controller.compute(plan, {}, 0.001f));
+                    const float centered = axis(controller.compute(plan));
                     require_true(centered * direction > 0.01f,
                         "trigger requires nonzero sustaining work at center");
                     float previous = 0.0f;
                     bool have_previous = false;
                     for (const float error : {-0.001f, 0.0f, 0.001f}) {
                         set_error(error);
-                        const auto result = controller.compute_detailed(plan, {}, 0.001f);
+                        const auto result = controller.compute_detailed(plan);
                         require_true(error == 0.0f || std::fabs(axis(result.position_stick)) > 1e-5f,
                             "nonzero probes must lie outside the known-bad exact-zero exception");
                         const float value = axis(result.stick);
@@ -218,36 +205,36 @@ void test_center_crossing_incident(const native_test::TestContext& context) {
                     for (const float error : {-1.0f, 0.0f, 1.0f}) {
                         set_error(error);
                         minimum_sustaining_ratio = std::min(minimum_sustaining_ratio,
-                            axis(controller.compute(plan, {}, 0.001f)) / centered);
+                            axis(controller.compute(plan)) / centered);
                     }
                     set_error(-direction * 20.0f);
-                    if (axis(controller.compute(plan, {}, 0.001f)) * direction < 0.0f)
+                    if (axis(controller.compute(plan)) * direction < 0.0f)
                         ++far_position_controls;
                     set_error(0.0f);
                     plan.bodylock_target_motion_px_per_sec = y_axis
                         ? pipeline_contract::Vec2f{0.0f, -direction * 100.0f}
                         : pipeline_contract::Vec2f{-direction * 100.0f, 0.0f};
-                    if (axis(controller.compute(plan, {}, 0.001f)) * direction < -0.01f)
+                    if (axis(controller.compute(plan)) * direction < -0.01f)
                         ++reversal_controls;
                     plan.lifecycle = pipeline_contract::TargetLifecycle::None;
-                    if (axis(controller.compute(plan, {}, 0.001f)) == 0.0f)
+                    if (axis(controller.compute(plan)) == 0.0f)
                         ++lifecycle_controls;
                     plan.lifecycle = pipeline_contract::TargetLifecycle::Observed;
                     plan.bodylock_target_motion_px_per_sec = {};
-                    if (axis(controller.compute(plan, {}, 0.001f)) == 0.0f)
+                    if (axis(controller.compute(plan)) == 0.0f)
                         ++zero_motion_controls;
                     plan.bodylock_target_motion_valid = false;
                     for (const float error : {-0.25f, 0.0f, 0.25f}) {
                         set_error(error);
                         plan.error_rate_px_per_sec = {};
                         maximum_static_jitter = std::max(maximum_static_jitter,
-                            std::fabs(axis(controller.compute(plan, {}, 0.001f))));
+                            std::fabs(axis(controller.compute(plan))));
                         // Screen-rate disturbance does not establish target velocity.
                         plan.error_rate_px_per_sec = y_axis
                             ? pipeline_contract::Vec2f{0.0f, direction * 100.0f}
                             : pipeline_contract::Vec2f{direction * 100.0f, 0.0f};
                         maximum_untrusted_jitter = std::max(maximum_untrusted_jitter,
-                            std::fabs(axis(controller.compute(plan, {}, 0.001f))));
+                            std::fabs(axis(controller.compute(plan))));
                     }
                 }
             }
@@ -324,7 +311,7 @@ void test_feedback_distance_delay_noise_sweep(const native_test::TestContext& co
                                     moving ? amplitude*frequency*std::cos(observed_t*frequency) : 0,
                                     moving ? amplitude*.4f*frequency*.7f*std::cos(observed_t*frequency*.7f) : 0};
                             }
-                            const auto out=controller.compute_detailed(plan,{},.001f);
+                            const auto out=controller.compute_detailed(plan);
                             const float ellipse=std::hypot(out.stick.x/force,out.stick.y/(force*.8f));
                             require_true(std::isfinite(out.stick.x) && std::isfinite(out.stick.y) && ellipse<=1.00001f,
                                          "every response candidate must obey finite joint force limits");
@@ -364,9 +351,9 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
             auto plan = active_plan(1, 0);
             plan.response_scale = 1600;
             plan.position_arrival_radius_px = 2;
-            const auto fresh = controller.compute(plan, {}, .001f);
+            const auto fresh = controller.compute(plan);
             plan.source_capture_age_ms = 40;
-            const auto delayed = controller.compute(plan, {}, .001f);
+            const auto delayed = controller.compute(plan);
             const auto speed = forward_aim_response_curve(delayed, config.response_curve);
             const float budget_seconds = 2.f * (.040f + config.response_effect_delay_seconds);
             require_true(speed.x * plan.response_scale <= 1.f / budget_seconds + .001f,
@@ -374,22 +361,22 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
             require_true(delayed.x > 0 && delayed.x < fresh.x,
                 "older feedback lowers correction gain without adding an output wait");
             plan.position_response_radius_px = 300;
-            require_true(near(controller.compute(plan, {}, .001f).x, delayed.x),
+            require_true(near(controller.compute(plan).x, delayed.x),
                 "search geometry is not a hidden BodyLock velocity gain");
             plan.error_px = {};
             plan.bodylock_target_motion_valid = true;
             plan.bodylock_target_motion_px_per_sec = {90, 0};
-            const auto following = forward_aim_response_curve(controller.compute(plan, {}, .001f), config.response_curve);
+            const auto following = forward_aim_response_curve(controller.compute(plan), config.response_curve);
             require_true(near(following.x * plan.response_scale, 90, .002f),
                 "feedback damping does not slow confirmed centered target motion");
             plan.bodylock_target_motion_valid = false;
             plan.error_rate_px_per_sec = {500, 500};
-            const auto unconfirmed = controller.compute(plan, {}, .001f);
+            const auto unconfirmed = controller.compute(plan);
             require_true(unconfirmed.x == 0 && unconfirmed.y == 0,
                 "unconfirmed screen rate cannot create centered motion authority");
             plan.error_px = {.3f, 0};
             plan.error_rate_px_per_sec = {-100, 0};
-            require_true(controller.compute(plan, {}, .001f).x >= 0,
+            require_true(controller.compute(plan).x >= 0,
                 "unconfirmed motion must not reverse the delay-limited position correction");
         }
     });
@@ -425,8 +412,8 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
             }
             if (capture_tick < 0) continue;
             plan.source_capture_age_ms = static_cast<float>(tick-capture_tick);
-            const auto request = controller.compute(plan, {}, .001f);
-            const auto value = filter_ai_input(shaper.shape(request, {}, plan, .001f), .03f);
+            const auto request = controller.compute(plan);
+            const auto value = filter_ai_input(shaper.shape(request, plan, .001f), .03f);
             const float quantizer = value.x >= 0 ? 127.f : 128.f;
             outputs[tick] = std::round(value.x * quantizer) / quantizer;
             require_true(std::isfinite(outputs[tick]) && std::abs(outputs[tick]) <= .305f,
@@ -543,12 +530,12 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
         ads.response_curve.algorithm=controller_native::AimResponseCurveAlgorithm::Linear;
         auto plan=active_plan(10,-5);plan.mode=pipeline_contract::ControlMode::AdsAcquire;
         plan.normalized_size=.01f;
-        const auto small=controller_native::AdsAcquisitionController(ads).compute(plan,{},.001f);
+        const auto small=controller_native::AdsAcquisitionController(ads).compute(plan);
         plan.normalized_size=.9f;
-        const auto large=controller_native::AdsAcquisitionController(ads).compute(plan,{},.001f);
+        const auto large=controller_native::AdsAcquisitionController(ads).compute(plan);
         require_true(near(small.x,large.x) && near(small.y,large.y),"explicit ADS time cannot shrink with size");
         plan.error_px.y=5;
-        const auto below=controller_native::AdsAcquisitionController(ads).compute(plan,{},.001f);
+        const auto below=controller_native::AdsAcquisitionController(ads).compute(plan);
         require_true(near(small.y,-below.y),"explicit ADS time is direction independent");
     });
     registry.add_context_case("BaseBodyLock","range_response_delayed_plant_sweep", [](const native_test::TestContext& context) {
@@ -624,7 +611,7 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
                     plan.response_scale=80.f+3920.f*unit(random);
                     plan.error_rate_px_per_sec={(unit(random)-.5f)*1000,(unit(random)-.5f)*1000};
                     if (tick%29==0) plan.lifecycle=pipeline_contract::TargetLifecycle::None;
-                    const auto result=controller.compute_detailed(plan,{},.001f);
+                    const auto result=controller.compute_detailed(plan);
                     follow_peak=std::max(follow_peak,std::hypot(result.stick.x/config.max_force_x,result.stick.y/config.max_force_y));
                     require_true(std::isfinite(result.stick.x) && std::isfinite(result.stick.y) &&
                         std::abs(result.stick.x)<=config.max_force_x+1e-6f &&
@@ -637,7 +624,7 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
                     require_true(std::hypot(result.stick.x/config.max_force_x,result.stick.y/config.max_force_y)<=1.f+1e-5f,
                         "velocity feedback stays inside the configured joint actuator budget");
                     plan.mode=pipeline_contract::ControlMode::AdsAcquire;
-                    const auto acquisition=ads.compute(plan,{},.001f);
+                    const auto acquisition=ads.compute(plan);
                     require_true(std::hypot(acquisition.x/config.max_force_x,acquisition.y/config.max_force_y)<=fraction+1e-5f,
                         "ADS demand stays inside the geometry budget after the response curve");
                     ads_peak=std::max(ads_peak,std::hypot(acquisition.x/config.max_force_x,acquisition.y/config.max_force_y));
@@ -647,9 +634,9 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
                 require_true(follow_peak<=1.00001f && ads_peak<=1.00001f,"both stages retain joint ellipse bounds");
                 report << seed << ',' << scenario << ',' << ticks << ',' << config.max_force_x << ',' << config.max_force_y << ','
                     << config.response_time_x_seconds*1000 << ',' << config.response_time_y_seconds*1000 << ',' << follow_peak << ',' << ads_peak << '\n';
-                const auto before=controller.compute_detailed(active_plan(.01f,.01f),{},.001f);
+                const auto before=controller.compute_detailed(active_plan(.01f,.01f));
                 controller.set_force_limits(1.f,1.f);
-                const auto after=controller.compute_detailed(active_plan(.01f,.01f),{},.001f);
+                const auto after=controller.compute_detailed(active_plan(.01f,.01f));
                 require_true(near(before.position_stick.x,after.position_stick.x) &&
                     near(before.position_stick.y,after.position_stick.y),"changing a cap must not change unsaturated position demand");
             }
@@ -661,7 +648,6 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
     registry.add_case("BaseBodyLock", "inactive_plan_is_neutral", test_inactive_plan_is_neutral);
     registry.add_case("BaseBodyLock", "current_error_owns_position_proposal", test_current_error_owns_position_proposal);
     registry.add_case("BaseBodyLock", "cue_uses_same_source_owned_solve", test_cue_lifecycle_uses_same_source_owned_solve);
-    registry.add_case("BaseBodyLock", "manual_input_does_not_create_second_policy", test_manual_input_does_not_create_a_second_authority_policy);
     registry.add_case("BaseBodyLock", "motion_cannot_reverse_position_axis", test_motion_cannot_reverse_current_position_axis);
     registry.add_case("BaseBodyLock", "orthogonal_motion_cannot_mask_reversal", test_orthogonal_motion_cannot_mask_bodylock_axis_reversal);
     registry.add_case("BaseBodyLock", "force_envelope_remains_bounded", test_force_envelope_remains_bounded);

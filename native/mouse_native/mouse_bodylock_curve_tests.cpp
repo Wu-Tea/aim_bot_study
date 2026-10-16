@@ -83,7 +83,7 @@ bool dynamics(std::ostream& report) {
         p.aim_authority=p.reliability=1;
         float previous=0,worst=0; bool bounded=true;float twenty_four=0;
         for(int elapsed=ms;elapsed<=40;elapsed+=ms) {
-            const auto v=shaper.shape(axis ? pipeline_contract::Vec2f{0,peak}:pipeline_contract::Vec2f{peak,0},{},p,ms*.001f);
+            const auto v=shaper.shape(axis ? pipeline_contract::Vec2f{0,peak}:pipeline_contract::Vec2f{peak,0},p,ms*.001f);
             const float out=axis ? v.y:v.x;
             const float expected=peak*elapsed/40;
             worst=std::max(worst,std::abs(out-expected));
@@ -93,7 +93,7 @@ bool dynamics(std::ostream& report) {
         }
         float decay_error=0;
         for(int elapsed=ms;elapsed<=32;elapsed+=ms) {
-            const auto v=shaper.shape({}, {},p,ms*.001f);
+            const auto v=shaper.shape({},p,ms*.001f);
             const float out=axis ? v.y:v.x;
             decay_error=std::max(decay_error,std::abs(out-peak*std::max(0.0f,1-elapsed/25.0f)));
             bounded &= out<=previous+1e-6f && out>=0;previous=out;

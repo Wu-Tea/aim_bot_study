@@ -17,6 +17,43 @@ GUI 会自动收集这些字段，写入独立配置 JSON 和运行 TOML。`page
 
 ADS 预览还跨越一个边界：图示必须与原生目标选择使用相同几何规则。共享规则位于 `native/pipeline_contract/target_acquisition.h`，Vision 使用它计算普通及宽矮目标的瞄点、回退区域，以及新目标和跟踪目标的尺寸 / 外形条件。原生只读入口 `--describe-ads-geometry` 输出规则和参考结果，在配置、模型、设备与输出初始化前返回。GUI 后台读取规则，预览计算只用于绘图；Python 回归逐项比较 35 组原生参考结果，包括外形分类临界点和尺寸准入结果。改动规则时同时检查生产 Vision 与预览，不在 GUI 中另设控制策略。
 
+## 从候选配置到实际输出
+
+GUI 保存配置后，Bridge 后台读取并验证候选；`pending` 表示等待提交，不能当作已生效。数值参数的热更新资格、赋值与学习保留规则由参数目录产生，兼容别名仍按解析后的值比较。Vision 策略的变化判定由 `vision_policy_changed` 同时供候选检查和控制 tick 使用。
+
+手柄主循环始终由 Vision worker 捕获、推理，控制 tick 消费 mailbox。启动、配置检查和热更新共用 live 配置归一化：旧配置中的 inline 开关被归一为 worker，观测与自动开火来源寿命不超过 40 ms；`--dump-effective-config` 会标明发生覆盖的 `live-policy` 来源。离线模型实验仍可使用自己的时间范围。
+
+```mermaid
+sequenceDiagram
+    participant GUI as GUI / Bridge
+    participant Tick as 控制 tick
+    participant Vision as Vision worker / mailbox
+    participant Relay as 输出与交付回执
+    GUI->>Tick: 不可变配置候选
+    Tick->>Vision: 请求新策略 revision（若策略改变）
+    Vision-->>Tick: 新 revision 的 Fresh 快照
+    Tick->>Tick: 一次归一化候选，提交配置与学习保留决定
+    Tick-->>GUI: complete / applied
+    Vision-->>Tick: 当前 epoch / revision 的观测
+    Tick->>Tick: 身份、capture 时间与新鲜度检查；求解并仲裁手动输入
+    Tick->>Relay: 输出与视觉来源截止时间
+    Relay-->>Tick: 实际交付值、时间及连续性
+```
+
+等待新策略时仍使用旧的已提交配置；当前旧 revision 的有效观测可以继续被接受，新 revision 在提交前不会进入控制器。等待本身不会刷新旧观测的 capture 时间，也不会延长缓存 AI 输出的截止时间；观测过期后沿既有撤销路径退回手动输出。新 revision 的 Fresh 快照让提交就绪，真正进入控制器时仍需通过 epoch 和交付新鲜度检查。
+
+目标身份、ADS 任务和交付历史是三个不同所有者：TargetCoordinator 持有目标与观测时间，AdsLifecycleReducer 持有本次开镜任务和令牌，输出回执决定哪些运动区间可信。短暂缺帧和 cue 延续不会变成新的直接人物观测，也不会产生开火权；Wait 可以保留身份，Release 才清除目标状态。ADS/BodyLock 求解器只生成 AI 提案，逐轴手动仲裁由状态机统一处理。
+
+手动保护、输出失败和设备重连造成连续性中断时，`invalidate_delivery_history` 清除交付命令历史、运动观察器与相应锚点；已有响应校准、目标身份和 ADS 状态各自保留。响应锚点与非开火 POV 缓存用途不同，不能一并当成冗余字段删除。配置要求重置学习时，先安装新先验，再通过 `clear_learning` 清除旧证据；允许保留学习的热更新沿用既有历史行为，单独修改震动配置不重配控制器。
+
+## 2026-10-16 DEV 同步验证
+
+先用 `6496f84` 保存 DEV 的长时间采集、GUI 开关和 Vision/遥测改动，再同步 clean 删除前归档 `5eb02ff` 相对于原始 DEV 源码快照的优化。DEV 的 React/WebView2、鼠标路径、测试和实验工具继续保留。三个鼠标测试仅调整已移除参数的调用签名，断言不变；clean 专用的文件删除与发布裁剪没有同步。
+
+同步前 50/50 组 CTest 通过；同步后完整 Release 构建、51/51 组 CTest（新增运行配置契约）、80 项桌面测试、10 项长采集测试、前端构建及真实 WebView2 检查通过。默认目录 runtime 真实加载模型并完成 1,000 tick 有界运行，验证时关闭输出与震动。
+
+将原版回放夹具链接到同步后的控制器，与同步前 DEV 产物比较：两组独立种子的 192 个短长场景、676,544 tick 全部记录一致。详细回放还与 clean 保存的原记录比较了 cue 缺帧/过期/重获、输出撤销、交付历史、学习保留和策略提交。策略提交回放包含对主循环调度的模型，不能替代真实 RuntimeLoop 并发热更新验证；所有模拟结果都不代表实机手感验收。
+
 ## 用一个入口检查应用
 
 在项目根目录执行：

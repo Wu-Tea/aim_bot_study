@@ -5,6 +5,7 @@
 #include "../runtime_app/runtime_control_bridge.h"
 #include <atomic>
 #include <future>
+#include <memory>
 
 #include <cmath>
 #include <filesystem>
@@ -586,20 +587,39 @@ void test_hot_reload_diff_and_control_channel() {
     require(rejected, "legacy numeric parser fallback cannot silently validate hot reload");
     runtime_app::RuntimeControlBridge bridge(a, [b] { return b; });
     const auto suffix = std::to_wstring(GetCurrentProcessId());
-    HANDLE mapping = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, (L"Local\\cod_native_control_" + suffix).c_str());
+    // Test clients own their handles even when an assertion unwinds.
+    std::unique_ptr<void, decltype(&CloseHandle)> mapping(
+        OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, (L"Local\\cod_native_control_" + suffix).c_str()), CloseHandle);
     require(mapping != nullptr, "control mapping missing");
-    auto* memory = static_cast<runtime_app::RuntimeControlMemory*>(MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0));
-    HANDLE request = OpenEventW(EVENT_MODIFY_STATE, FALSE, (L"Local\\cod_native_reload_" + suffix).c_str());
+    std::unique_ptr<void, decltype(&UnmapViewOfFile)> view(
+        MapViewOfFile(mapping.get(), FILE_MAP_ALL_ACCESS, 0, 0, 0), UnmapViewOfFile);
+    require(view != nullptr, "control view missing");
+    auto* memory = static_cast<runtime_app::RuntimeControlMemory*>(view.get());
+    std::unique_ptr<void, decltype(&CloseHandle)> request(
+        OpenEventW(EVENT_MODIFY_STATE, FALSE, (L"Local\\cod_native_reload_" + suffix).c_str()), CloseHandle);
+    require(request != nullptr, "control request event missing");
     InterlockedExchange64(&memory->requested_id, 719);
-    SetEvent(request);
+    require(SetEvent(request.get()) != FALSE, "reload request must reach worker");
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     std::shared_ptr<const controller_native::RuntimeConfig> prepared;
     while (!prepared && std::chrono::steady_clock::now() < deadline) { prepared = bridge.take_prepared(); std::this_thread::yield(); }
     require(prepared && prepared->gamepad.auto_fire.fire_output == "RT", "worker must load immutable candidate off tick");
     bridge.complete();
-    while (memory->snapshot.completed_id != 719 && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
-    require(memory->snapshot.status == 2 && memory->snapshot.revision == 1, "GUI acknowledgement must follow actual commit");
-    CloseHandle(request); UnmapViewOfFile(memory); CloseHandle(mapping);
+    runtime_app::RuntimeControlSnapshot acknowledged;
+    while (std::chrono::steady_clock::now() < deadline) {
+        // Use the channel's publication protocol: completed_id alone can be
+        // visible while status/revision are still being copied by the writer.
+        const LONG sequence = memory->sequence;
+        MemoryBarrier();
+        if (sequence & 1) continue;
+        const auto copy = memory->snapshot;
+        MemoryBarrier();
+        if (sequence != memory->sequence) continue;
+        if (copy.completed_id == 719) { acknowledged = copy; break; }
+        std::this_thread::yield();
+    }
+    require(acknowledged.completed_id == 719 && acknowledged.status == runtime_app::Applied &&
+        acknowledged.revision == 1, "GUI acknowledgement must follow actual commit");
 }
 
 void test_hipfire_ai_and_response_learning_config() {

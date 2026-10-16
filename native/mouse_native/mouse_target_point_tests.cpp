@@ -64,7 +64,7 @@ bool solver(std::ostream& out) {
         p.bodylock_target_motion_valid=true;
         (axis?p.error_px.y:p.error_px.x)=sign*4.0f;
         (axis?p.bodylock_target_motion_px_per_sec.y:p.bodylock_target_motion_px_per_sec.x)=-sign*400;
-        const auto r=owner.compute_detailed(p,{},.001f);
+        const auto r=owner.compute_detailed(p);
         const float u=(axis?-r.stick.y:r.stick.x)*sign;
         const float expected=.5f*4*(axis?.33f:.30f)/24;
         const bool ok=u>=expected-1e-6f;
@@ -74,7 +74,7 @@ bool solver(std::ostream& out) {
         float maximum=0;
         for(float e:{-2.9f,-1.0f,0.0f,1.0f,2.9f}) {
             (axis?p.error_px.y:p.error_px.x)=e;
-            const auto v=owner.compute(p,{},.001f);
+            const auto v=owner.compute(p);
             maximum=std::max(maximum,std::fabs(axis?v.y:v.x));
         }
         const bool quiet=maximum<1e-7f;

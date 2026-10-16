@@ -10,6 +10,12 @@ if(NOT COD_BUILD_COMMIT)
     set(COD_BUILD_COMMIT "unknown")
 endif()
 
+# Runtime metadata follows the architecture owner; changing it reconfigures.
+set(_architecture "${PROJECT_SOURCE_DIR}/control_contract/architecture.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_architecture}")
+file(READ "${_architecture}" _architecture_json)
+string(JSON COD_CONTROL_ARCHITECTURE_VERSION GET "${_architecture_json}" version)
+
 add_executable(cod_native_runtime
     runtime_app/main.cpp
     runtime_app/runtime_loop.cpp
@@ -42,7 +48,7 @@ add_executable(cod_native_runtime
 cod_native_defaults(cod_native_runtime)
 target_compile_definitions(cod_native_runtime PRIVATE
     COD_BUILD_COMMIT="${COD_BUILD_COMMIT}"
-    COD_CONTROL_ARCHITECTURE_VERSION=5
+    COD_CONTROL_ARCHITECTURE_VERSION=${COD_CONTROL_ARCHITECTURE_VERSION}
     COD_CONTROL_EVENT_SCHEMA_VERSION=2
     $<$<BOOL:${NATIVE_ENABLE_VIGEM}>:NATIVE_ENABLE_VIGEM>)
 target_link_libraries(cod_native_runtime PRIVATE

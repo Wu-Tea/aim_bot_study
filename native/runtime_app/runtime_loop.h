@@ -59,7 +59,6 @@ private:
                               std::uint64_t controller_consume_ns,
                               std::uint64_t published_at_ns);
     controller_native::PhysicalGamepadState read_physical_gamepad();
-    bool should_poll_vision(std::chrono::steady_clock::time_point now) const;
     bool should_stop_requested() const;
 
     controller_native::RuntimeConfig config_;
@@ -95,7 +94,6 @@ private:
     std::uint64_t last_input_scope_revision_ = 0;
     PersonDetectionGesture person_detection_gesture_;
     std::unique_ptr<LivePipelineTrace> live_trace_;
-    std::unique_ptr<vision_native::VisionEngine> vision_engine_;
     std::unique_ptr<VisionService> vision_service_;
     VisionDeliveryGate vision_delivery_gate_;
     vision_native::VisionResult latest_vision_result_;
@@ -107,7 +105,6 @@ private:
     std::uint64_t latest_controller_submit_complete_ns_ = 0;
     std::uint64_t latest_controller_consume_started_ns_ = 0;
     unsigned int selected_xinput_user_index_ = 0;
-    std::chrono::steady_clock::time_point last_vision_poll_at_{};
     std::atomic_bool stop_requested_{false};
     unsigned int tick_count_ = 0;
     unsigned int max_ticks_ = 0;

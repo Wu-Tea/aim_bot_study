@@ -28,33 +28,23 @@ void clear_reused_authority(vision_native::VisionResult& result) {
     result.auto_fire = false;
 }
 
-const char* freshness_name(VisionSnapshotFreshness freshness) {
-    switch (freshness) {
+void stamp_service_metadata(VisionServiceSnapshot& snapshot) {
+    // Keep both diagnostic spellings, derived from one publication state.
+    switch (snapshot.freshness) {
     case VisionSnapshotFreshness::Fresh:
-        return "fresh";
+        snapshot.result.service_freshness = "fresh";
+        snapshot.result.service_source_state = "fresh_frame";
+        break;
     case VisionSnapshotFreshness::NoUpdate:
-        return "no_update";
+        snapshot.result.service_freshness = "no_update";
+        snapshot.result.service_source_state = "no_update";
+        break;
     case VisionSnapshotFreshness::None:
     default:
-        return "none";
+        snapshot.result.service_freshness = "none";
+        snapshot.result.service_source_state = "unknown";
+        break;
     }
-}
-
-const char* source_state_name(VisionSourceState state) {
-    switch (state) {
-    case VisionSourceState::FreshFrame:
-        return "fresh_frame";
-    case VisionSourceState::NoUpdate:
-        return "no_update";
-    case VisionSourceState::Unknown:
-    default:
-        return "unknown";
-    }
-}
-
-void stamp_service_metadata(VisionServiceSnapshot& snapshot) {
-    snapshot.result.service_freshness = freshness_name(snapshot.freshness);
-    snapshot.result.service_source_state = source_state_name(snapshot.source_state);
     snapshot.result.service_sequence = snapshot.sequence;
     snapshot.result.service_controller_aiming = pipeline_contract::requests_detection(snapshot.request);
     snapshot.result.service_engine_aiming = snapshot.engine_aiming;
@@ -98,12 +88,12 @@ bool VisionDeliveryGate::accept(
            result.source_present_qpc <= last_present_qpc_)))) {
         return false;
     }
-    if (has_delivery_ &&
-        (result.frame_id <= last_frame_id_ || capture_ns <= last_capture_ns_ ||
-         source_ns <= last_source_ns_)) {
+    // Valid identities/timestamps are positive; zero watermarks admit the
+    // first delivery after construction/reset without a separate flag.
+    if (result.frame_id <= last_frame_id_ || capture_ns <= last_capture_ns_ ||
+        source_ns <= last_source_ns_) {
         return false;
     }
-    has_delivery_ = true;
     last_frame_id_ = result.frame_id;
     last_capture_ns_ = capture_ns;
     last_source_ns_ = source_ns;
@@ -120,7 +110,6 @@ void VisionDeliveryGate::reset() noexcept {
     last_source_ns_ = 0;
     last_present_qpc_ = 0;
     last_present_frequency_ = 0;
-    has_delivery_ = false;
 }
 
 VisionService::VisionService(std::unique_ptr<IVisionServicePoller> poller, VisionServiceOptions options)
@@ -317,22 +306,12 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
         aim_transition_sequence == aim_transition_sequence_;
     if (!control_epoch_current) {
         final_snapshot.result.frame_updated = false;
-        clear_reused_authority(final_snapshot.result);
     }
     final_snapshot.sequence = ++sequence_;
-    if (!control_epoch_current) {
-        final_snapshot.freshness = VisionSnapshotFreshness::NoUpdate;
-        final_snapshot.source_state = VisionSourceState::NoUpdate;
-    } else if (final_snapshot.result.frame_updated) {
-        final_snapshot.freshness = VisionSnapshotFreshness::Fresh;
-        final_snapshot.source_state = VisionSourceState::FreshFrame;
-        if (request != pipeline_contract::VisionRequest::AssistSearch) {
-            clear_reused_authority(final_snapshot.result);
-        }
-    } else {
+    final_snapshot.freshness = final_snapshot.result.frame_updated
+        ? VisionSnapshotFreshness::Fresh : VisionSnapshotFreshness::NoUpdate;
+    if (!final_snapshot.result.frame_updated || request != pipeline_contract::VisionRequest::AssistSearch) {
         clear_reused_authority(final_snapshot.result);
-        final_snapshot.freshness = VisionSnapshotFreshness::NoUpdate;
-        final_snapshot.source_state = VisionSourceState::NoUpdate;
     }
     stamp_service_metadata(final_snapshot);
     final_snapshot.published_at_ns = static_cast<std::uint64_t>(

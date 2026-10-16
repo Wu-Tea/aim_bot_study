@@ -1,4 +1,5 @@
 #include "runtime_loop.h"
+#include "live_control_policy.h"
 #include "runtime_timing.h"
 #include "runtime_stop_signal.h"
 #include "runtime_control_bridge.h"
@@ -135,6 +136,16 @@ void apply_diagnostic_session(controller_native::RuntimeConfig& config) {
     config.telemetry.directory=(std::filesystem::path(dir)/"telemetry").string();
     config.effective_sources["runtime.telemetry.enabled"]="diagnostic-session";
     config.effective_sources["runtime.telemetry.directory"]="diagnostic-session";
+}
+
+// Inspection, startup and reload must describe the same effective live policy.
+controller_native::RuntimeConfig load_live_config(const CliOptions& options) {
+    auto config = controller_native::load_runtime_config(
+        options.config_path, options.profile.value_or(std::string{}), options.game);
+    apply_cli_overrides(options, config);
+    apply_diagnostic_session(config);
+    populate_build_metadata(config);
+    return runtime_app::live_control_config(std::move(config));
 }
 
 void dump_effective_config(const controller_native::RuntimeConfig& config, std::ostream& out=std::cout) {
@@ -369,7 +380,7 @@ int main(int argc, char** argv) {
                     plan.reliability = plan.aim_authority = 1;
                     plan.error_px = {20,0};
                     plan.response_scale = config.fallback_response_px_per_stick_second;
-                    const auto output = controller_native::BodylockFollowController(config).compute_detailed(plan,{},.001f);
+                    const auto output = controller_native::BodylockFollowController(config).compute_detailed(plan);
                     if (!first) std::cout << ',';
                     first = false;
                     std::cout << "{\"value\":" << value << ",\"force\":" << force
@@ -393,7 +404,7 @@ int main(int argc, char** argv) {
                         plan.aim_authority=plan.reliability=1;
                         plan.response_scale=config.fallback_response_px_per_stick_second;
                         plan.error_px=error;
-                        const auto output=controller_native::BodylockFollowController(config).compute_detailed(plan,{},.001f);
+                        const auto output=controller_native::BodylockFollowController(config).compute_detailed(plan);
                         if (!first) std::cout << ',';
                         first=false;
                         std::cout << "{\"distance\":" << distance << ",\"force\":[" << forces.x << ',' << forces.y
@@ -417,7 +428,7 @@ int main(int argc, char** argv) {
                             plan.aim_authority=plan.reliability=1;
                             plan.response_scale=config.fallback_response_px_per_stick_second;
                             plan.normalized_size=size;plan.error_px=error;
-                            const auto output=controller_native::AdsAcquisitionController(config).compute(plan,{},.001f);
+                            const auto output=controller_native::AdsAcquisitionController(config).compute(plan);
                             if (!first) std::cout << ',';
                             first=false;
                             std::cout << "{\"horizon\":" << horizon << ",\"size\":" << size
@@ -451,14 +462,14 @@ int main(int argc, char** argv) {
                         follow.response_time_x_seconds=time_ms/1000.f;
                         follow.response_time_y_seconds=time_ms*.8f/1000.f;
                         plan.mode=ControlMode::BodyLockFollow;
-                        const auto b=controller_native::BodylockFollowController(follow).compute(plan,{},.001f);
+                        const auto b=controller_native::BodylockFollowController(follow).compute(plan);
                         controller_native::AdsAcquisitionControllerConfig acquire;
                         acquire.max_force_x=caps.x;acquire.max_force_y=caps.y;
                         acquire.range_position_response=true;
                         acquire.minimum_position_stick=minimum_stick;
                         acquire.force_headroom=1.f;acquire.arrival_horizon_seconds=time_ms/1000.f;
                         plan.mode=ControlMode::AdsAcquire;
-                        const auto a=controller_native::AdsAcquisitionController(acquire).compute(plan,{},.001f);
+                        const auto a=controller_native::AdsAcquisitionController(acquire).compute(plan);
                         if(!first)std::cout << ',';
                         first=false;
                         std::cout << "{\"minimum_stick\":" << minimum_stick << ",\"radius\":" << radius << ",\"time\":" << time_ms << ",\"limits\":[" << caps.x << ',' << caps.y
@@ -502,15 +513,9 @@ int main(int argc, char** argv) {
             std::cout << "]\n";
             return 0;
         }
-        controller_native::RuntimeConfig config =
-            controller_native::load_runtime_config(
-                options.config_path,
-                options.profile.value_or(std::string{}), options.game);
-        apply_cli_overrides(options, config);
-        apply_diagnostic_session(config);
+        auto config = load_live_config(options);
         // Read the physical backend without creating virtual output or vision.
         if (options.probe_input) return runtime_app::probe_physical_input(config.gamepad);
-        populate_build_metadata(config);
         if (options.dump_effective_config) {
             dump_effective_config(config);
             std::cout << "# effective-config complete\n" << std::flush;
@@ -547,11 +552,7 @@ int main(int argc, char** argv) {
         runtime_app::RuntimeStopSignal stop_signal;
         runtime_app::RuntimeLoop loop(config, perf_log, max_ticks_from_options(options));
         runtime_app::RuntimeControlBridge control_bridge(config, [options] {
-            auto next = controller_native::load_runtime_config(options.config_path,
-                options.profile.value_or(std::string{}), options.game);
-            apply_cli_overrides(options, next);
-            apply_diagnostic_session(next);
-            return next;
+            return load_live_config(options);
         });
         loop.attach_control_bridge(&control_bridge);
         auto stop_listener = stop_signal.listen([&loop] { loop.request_stop(); });

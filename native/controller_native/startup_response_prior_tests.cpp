@@ -4,12 +4,15 @@
 #include "incident_fixture_support.h"
 #include "ds4_output_report.h"
 #include "output_composer.h"
+#include "runtime_app/runtime_reload_policy.h"
 #include "test_support/native_test_registry.h"
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <limits>
 #include <iostream>
 #include <stdexcept>
 #include <utility>
@@ -41,7 +44,7 @@ void cold_prior(const native_test::TestContext& context) {
             plan.response_scale=650;
             const auto compute=[&](const pipeline_contract::TargetPlan& p) {
                 return mode==pipeline_contract::ControlMode::AdsAcquire
-                    ? ads.compute(p,{},.001f) : body.compute(p,{},.001f);
+                    ? ads.compute(p) : body.compute(p);
             };
             const auto cold=compute(plan);
             plan.response_confidence=1;
@@ -305,12 +308,245 @@ void delivery_receipt_owns_camera_coordinate_and_failure_boundary() {
             "same-tick reconnect must break the interval before its first receipt");
         if (frame>40) require(plan.bodylock_target_motion_valid,
             "fresh successful receipts must restore motion evidence after reconnect");
-        if (frame==35) controller.observe_delivered_output({},false,0);
+        if (frame==35) controller.invalidate_delivery_history();
         controller.observe_delivered_output(receipt,frame<=20 || frame>30,
             now+(frame==35 ? .005 : 0));
         now+=.010;
     }
     require(valid==10,"receipt test must exercise a sustained accepted interval");
+}
+
+// Frozen observation/receipt inputs exercise policy and controller together.
+// This is not a game-plant simulation or the asynchronous reload transaction.
+void reload_learning_replay(const native_test::TestContext& context) {
+    const auto directory = context.artifact_directory / context.case_name;
+    std::filesystem::create_directories(directory);
+    std::ofstream csv(directory / "traces.csv");
+    require(bool(csv), "reload replay trace open failed");
+    csv << std::setprecision(17);
+    csv << "seed,ticks,scenario,tick,id,mode,epoch,motion_valid,motion_x,motion_y,aligned_x,aligned_y,response,confidence,output_x,output_y,event,retain,haptics,rejected";
+    for (int region = 0; region < 4; ++region) csv << ",scale" << region << ",learned" << region << ",confidence" << region << ",samples" << region;
+    csv << '\n';
+    for (unsigned seed : {23017u, 981731u}) for (int ticks : {160, 1600})
+    for (int scenario = 0; scenario < 9; ++scenario) {
+        RuntimeConfig current;
+        current.gamepad = incident_fixture::base_config(100, 200);
+        current.gamepad.ai_aim.ads_completion_fresh_frames = 1;
+        current.gamepad.ai_aim.aim_response_effect_delay_ms = 0;
+        current.gamepad.ai_aim.aim_response_learning_enabled = true;
+        double now = 20;
+        NativeGamepadController controller(current.gamepad, &now);
+        incident_fixture::TargetSpec spec;
+        spec.observation_id = spec.selector_generation = 1;
+        spec.has_enemy_cue = spec.enemy_identity_confirmed = true;
+        const float phase = float(seed % 103) * .01f;
+        const auto position = [&](int tick) {
+            return pipeline_contract::Vec2f{12.f * std::sin(phase + tick * .31f),
+                8.f * std::cos(phase + tick * .27f)};
+        };
+        bool expect_history_reset = false;
+        unsigned events = 0;
+        for (int tick = 0; tick < ticks; ++tick) {
+            now = 20 + tick * .01;
+            const int step = tick % 160;
+            const auto point = position(tick), next = position(tick + 1);
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, tick + 1, now, point.x, point.y));
+            controller.begin_tick(incident_fixture::ads_input());
+            OutputComposer composer;
+            require(composer.compose(controller.resolve_control_frame()) == OutputComposeStatus::Ok, "reload replay must compose");
+            const auto output = *composer.finalized_output();
+            controller.observe_composed_output(output);
+            const auto plan = controller.last_target_plan();
+            if (step == 61) require(plan.bodylock_target_motion_valid != expect_history_reset,
+                "reload must retain continuous motion or prime a new history according to policy");
+            if (step == 80) require(plan.bodylock_target_motion_valid, "new receipts must restore motion after reload");
+            const bool event = step == 60 || (scenario == 2 && step == 100);
+            bool retain = false, haptics = false, rejected = false;
+            if (event) {
+                ++events;
+                const auto before = controller.learning_snapshot();
+                const auto epoch = controller.ads_epoch();
+                require(before[0].accepted_samples + before[1].accepted_samples > 0,
+                    "reload fixture must establish real learning before each switch");
+                auto candidate = current;
+                const bool alternate = (tick / 160) % 2 != 0;
+                // Typed fields and effective keys describe the same candidate.
+                const auto tune = [&](const char* key, float& member, float value) {
+                    member = value; candidate.effective_values[key] = std::to_string(value);
+                };
+                if (scenario == 1 || scenario == 5) {
+                    auto& aim = candidate.gamepad.ai_aim;
+                    tune("gamepad.bodylock.strength", aim.body_lock_max_ai_force, alternate ? .7f : .6f);
+                    tune("gamepad.bodylock.vertical_strength", aim.body_lock_max_ai_force_y, alternate ? .5f : .4f);
+                    tune("gamepad.ads.output_limit_x", aim.ads_output_limit_x, alternate ? .8f : .9f);
+                    tune("gamepad.ads.output_limit_y", aim.ads_output_limit_y, alternate ? .7f : .8f);
+                    tune("gamepad.bodylock.output_limit_x", aim.bodylock_output_limit_x, alternate ? .6f : .5f);
+                    tune("gamepad.bodylock.output_limit_y", aim.bodylock_output_limit_y, alternate ? .5f : .4f);
+                    tune("gamepad.ads.response_time_ms", aim.ads_response_time_ms, alternate ? 80.f : 70.f);
+                    tune("gamepad.bodylock.response_time_x_ms", aim.bodylock_response_time_x_ms, alternate ? 55.f : 45.f);
+                    tune("gamepad.bodylock.response_time_y_ms", aim.bodylock_response_time_y_ms, alternate ? 65.f : 60.f);
+                    tune("gamepad.assist.hipfire_ratio", aim.hipfire_ratio, alternate ? .6f : .5f);
+                    tune("gamepad.assist.input_deadzone", aim.ai_input_deadzone, alternate ? .03f : .02f);
+                    tune("gamepad.assist.minimum_position_stick", aim.minimum_position_stick, alternate ? .03f : .02f);
+                    tune("gamepad.recoil.output_amount", candidate.gamepad.recoil.output_amount, alternate ? .7f : .6f);
+                }
+                if (scenario == 2) {
+                    candidate.gamepad.ai_aim.aim_response_learning_enabled = step == 100;
+                    candidate.effective_values["gamepad.ai_aim.aim_response_learning_enabled"] = step == 100 ? "true" : "false";
+                }
+                if (scenario == 3 || scenario == 5) {
+                    auto& aim = candidate.gamepad.ai_aim;
+                    tune("gamepad.ai_aim.body_free_initial_scale", aim.body_free_initial_scale, alternate ? 700.f : 600.f);
+                    tune("gamepad.ai_aim.body_slow_initial_scale", aim.body_slow_initial_scale, alternate ? 650.f : 550.f);
+                    tune("gamepad.ai_aim.ads_free_initial_scale", aim.ads_free_initial_scale, alternate ? 800.f : 700.f);
+                    tune("gamepad.ai_aim.ads_slow_initial_scale", aim.ads_slow_initial_scale, alternate ? 750.f : 650.f);
+                }
+                if (scenario == 4) tune("gamepad.recoil.feedback_amount", candidate.gamepad.recoil.feedback_amount, alternate ? .7f : .6f);
+                if (scenario == 7) {
+                    candidate.gamepad.detection_haptics.enabled = !current.gamepad.detection_haptics.enabled;
+                    candidate.effective_values["gamepad.detection_haptics.enabled"] = candidate.gamepad.detection_haptics.enabled ? "true" : "false";
+                }
+                if (scenario == 8) tune("gamepad.ads.pickup_base_radius_px", candidate.gamepad.ai_aim.ads_pickup_base_radius_px, 180.f);
+                if (scenario != 0) {
+                    rejected = !runtime_app::hot_reload_restrictions(current, candidate).empty();
+                    retain = runtime_app::preserve_response_learning_on_reload(current, candidate);
+                    haptics = runtime_app::haptics_only_reload(current, candidate);
+                    require(rejected == (scenario == 8) && haptics == (scenario == 7), "reload admission must match the candidate kind");
+                    require(retain == (scenario == 1 || scenario == 2 || scenario == 7), "mixed and no-op reloads keep the existing reset policy");
+                    if (!rejected) {
+                        if (!haptics) controller.apply_hot_config(candidate.gamepad, retain);
+                        current = candidate;
+                    }
+                }
+                expect_history_reset = scenario != 0 && !rejected && !haptics && !retain;
+                const auto after = controller.learning_snapshot();
+                NativeGamepadController cold(current.gamepad);
+                const auto expected = expect_history_reset ? cold.learning_snapshot() : before;
+                for (std::size_t region = 0; region < after.size(); ++region) require(
+                    after[region].scale_px_per_stick_second == expected[region].scale_px_per_stick_second &&
+                    after[region].learned_scale == expected[region].learned_scale &&
+                    after[region].confidence == expected[region].confidence &&
+                    after[region].accepted_samples == expected[region].accepted_samples,
+                    "reload must preserve calibration or restore all four configured priors");
+                require(controller.ads_epoch() == epoch && controller.last_target_plan().target_id == plan.target_id,
+                    "reload cannot reset target or ADS lifecycle ownership");
+            }
+            GamepadOutputState receipt;
+            receipt.right_x = -(next.x - point.x) / 6.5f;
+            receipt.right_y = (next.y - point.y) / 6.5f;
+            controller.observe_delivered_output(receipt, true, now);
+            csv << seed << ',' << ticks << ',' << scenario << ',' << tick << ',' << plan.target_id
+                << ',' << int(plan.mode) << ',' << controller.ads_epoch() << ',' << plan.bodylock_target_motion_valid
+                << ',' << plan.bodylock_target_motion_px_per_sec.x << ',' << plan.bodylock_target_motion_px_per_sec.y
+                << ',' << plan.bodylock_aligned_delivered_stick.x << ',' << plan.bodylock_aligned_delivered_stick.y
+                << ',' << plan.response_scale << ',' << plan.response_confidence << ',' << output.right_x << ',' << output.right_y
+                << ',' << event << ',' << retain << ',' << haptics << ',' << rejected;
+            for (const auto& region : controller.learning_snapshot()) csv << ',' << region.scale_px_per_stick_second
+                << ',' << region.learned_scale << ',' << region.confidence << ',' << region.accepted_samples;
+            csv << '\n';
+        }
+        require(events == unsigned(ticks / 160 * (scenario == 2 ? 2 : 1)), "every short/long cycle must exercise reload");
+        auto manual = incident_fixture::ads_input(.013f, -.021f); manual.left_trigger = 0;
+        const auto released = controller.build_output(manual);
+        require(released.right_x == manual.right_x && released.right_y == manual.right_y,
+            "configuration switches must preserve physical passthrough on release");
+    }
+    require(bool(csv), "reload replay trace write failed");
+}
+
+
+void delivery_history_replay(const native_test::TestContext& context) {
+    const auto directory = context.artifact_directory / context.case_name;
+    std::filesystem::create_directories(directory);
+    std::ofstream csv(directory / "traces.csv");
+    require(bool(csv), "history replay trace open failed");
+    csv << std::setprecision(17);
+    csv << "seed,ticks,scenario,tick,id,mode,motion_valid,motion_x,motion_y,aligned_x,aligned_y,confidence,output_x,output_y,event";
+    for (int region = 0; region < 4; ++region) csv << ",scale" << region << ",learned" << region << ",confidence" << region << ",samples" << region;
+    csv << '\n';
+    for (unsigned seed : {23017u, 981731u}) for (int ticks : {160, 1600})
+    for (int scenario = 0; scenario < 9; ++scenario) {
+        auto config = incident_fixture::base_config(100, 200);
+        config.ai_aim.ads_completion_fresh_frames = 1;
+        config.ai_aim.aim_response_effect_delay_ms = 0;
+        config.ai_aim.aim_response_learning_enabled = true;
+        double now = 20;
+        NativeGamepadController controller(config, &now);
+        const auto initial_learning = controller.learning_snapshot();
+        incident_fixture::TargetSpec spec;
+        spec.observation_id = spec.selector_generation = 1;
+        spec.has_enemy_cue = spec.enemy_identity_confirmed = true;
+        const float phase = float(seed % 103) * .01f;
+        const auto position = [&](int tick) {
+            return pipeline_contract::Vec2f{12.f * std::sin(phase + tick * .31f),
+                8.f * std::cos(phase + tick * .27f)};
+        };
+        unsigned warmed = 0, resumed = 0, learned = 0;
+        for (int tick = 0; tick < ticks; ++tick) {
+            now = 20 + tick * .01;
+            const int step = tick % 160;
+            const auto point = position(tick), next = position(tick + 1);
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, tick + 1, now, point.x, point.y));
+            controller.begin_tick(incident_fixture::ads_input());
+            const auto frame = controller.resolve_control_frame();
+            OutputComposer composer;
+            require(composer.compose(frame) == OutputComposeStatus::Ok, "history replay must compose");
+            const auto output = *composer.finalized_output();
+            controller.observe_composed_output(output);
+            const auto plan = controller.last_target_plan();
+            if (step == 59) {
+                require(plan.bodylock_target_motion_valid, "history fixture must establish motion before interruption");
+                ++warmed;
+            }
+            if (step == 61 && scenario != 0) require(!plan.bodylock_target_motion_valid,
+                "first observation after interruption cannot reuse the old motion window");
+            if (step == 80) {
+                require(plan.bodylock_target_motion_valid, "fresh receipts must restore motion after priming");
+                ++resumed;
+            }
+            const auto before = controller.learning_snapshot();
+            const bool event = step == 60;
+            if (event) {
+                require(before[0].accepted_samples + before[1].accepted_samples > 0,
+                    "history fixture must learn before testing calibration preservation");
+                ++learned;
+                // Relay/manual and reconnect signals break history before
+                // admitting a possible first receipt of the new interval.
+                if (scenario == 1 || scenario == 3 || scenario == 4)
+                    controller.invalidate_delivery_history();
+                if (scenario == 7) controller.clear_learning();
+                if (scenario == 8) controller.reset();
+            }
+            GamepadOutputState receipt;
+            receipt.right_x = -(next.x - point.x) / 6.5f;
+            receipt.right_y = (next.y - point.y) / 6.5f;
+            double submitted = now;
+            if (event && scenario == 3) submitted += .005;
+            if (event && scenario == 5) submitted = std::numeric_limits<double>::quiet_NaN();
+            if (event && scenario == 6) receipt.right_x = std::numeric_limits<float>::quiet_NaN();
+            controller.observe_delivered_output(receipt, !(event && (scenario == 2 || scenario == 4)), submitted);
+            const auto after = controller.learning_snapshot();
+            if (event) for (std::size_t region = 0; region < after.size(); ++region) {
+                const auto& expected = scenario >= 7 ? initial_learning[region] : before[region];
+                require(after[region].scale_px_per_stick_second == expected.scale_px_per_stick_second &&
+                    after[region].learned_scale == expected.learned_scale &&
+                    after[region].confidence == expected.confidence &&
+                    after[region].accepted_samples == expected.accepted_samples,
+                    "delivery interruption preserves calibration; explicit learning reset clears it");
+            }
+            csv << seed << ',' << ticks << ',' << scenario << ',' << tick << ',' << plan.target_id
+                << ',' << int(plan.mode) << ',' << plan.bodylock_target_motion_valid
+                << ',' << plan.bodylock_target_motion_px_per_sec.x << ',' << plan.bodylock_target_motion_px_per_sec.y
+                << ',' << plan.bodylock_aligned_delivered_stick.x << ',' << plan.bodylock_aligned_delivered_stick.y
+                << ',' << plan.bodylock_target_motion_confidence << ',' << output.right_x << ',' << output.right_y << ',' << event;
+            for (const auto& region : after) csv << ',' << region.scale_px_per_stick_second << ',' << region.learned_scale
+                << ',' << region.confidence << ',' << region.accepted_samples;
+            csv << '\n';
+        }
+        require(warmed == unsigned(ticks / 160) && resumed == warmed && learned == warmed,
+            "every short/long cycle must exercise learning, interruption and recovery");
+    }
+    require(bool(csv), "history replay trace write failed");
 }
 
 void high_rate_source_keeps_camera_observation(const native_test::TestContext& context) {
@@ -420,6 +656,8 @@ void high_rate_source_keeps_response_learning(const native_test::TestContext& co
 }
 
 void register_startup_response_prior_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseBodyLock", "reload_learning_replay", reload_learning_replay);
+    registry.add_context_case("BaseBodyLock", "delivery_history_replay", delivery_history_replay);
     registry.add_case("BaseRuntimeFreshness", "input_discontinuity_revokes_target_without_reusing_ads_epoch", [] {
         auto config = incident_fixture::base_config(40.f, 200.f);
         double now = 10;

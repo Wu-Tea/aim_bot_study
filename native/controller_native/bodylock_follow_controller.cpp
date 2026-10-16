@@ -17,16 +17,12 @@ BodylockFollowController::BodylockFollowController(BodylockFollowControllerConfi
 }
 
 pipeline_contract::Vec2f BodylockFollowController::compute(
-    const pipeline_contract::TargetPlan& plan,
-    const pipeline_contract::IntentState& intent,
-    float dt_seconds) const noexcept {
-    return compute_detailed(plan, intent, dt_seconds).stick;
+    const pipeline_contract::TargetPlan& plan) const noexcept {
+    return compute_detailed(plan).stick;
 }
 
 BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
-    const pipeline_contract::TargetPlan& plan,
-    const pipeline_contract::IntentState&,
-    float) const noexcept {
+    const pipeline_contract::TargetPlan& plan) const noexcept {
     BodylockFollowControllerOutput result{};
     const bool target_motion_total_valid =
         plan.bodylock_target_motion_valid &&

@@ -166,7 +166,6 @@ private:
                 }
                 now = Clock::now();
                 const double seconds = std::chrono::duration<double>(now.time_since_epoch()).count();
-                bool sent = false;
                 if (request) {
                     transfer_ = request->transfer;
                     Receipt receipt;
@@ -181,21 +180,19 @@ private:
                     receipt.input_current = current_input;
                     receipt.visual_fresh = fresh_visual;
                     receipt.request_accepted = current_input && fresh_visual;
-                    if (current_input && fresh_visual) {
+                    if (receipt.request_accepted) {
                         if (trace_timing_) receipt.device_begin_ns = steady_time_point_ns(Clock::now());
                         receipt.output = write_(request->output);
                         if (trace_timing_) receipt.device_end_ns = steady_time_point_ns(Clock::now());
                         last_delivery = Clock::now();
                         active_visual_deadline = request->visual_deadline_seconds;
                         continuity_broken_ = false;
-                        sent = true;
                     } else {
                         // A computation for superseded input cannot restore
                         // an old button hold or an expired AI instruction.
                         send_manual(current);
                         active_visual_deadline = 0;
                         receipt.continuity_broken = true;
-                        sent = true;
                     }
                     {
                         std::lock_guard<std::mutex> lock(mutex_);
@@ -204,7 +201,7 @@ private:
                     }
                     finished_.notify_one();
                 }
-                if (!sent && read_due && !manual_sent_this_read &&
+                if (!request && read_due && !manual_sent_this_read &&
                     (last_delivery == Clock::time_point{} || now - last_delivery >= period_ * 2 ||
                      (active_visual_deadline != 0 && seconds >= active_visual_deadline))) {
                     send_manual(current);

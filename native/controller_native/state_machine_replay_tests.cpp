@@ -8,6 +8,10 @@
 namespace {
 struct Digest {
     std::uint64_t value = 14695981039346656037ull;
+    void add_text(const char* text) {
+        if (text) while (*text) add(static_cast<unsigned char>(*text++));
+        add(static_cast<unsigned char>(0));
+    }
     template<class T> void add(T v) {
         const auto* p = reinterpret_cast<const unsigned char*>(&v);
         for (std::size_t n = 0; n < sizeof(T); ++n) value = (value ^ p[n]) * 1099511628211ull;
@@ -92,6 +96,21 @@ void replay(const native_test::TestContext& context, std::uint32_t seed) {
                 counts[2] += p.cue_continuation;
                 counts[3] += p.target_id == 0 && p.ads_acquisition_active;
                 hash.add(p.target_id); hash.add(p.selector_target_generation); hash.add(p.source_frame_id);
+                hash.add(p.generation); hash.add(p.selector_target_changed);
+                hash.add(p.physical_ads_epoch); hash.add(p.ads_acquisition_active); hash.add(p.ads_acquisition_exists);
+                hash.add(p.source_decision_available);
+                hash.add(p.source_observation_id); hash.add(p.direct_person_observation);
+                hash.add(p.current_cue_observation); hash.add(p.cue_continuation);
+                hash.add(p.observation_gap); hash.add(p.gap_prediction_valid);
+                hash.add(p.observation_age_ms); hash.add(p.source_capture_age_ms);
+                hash.add(p.observation_gap_remaining_ms); hash.add(p.aim_authority);
+                hash.add(p.velocity_px_per_sec.x); hash.add(p.velocity_px_per_sec.y);
+                const auto& identity = p.identity_diagnostics;
+                hash.add(identity.previous_id); hash.add(identity.resulting_id); hash.add(identity.input_generation);
+                hash.add(identity.fresh_capture); hash.add(identity.continuation_valid);
+                hash.add(identity.friendly_rejections); hash.add(identity.reliability_rejections);
+                hash.add(identity.source_age_ms);
+                hash.add_text(identity.transition); hash.add_text(identity.gap_reason);
                 hash.add(p.mode); hash.add(p.lifecycle); hash.add(p.source_aim_px.x); hash.add(p.source_aim_px.y);
                 hash.add(p.aim_px.x); hash.add(p.aim_px.y); hash.add(p.error_px.x); hash.add(p.error_px.y);
                 hash.add(p.ads_acquisition_state); hash.add(p.ads_decision_reason); hash.add(p.ads_plan_admitted);

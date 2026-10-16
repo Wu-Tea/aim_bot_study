@@ -155,11 +155,7 @@ public:
                 return output;
             }
         } else if (!input.target_authoritative || input.target_id == 0) {
-            phase_ = AssistControlPhase::Manual;
-            active_target_id_ = 0;
-            active_selector_generation_ = 0;
-            capture_started_seconds_ = 0.0;
-            capture_settled_fresh_frames_ = 0;
+            reset();
             output.stick = finite_or_zero(input.manual_stick);
             output.phase = phase_;
             output.manual_passthrough_x = true;
@@ -167,8 +163,8 @@ public:
             return output;
         } else if (has_new_target) {
             // Ordinary acquisition/replacement needs no extra ownership
-            // layer: the target proposal goes straight to Track, whose one
-            // 2-D solve preserves the native vector and fills cooperative work.
+            // layer: the target proposal goes straight to Track and uses
+            // the same per-axis arbitration as bounded handover Capture.
             phase_ = AssistControlPhase::Track;
             remember_target(input);
         }
@@ -185,55 +181,6 @@ public:
             if (input.cue_continuation) {
                 phase_ = AssistControlPhase::Track;
             }
-        }
-
-        if (phase_ == AssistControlPhase::Capture) {
-            const auto manual = finite_or_zero(input.manual_stick);
-            const auto intent_manual = config_.use_gamepad_intent_for_arbitration
-                ? manual
-                : input.centered_manual_available
-                    ? finite_or_zero(input.centered_manual_stick)
-                    : manual;
-            const auto ai = finite_or_zero(input.ai_stick);
-            output.manual_correction_x = input.manual_correction_x;
-            output.manual_correction_y = input.manual_correction_y;
-            output.stick = cooperative_output(
-                input, manual, intent_manual, ai, &output);
-            output.manual_passthrough_x =
-                std::fabs(output.stick.x - manual.x) <= 1.0e-6f;
-            output.manual_passthrough_y =
-                std::fabs(output.stick.y - manual.y) <= 1.0e-6f;
-            output.handover_braking = true;
-            output.phase = phase_;
-
-            const float error = std::hypot(
-                input.target_error_px.x, input.target_error_px.y);
-            const bool settled_sample = input.fresh_observation &&
-                std::isfinite(error) &&
-                error <= std::max(1.0f, config_.capture_settle_radius_px);
-            if (settled_sample) {
-                ++capture_settled_fresh_frames_;
-            } else if (input.fresh_observation) {
-                capture_settled_fresh_frames_ = 0;
-            }
-
-            const float elapsed_ms = capture_started_seconds_ > 0.0 &&
-                    input.now_seconds >= capture_started_seconds_
-                ? static_cast<float>(
-                    (input.now_seconds - capture_started_seconds_) * 1000.0)
-                : 0.0f;
-            const bool settled = capture_settled_fresh_frames_ >=
-                std::max<std::uint32_t>(
-                    1, config_.capture_settle_fresh_frames);
-            const bool expired = config_.capture_timeout_ms > 0.0f &&
-                elapsed_ms >= config_.capture_timeout_ms;
-            if (settled || expired) {
-                // Keep this tick as the final braking sample. Micro input is
-                // restored on the next 1 kHz tick in Track.
-                phase_ = AssistControlPhase::Track;
-            }
-            remember_target(input);
-            return output;
         }
 
         if (phase_ == AssistControlPhase::Track &&
@@ -272,6 +219,35 @@ public:
         output.manual_passthrough_y =
             std::fabs(output.stick.y - manual.y) <= 1.0e-6f;
         output.phase = phase_;
+        if (phase_ == AssistControlPhase::Capture) {
+            output.handover_braking = true;
+            const float error = std::hypot(
+                input.target_error_px.x, input.target_error_px.y);
+            const bool settled_sample = input.fresh_observation &&
+                std::isfinite(error) &&
+                error <= std::max(1.0f, config_.capture_settle_radius_px);
+            if (settled_sample) {
+                ++capture_settled_fresh_frames_;
+            } else if (input.fresh_observation) {
+                capture_settled_fresh_frames_ = 0;
+            }
+
+            const float elapsed_ms = capture_started_seconds_ > 0.0 &&
+                    input.now_seconds >= capture_started_seconds_
+                ? static_cast<float>(
+                    (input.now_seconds - capture_started_seconds_) * 1000.0)
+                : 0.0f;
+            const bool settled = capture_settled_fresh_frames_ >=
+                std::max<std::uint32_t>(
+                    1, config_.capture_settle_fresh_frames);
+            const bool expired = config_.capture_timeout_ms > 0.0f &&
+                elapsed_ms >= config_.capture_timeout_ms;
+            if (settled || expired) {
+                // This output still reports Capture. Track, including its
+                // manual-exit check, takes effect on the following tick.
+                phase_ = AssistControlPhase::Track;
+            }
+        }
         remember_target(input);
         return output;
     }

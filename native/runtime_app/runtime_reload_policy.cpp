@@ -10,17 +10,9 @@
 namespace runtime_app {
 namespace {
 
-const std::set<std::string> catalog_hot_keys = [] {
-    std::set<std::string> result;
-#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (HOT) result.insert(SECTION "." KEY);
-#include "editable_float_parameters.inc"
-#undef NATIVE_EDITABLE_FLOAT
-    return result;
-}();
 const std::set<std::string> hot_keys = [] {
     std::set<std::string> result{
     "gamepad.ads.strength_scale", "gamepad.ads.vertical_strength_scale",
-    "gamepad.bodylock.strength", "gamepad.bodylock.vertical_strength",
     "gamepad.ai_aim.hipfire_multiplier", "gamepad.ai_aim.aim_response_learning_enabled",
     "gamepad.ai_aim.aim_response_initial_scale",
     "gamepad.ai_aim.body_free_initial_scale", "gamepad.ai_aim.body_slow_initial_scale",
@@ -31,7 +23,10 @@ const std::set<std::string> hot_keys = [] {
     "gamepad.auto_fire.manual_fire_activates_ai_aim",
     "runtime.vision.friendly_filter_enabled", "runtime.vision.target_height_ratio",
     "runtime.vision.target_wide_low_height_ratio"};
-    result.insert(catalog_hot_keys.begin(), catalog_hot_keys.end());
+    // Catalog-owned floats take their eligibility only from the catalog.
+#define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (HOT) result.insert(SECTION "." KEY);
+#include "editable_float_parameters.inc"
+#undef NATIVE_EDITABLE_FLOAT
     return result;
 }();
 
@@ -73,6 +68,13 @@ std::vector<std::string> changed_keys(const controller_native::RuntimeConfig& be
 
 } // namespace
 
+bool vision_policy_changed(const controller_native::RuntimeConfig& before,
+                           const controller_native::RuntimeConfig& after) noexcept {
+    return before.vision.friendly_filter_enabled != after.vision.friendly_filter_enabled ||
+        before.vision.target_height_ratio != after.vision.target_height_ratio ||
+        before.vision.target_wide_low_height_ratio != after.vision.target_wide_low_height_ratio;
+}
+
 bool haptics_only_reload(const controller_native::RuntimeConfig& before,
                          const controller_native::RuntimeConfig& after) {
     const auto changed = changed_keys(before, after);
@@ -84,10 +86,7 @@ bool haptics_only_reload(const controller_native::RuntimeConfig& before,
 std::string hot_reload_restrictions(const controller_native::RuntimeConfig& before,
                                    const controller_native::RuntimeConfig& after) {
     if (!after.diagnostics.empty()) throw std::runtime_error(after.diagnostics.front());
-    if (!before.vision.gpu_service_enabled &&
-        (before.vision.friendly_filter_enabled != after.vision.friendly_filter_enabled ||
-         before.vision.target_height_ratio != after.vision.target_height_ratio ||
-         before.vision.target_wide_low_height_ratio != after.vision.target_wide_low_height_ratio))
+    if (!before.vision.gpu_service_enabled && vision_policy_changed(before, after))
         return "vision policy requires GPU service or restart";
 
     // Keep strict boundary validation: the general loader still has legacy

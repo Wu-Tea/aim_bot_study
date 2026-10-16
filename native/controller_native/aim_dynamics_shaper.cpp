@@ -10,17 +10,13 @@ AimDynamicsShaper::AimDynamicsShaper(AimDynamicsShaperConfig config)
 
 pipeline_contract::Vec2f AimDynamicsShaper::shape(
     pipeline_contract::Vec2f requested_ai,
-    const pipeline_contract::IntentState& intent,
     const pipeline_contract::TargetPlan& plan,
-    float dt_seconds,
-    pipeline_contract::Vec2f confirmed_wrong_axis) noexcept {
+    float dt_seconds) noexcept {
     const float dt = std::clamp(dt_seconds, 0.0001f, 0.05f);
-    (void)intent;
     if (plan.lifecycle == pipeline_contract::TargetLifecycle::None ||
         plan.mode == pipeline_contract::ControlMode::Manual) {
         requested_ai = {};
     }
-    (void)confirmed_wrong_axis;
     const std::uint64_t prior_target_id = previous_target_id_;
     const pipeline_contract::ControlMode prior_mode = previous_mode_;
     const bool target_changed = context_initialized_ &&

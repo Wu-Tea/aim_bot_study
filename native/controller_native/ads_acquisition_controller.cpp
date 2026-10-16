@@ -18,9 +18,7 @@ AdsAcquisitionController::AdsAcquisitionController(AdsAcquisitionControllerConfi
     : config_(config) {}
 
 pipeline_contract::Vec2f AdsAcquisitionController::compute(
-    const pipeline_contract::TargetPlan& plan,
-    const pipeline_contract::IntentState& intent,
-    float) const noexcept {
+    const pipeline_contract::TargetPlan& plan) const noexcept {
     if (plan.mode != pipeline_contract::ControlMode::AdsAcquire ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
         return {};

@@ -156,7 +156,7 @@ void hold_evidence_countercontrols(const native_test::TestContext& context) {
             plan.aim_authority = plan.reliability = 1.0f;
             plan.response_scale = 1000.0f;
             plan.bodylock_target_motion_valid = true;
-            const auto solve = [&] { return solver.compute_detailed(plan, {}, .001f); };
+            const auto solve = [&] { return solver.compute_detailed(plan); };
             auto held = solve();
             check(held.position_hold_x && held.position_hold_y,
                 "Observed zero position and zero sustaining motion must request hold");

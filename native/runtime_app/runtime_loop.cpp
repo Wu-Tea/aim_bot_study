@@ -32,8 +32,8 @@ namespace {
 
 // A 200 Hz service can poll just before a 180 Hz game presents its next frame.
 // Give DXGI one bounded millisecond to receive that frame instead of returning
-// empty and waiting another full service period. Keep direct/controller-thread
-// polling non-blocking so this never stalls the 1 kHz output loop.
+// empty and waiting another full service period. Only the Vision worker
+// performs capture; the controller consumes its mailbox.
 constexpr int kGpuServiceCaptureWaitMs = 1;
 
 RuntimeTelemetryOptions telemetry_options_from(
@@ -66,15 +66,6 @@ LogSessionOptions log_session_options_from(const controller_native::RuntimeConfi
     options.require_isotropic_resize = config.vision.require_isotropic_resize;
     options.model_path = config.vision.model_path;
     return options;
-}
-
-std::chrono::steady_clock::duration capture_interval_for_fps(int capture_fps) {
-    if (capture_fps <= 0) {
-        return std::chrono::steady_clock::duration::zero();
-    }
-    const auto microseconds = static_cast<int64_t>(
-        std::lround(1'000'000.0 / static_cast<double>(capture_fps)));
-    return std::chrono::microseconds(std::max<int64_t>(1, microseconds));
 }
 
 common_native::TimeSeconds steady_time_seconds(const std::chrono::steady_clock::time_point& value) {
@@ -374,7 +365,7 @@ RuntimeLoop::RuntimeLoop(
         config_.vision.capture_height,
         0,
         -1,
-        config_.vision.gpu_service_enabled ? kGpuServiceCaptureWaitMs : 0,
+        kGpuServiceCaptureWaitMs,
         config_.vision.model_path,
         config_.vision.color_readback_mode,
         config_.vision.tensor_width,
@@ -399,27 +390,23 @@ RuntimeLoop::RuntimeLoop(
         initial_viewport.height,
         initial_viewport.sequence,
         initial_viewport.source_frame_id);
-    if (config_.vision.gpu_service_enabled) {
-        VisionServiceOptions service_options;
-        service_options.live_trace = live_trace_.get();
-        service_options.capture_fps = static_cast<double>(config_.vision.capture_fps);
-        service_options.idle_fps = static_cast<double>(config_.vision.idle_capture_fps);
-        service_options.keepwarm_when_idle = config_.vision.keepwarm_when_idle;
-        service_options.aim_release_hold_ms = config_.vision.aim_release_hold_ms;
-        vision_service_ = std::make_unique<VisionService>(
-            std::make_unique<VisionEngineServicePoller>(std::move(vision_engine)),
-            service_options);
-        vision_service_->set_viewport(initial_viewport);
-        vision_service_->start();
-        std::cout << "[VisionService][CPP] enabled"
-                  << " capture_fps=" << config_.vision.capture_fps
-                  << " idle_fps=" << config_.vision.idle_capture_fps
-                  << " aim_release_hold_ms=" << config_.vision.aim_release_hold_ms
-                  << " keepwarm=" << (config_.vision.keepwarm_when_idle ? 1 : 0)
-                  << '\n';
-    } else {
-        vision_engine_ = std::move(vision_engine);
-    }
+    VisionServiceOptions service_options;
+    service_options.live_trace = live_trace_.get();
+    service_options.capture_fps = static_cast<double>(config_.vision.capture_fps);
+    service_options.idle_fps = static_cast<double>(config_.vision.idle_capture_fps);
+    service_options.keepwarm_when_idle = config_.vision.keepwarm_when_idle;
+    service_options.aim_release_hold_ms = config_.vision.aim_release_hold_ms;
+    vision_service_ = std::make_unique<VisionService>(
+        std::make_unique<VisionEngineServicePoller>(std::move(vision_engine)),
+        service_options);
+    vision_service_->set_viewport(initial_viewport);
+    vision_service_->start();
+    std::cout << "[VisionService][CPP] enabled"
+              << " capture_fps=" << config_.vision.capture_fps
+              << " idle_fps=" << config_.vision.idle_capture_fps
+              << " aim_release_hold_ms=" << config_.vision.aim_release_hold_ms
+              << " keepwarm=" << (config_.vision.keepwarm_when_idle ? 1 : 0)
+              << '\n';
 
     // --- fusion visual overlay channel (disabled by default) ---
     if (config_.vision.fusion_enabled) {
@@ -479,9 +466,7 @@ int RuntimeLoop::run() {
     }
     frame_rates_.finish(steady_time_point_ns(std::chrono::steady_clock::now()));
     if (control_bridge_) control_bridge_->finish_frame_rates(frame_rates_.snapshot());
-    if (vision_service_ != nullptr) {
-        vision_service_->stop();
-    }
+    vision_service_->stop();
     perf_summary_logger_.stop();
     telemetry_collectors_.shutdown(steady_time_point_ns(std::chrono::steady_clock::now()));
     telemetry_.stop();
@@ -506,20 +491,21 @@ void RuntimeLoop::apply_pending_config() {
     if (!control_bridge_) return;
     if (!pending_hot_config_) pending_hot_config_ = control_bridge_->take_prepared();
     if (!pending_hot_config_) return;
-    const auto next = live_control_config(*pending_hot_config_);
-    const bool vision_changed = config_.vision.friendly_filter_enabled != next.vision.friendly_filter_enabled ||
-        config_.vision.target_height_ratio != next.vision.target_height_ratio ||
-        config_.vision.target_wide_low_height_ratio != next.vision.target_wide_low_height_ratio;
+    // Policy readiness only needs the immutable candidate. Normalize/copy
+    // the full config once it can commit, not on every waiting tick.
+    const auto& candidate = *pending_hot_config_;
+    const bool vision_changed = vision_policy_changed(config_, candidate);
     if (vision_changed) {
         if (!policy_requested_) {
-            vision_service_->set_detection_policy({next.vision.friendly_filter_enabled, next.vision.target_height_ratio,
-                next.vision.target_wide_low_height_ratio, vision_policy_revision_ + 1});
+            vision_service_->set_detection_policy({candidate.vision.friendly_filter_enabled, candidate.vision.target_height_ratio,
+                candidate.vision.target_wide_low_height_ratio, vision_policy_revision_ + 1});
             policy_requested_ = true;
         }
         const auto snapshot = vision_service_->latest_snapshot();
         if (snapshot.policy_revision != vision_policy_revision_ + 1 || snapshot.freshness != VisionSnapshotFreshness::Fresh) return;
         ++vision_policy_revision_;
     }
+    const auto next = live_control_config(candidate);
     const bool preserve_learning = preserve_response_learning_on_reload(config_, next);
     if (!haptics_only_reload(config_, next)) controller_.apply_hot_config(next.gamepad, preserve_learning);
     if (vision_changed || config_.gamepad.detection_haptics.enabled != next.gamepad.detection_haptics.enabled ||
@@ -538,8 +524,8 @@ void RuntimeLoop::apply_pending_config() {
     policy_requested_ = false;
 }
 
-// Called only after the producer-specific epoch/policy and capture fences.
-// Both direct polling and mailbox delivery commit the same controller state.
+// Called only after mailbox epoch/policy and capture fences have accepted
+// a new observation. Re-reading a snapshot cannot refresh controller state.
 void RuntimeLoop::submit_vision_result(const vision_native::VisionResult& result,
                                       std::uint64_t controller_consume_ns,
                                       std::uint64_t published_at_ns) {
@@ -587,7 +573,7 @@ void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
     last_input_scope_revision_ = input_sample.scope_revision;
     const auto discontinuity = manual_relay_->discontinuity_sequence();
     if (discontinuity != last_relay_discontinuity_) {
-        controller_.observe_delivered_output({}, false, 0.0);
+        controller_.invalidate_delivery_history();
         last_relay_discontinuity_ = discontinuity;
     }
     apply_pending_config();
@@ -636,64 +622,47 @@ void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
     vision_requested = vision_requested || (haptics_ready && !config_.vision.keepwarm_when_idle);
 
     bool fresh_vision = false;
-    if (vision_service_ != nullptr) {
-        const std::uint64_t expected_aim_transition_sequence =
-            vision_service_->set_request(pipeline_contract::vision_request(tick_preparation.activation, vision_requested), tick_started);
-        vision_service_->set_user_aim_intent(user_aim_intent);
-        if (trace) trace->mailbox_read_begin_ns = trace_now_ns();
-        VisionServiceSnapshot service_snapshot =
-            vision_service_->latest_snapshot(latest_vision_service_sequence_);
+    const std::uint64_t expected_aim_transition_sequence =
+        vision_service_->set_request(pipeline_contract::vision_request(tick_preparation.activation, vision_requested), tick_started);
+    vision_service_->set_user_aim_intent(user_aim_intent);
+    if (trace) trace->mailbox_read_begin_ns = trace_now_ns();
+    VisionServiceSnapshot service_snapshot =
+        vision_service_->latest_snapshot(latest_vision_service_sequence_);
+    if (trace) {
+        trace->mailbox_read_end_ns = trace_now_ns();
+        trace->sequence = service_snapshot.sequence;
+        trace->policy_revision = service_snapshot.policy_revision;
+        trace->epoch = service_snapshot.aim_transition_sequence;
+        trace->request = static_cast<std::uint64_t>(service_snapshot.request);
+        trace->published_ns = service_snapshot.published_at_ns;
+        trace->status = service_snapshot.sequence ? 5 : 0;
+    }
+    if (
+        service_snapshot.sequence != 0 && service_snapshot.policy_revision == vision_policy_revision_ &&
+        service_snapshot.sequence != latest_vision_service_sequence_) {
+        latest_vision_service_sequence_ = service_snapshot.sequence;
+        vision_native::VisionResult result = std::move(service_snapshot.result);
+        const auto controller_consume_started = std::chrono::steady_clock::now();
+        const std::uint64_t controller_consume_ns =
+            steady_time_point_ns(controller_consume_started);
+        const bool current_control_epoch =
+            service_snapshot.request == pipeline_contract::vision_request(tick_preparation.activation, vision_requested) &&
+            service_snapshot.aim_transition_sequence ==
+                expected_aim_transition_sequence;
         if (trace) {
-            trace->mailbox_read_end_ns = trace_now_ns();
-            trace->sequence = service_snapshot.sequence;
-            trace->policy_revision = service_snapshot.policy_revision;
-            trace->epoch = service_snapshot.aim_transition_sequence;
-            trace->request = static_cast<std::uint64_t>(service_snapshot.request);
-            trace->published_ns = service_snapshot.published_at_ns;
-            trace->status = service_snapshot.sequence ? 5 : 0;
+            trace_vision_fields(*trace, result);
+            trace->consume_ns = controller_consume_ns;
+            trace->epoch_current = current_control_epoch;
+            trace->status = service_snapshot.freshness != VisionSnapshotFreshness::Fresh ? 2 : !current_control_epoch ? 3 : 4;
         }
-        if (
-            service_snapshot.sequence != 0 && service_snapshot.policy_revision == vision_policy_revision_ &&
-            service_snapshot.sequence != latest_vision_service_sequence_) {
-            latest_vision_service_sequence_ = service_snapshot.sequence;
-            vision_native::VisionResult result = std::move(service_snapshot.result);
-            const auto controller_consume_started = std::chrono::steady_clock::now();
-            const std::uint64_t controller_consume_ns =
-                steady_time_point_ns(controller_consume_started);
-            const bool current_control_epoch =
-                service_snapshot.request == pipeline_contract::vision_request(tick_preparation.activation, vision_requested) &&
-                service_snapshot.aim_transition_sequence ==
-                    expected_aim_transition_sequence;
+        if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh &&
+            current_control_epoch &&
+            vision_delivery_gate_.accept(result, controller_consume_ns)) {
+            submit_vision_result(result, controller_consume_ns, service_snapshot.published_at_ns);
+            fresh_vision = true;
             if (trace) {
-                trace_vision_fields(*trace, result);
-                trace->consume_ns = controller_consume_ns;
-                trace->epoch_current = current_control_epoch;
-                trace->status = service_snapshot.freshness != VisionSnapshotFreshness::Fresh ? 2 : !current_control_epoch ? 3 : 4;
-            }
-            if (service_snapshot.freshness == VisionSnapshotFreshness::Fresh &&
-                current_control_epoch &&
-                vision_delivery_gate_.accept(result, controller_consume_ns)) {
-                submit_vision_result(result, controller_consume_ns, service_snapshot.published_at_ns);
-                fresh_vision = true;
-                if (trace) {
-                    trace->status = 1;
-                    trace->controller_submit_ns = latest_controller_submit_complete_ns_;
-                }
-            }
-        }
-    } else {
-        vision_engine_->set_request(pipeline_contract::vision_request(tick_preparation.activation, vision_requested));
-        vision_engine_->set_user_aim_intent(user_aim_intent);
-        if (should_poll_vision(tick_started)) {
-            last_vision_poll_at_ = tick_started;
-            vision_native::VisionResult result = vision_engine_->poll_once();
-            const auto controller_consume_started = std::chrono::steady_clock::now();
-            const std::uint64_t controller_consume_ns =
-                steady_time_point_ns(controller_consume_started);
-            if (vision_delivery_gate_.accept(result, controller_consume_ns)) {
-                // Direct polling has no mailbox publication timestamp.
-                submit_vision_result(result, controller_consume_ns, 0);
-                fresh_vision = true;
+                trace->status = 1;
+                trace->controller_submit_ns = latest_controller_submit_complete_ns_;
             }
         }
     }
@@ -753,7 +722,7 @@ void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
     if (output_result.reconnect_attempted || receipt.continuity_broken) {
         // Recreating the device publishes a neutral report before this report.
         // Even a successful same-tick reconnect breaks camera-work continuity.
-        controller_.observe_delivered_output({}, false, 0.0);
+        controller_.invalidate_delivery_history();
     }
     controller_.observe_delivered_output(delivered_output,
         output_result.delivered, output_result.submitted_at_seconds);
@@ -823,16 +792,7 @@ void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
         viewport_observation_ptr,
         steady_time_point_ns(std::chrono::steady_clock::now()));
     if (viewport_request.changed) {
-        if (vision_service_ != nullptr) {
-            vision_service_->set_viewport(viewport_request);
-        } else {
-            vision_engine_->set_viewport(
-                static_cast<int>(viewport_request.level),
-                viewport_request.width,
-                viewport_request.height,
-                viewport_request.sequence,
-                viewport_request.source_frame_id);
-        }
+        vision_service_->set_viewport(viewport_request);
         AsyncConsoleLine{} << "[VisionViewport][CPP]"
                   << " level=" << viewport_level_name(viewport_request.level)
                   << " size=" << viewport_request.width << 'x'
@@ -894,15 +854,6 @@ controller_native::PhysicalGamepadState RuntimeLoop::read_physical_gamepad() {
         return state;
     }
     return input_reader_.read();
-}
-
-bool RuntimeLoop::should_poll_vision(std::chrono::steady_clock::time_point now) const {
-    if (last_vision_poll_at_ == std::chrono::steady_clock::time_point{}) {
-        return true;
-    }
-    const auto capture_interval = capture_interval_for_fps(config_.vision.capture_fps);
-    return capture_interval <= std::chrono::steady_clock::duration::zero() ||
-        now - last_vision_poll_at_ >= capture_interval;
 }
 
 bool RuntimeLoop::should_stop_requested() const {

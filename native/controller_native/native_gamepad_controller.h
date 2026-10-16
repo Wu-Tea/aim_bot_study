@@ -170,6 +170,8 @@ public:
             ? resolved_visual_source_seconds_ + static_cast<double>(max_source_age_ms) * .001 : 0.0;
     }
     void observe_composed_output(const GamepadOutputState& output);
+    // Break unobserved camera-work intervals without clearing calibration or target/ADS state.
+    void invalidate_delivery_history() noexcept;
     // Acknowledgement from the output owner. Timestamp is submission time in
     // the same steady-clock coordinate as capture; false invalidates history.
     // The caller supplies the actual output coordinate (decoded DS4 in runtime,

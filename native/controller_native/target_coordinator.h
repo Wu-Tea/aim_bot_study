@@ -96,9 +96,6 @@ private:
     const pipeline_contract::VisionCandidate* choose_candidate(
         const pipeline_contract::VisionObservationBatch& observations,
         pipeline_contract::Vec2f association_anchor) const noexcept;
-    bool is_effective_selector_replacement(
-        const pipeline_contract::VisionObservationBatch& observations,
-        const pipeline_contract::VisionCandidate& candidate) const noexcept;
     pipeline_contract::TargetPlan no_target_plan(
         double now_seconds,
         std::uint64_t source_frame_id = 0,
@@ -120,7 +117,7 @@ private:
     std::uint64_t generation_ = 0;
     std::uint64_t source_frame_id_ = 0;
     std::uint64_t last_processed_frame_id_ = 0;
-    double last_observed_seconds_ = 0.0;
+    // Last admitted direct/cue capture; misses never renew this deadline.
     double last_observation_capture_seconds_ = 0.0;
     double last_processed_capture_seconds_ = 0.0;
     double last_update_seconds_ = 0.0;

@@ -8,6 +8,67 @@
 namespace {
 void require(bool value, const char* reason) { if (!value) throw std::runtime_error(reason); }
 
+void capture_transition_keeps_current_tick_contract() {
+    using namespace controller_native;
+    using pipeline_contract::ControlMode;
+    for (bool gamepad : {false, true}) for (auto mode : {ControlMode::AdsAcquire, ControlMode::BodyLockFollow}) {
+        for (int completion : {0, 1, 2}) {
+            AssistControlStateMachineConfig config;
+            config.use_gamepad_intent_for_arbitration = gamepad;
+            AssistControlStateMachine state(config);
+            AssistControlStateMachineInput input;
+            input.activation = pipeline_contract::AssistActivation::Engaged;
+            input.target_authoritative = true;
+            input.target_id = input.selector_target_generation = 1;
+            input.mode = mode;
+            input.visual_authority = 1;
+            input.now_seconds = 10;
+            input.manual_stick = {.2f, -.3f};
+            input.filtered_manual_stick = input.manual_stick;
+            input.manual_axis_activity = {.5f, 1.f};
+            input.ai_stick = {.4f, .2f};
+            input.target_error_px = {40, 20};
+            require(state.update(input).phase == AssistControlPhase::Track, "ordinary acquisition must enter Track");
+            input.manual_exit_requested = true;
+            const auto seek = state.update(input);
+            require(seek.phase == AssistControlPhase::HandoverSeek && seek.handover_requested &&
+                seek.stick.x == input.manual_stick.x && seek.stick.y == input.manual_stick.y,
+                "explicit exit must release both axes to physical input");
+            input.target_authoritative = false;
+            require(state.update(input).phase == AssistControlPhase::HandoverSeek,
+                "missing old target must not cancel handover seek");
+            input.target_authoritative = true;
+            input.target_id = input.selector_target_generation = 2;
+            input.now_seconds += .01;
+            input.cue_continuation = completion == 2;
+            const auto capture = state.update(input);
+            if (completion == 2) {
+                require(capture.phase == AssistControlPhase::HandoverSeek && !capture.handover_braking,
+                    "cue releases Capture before evaluating the current manual exit");
+                continue;
+            }
+            require(capture.phase == AssistControlPhase::Capture && capture.handover_braking &&
+                !capture.handover_requested, "Capture must defer manual exit during its bounded phase");
+            if (completion == 0) {
+                input.fresh_observation = true;
+                input.target_error_px = {};
+                input.now_seconds += .01;
+                require(state.update(input).phase == AssistControlPhase::Capture &&
+                    state.phase() == AssistControlPhase::Capture, "one settled sample is insufficient");
+                input.now_seconds += .01;
+            } else {
+                input.now_seconds += .2;
+            }
+            const auto last_capture = state.update(input);
+            require(last_capture.phase == AssistControlPhase::Capture && last_capture.handover_braking &&
+                state.phase() == AssistControlPhase::Track,
+                "settling or timeout must preserve Capture output for the transition tick");
+            require(state.update(input).phase == AssistControlPhase::HandoverSeek,
+                "manual exit is evaluated on the following Track tick");
+        }
+    }
+}
+
 void custom_curve_keeps_manual_passthrough() {
     using namespace controller_native;
     auto config = incident_fixture::base_config(50, 180);
@@ -316,6 +377,7 @@ require(pass, "current ADS authority, compatible manual axes and source-owned de
 }  // namespace
 
 void register_state_machine_contract_tests(native_test::Registry& registry) {
+    registry.add_case("BaseContracts", "capture_transition_tick_contract", capture_transition_keeps_current_tick_contract);
     registry.add_case("BaseEndToEnd", "current_product_authority_and_manual_correction", product_contract::current_product_contract);
     registry.add_case("BaseContracts", "custom_curve_keeps_manual_passthrough", custom_curve_keeps_manual_passthrough);
     registry.add_case("BaseContracts", "activation_transitions", activation_transitions);

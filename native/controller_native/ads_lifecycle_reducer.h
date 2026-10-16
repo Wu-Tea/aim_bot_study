@@ -49,11 +49,8 @@ struct AdsLifecycleSnapshot {
         pipeline_contract::AdsDecisionReason::None;
     std::uint64_t acquisition_begin_ns = 0;
     std::uint64_t acquisition_complete_ns = 0;
-    bool center_cross_seen = false;
-    bool target_switch_seen = false;
     double epoch_started_seconds = 0.0;
     double acquisition_started_seconds = 0.0;
-    double acquisition_completed_seconds = 0.0;
 };
 
 // Owns transition priorities and timers. The coordinator supplies geometry
@@ -89,9 +86,7 @@ private:
     void accept_continuation() noexcept;
     void mark_already_consumed() noexcept;
     void wait_for_target() noexcept;
-    void expire_wait(
-        pipeline_contract::AdsDecisionReason reason,
-        double now_seconds) noexcept;
+    void expire_wait(pipeline_contract::AdsDecisionReason reason) noexcept;
     void stay_nominal() noexcept;
     void extend() noexcept;
     void enter_manual_safe() noexcept;
@@ -99,7 +94,6 @@ private:
         pipeline_contract::AdsDecisionReason reason,
         double now_seconds) noexcept;
     void consume() noexcept;
-    void note_center_cross() noexcept { state_.center_cross_seen = true; }
     AdsLifecycleConfig config_{};
     AdsLifecycleSnapshot state_{};
     std::uint64_t next_target_acquisition_id_ = 1;

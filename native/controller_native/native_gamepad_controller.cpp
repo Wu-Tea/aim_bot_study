@@ -298,9 +298,7 @@ void NativeGamepadController::reset() {
     operation_intent_classifier_.reset();
     last_operation_intent_ = {};
     target_coordinator_.reset();
-    aim_response_estimator_.reset();
-    ads_response_estimator_.reset();
-    bodylock_target_motion_observer_.reset();
+    clear_learning();
     nonfiring_pov_motion_snapshot_ = {};
     nonfiring_pov_error_snapshot_ = {};
     nonfiring_pov_left_stick_ = {};
@@ -323,18 +321,6 @@ void NativeGamepadController::reset() {
     last_firing_activity_seconds_ = -1.0;
     ads_epoch_ = 0;
     last_tick_seconds_ = 0.0;
-    aim_response_command_history_ = {};
-    aim_response_history_begin_ = 0;
-    aim_response_history_count_ = 0;
-    last_aim_response_frame_id_ = 0;
-    last_aim_response_target_id_ = 0;
-    last_ads_response_epoch_ = 0;
-    last_aim_response_capture_seconds_ = 0.0;
-    last_aim_response_source_error_px_ = {};
-    last_aim_response_motion_anchor_error_px_ = {};
-    has_last_aim_response_motion_anchor_ = false;
-    has_last_aim_response_observation_ = false;
-    motion_observation_anchor_ = {};
     sampled_physical_ = {};
     sampled_intent_ = {};
     last_tick_preparation_ = {};
@@ -382,6 +368,8 @@ void NativeGamepadController::clear_learning() noexcept {
 }
 
 void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& config, bool preserve_learning) {
+    // The catalog owns hot float copies; explicit copies below cover other
+    // settings and resolved compatibility values.
 #define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (HOT) config_.MEMBER = config.MEMBER;
 #include "editable_float_parameters.inc"
 #undef NATIVE_EDITABLE_FLOAT
@@ -391,31 +379,14 @@ void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& confi
     config_.ai_aim.body_slow_initial_scale = config.ai_aim.body_slow_initial_scale;
     config_.ai_aim.ads_free_initial_scale = config.ai_aim.ads_free_initial_scale;
     config_.ai_aim.ads_slow_initial_scale = config.ai_aim.ads_slow_initial_scale;
-    if (!preserve_learning) {
-        aim_response_estimator_ = AimResponseEstimator(response_estimator_config(config_));
-        ads_response_estimator_ = AdsResponseEstimator(ads_response_estimator_config(config_));
-    }
     config_.ai_aim.hipfire_multiplier = config.ai_aim.hipfire_multiplier;
-    config_.ai_aim.hipfire_ratio = config.ai_aim.hipfire_ratio;
-    config_.ai_aim.ai_input_deadzone = config.ai_aim.ai_input_deadzone;
-    config_.ai_aim.minimum_position_stick = config.ai_aim.minimum_position_stick;
     config_.ai_aim.aim_response_learning_enabled = config.ai_aim.aim_response_learning_enabled;
     config_.ai_aim.ads_snap_max_ai_force = config.ai_aim.ads_snap_max_ai_force;
     config_.ai_aim.ads_snap_max_ai_force_y = config.ai_aim.ads_snap_max_ai_force_y;
-    config_.ai_aim.body_lock_max_ai_force = config.ai_aim.body_lock_max_ai_force;
-    config_.ai_aim.body_lock_max_ai_force_y = config.ai_aim.body_lock_max_ai_force_y;
     config_.recoil.enabled = config.recoil.enabled;
     config_.recoil.feedback_amount = config.recoil.feedback_amount;
-    config_.recoil.output_amount = config.recoil.output_amount;
     config_.recoil.hipfire_multiplier = config.recoil.hipfire_multiplier;
     config_.auto_fire = config.auto_fire;
-    config_.ai_aim.ads_output_limit_x = config.ai_aim.ads_output_limit_x;
-    config_.ai_aim.ads_output_limit_y = config.ai_aim.ads_output_limit_y;
-    config_.ai_aim.ads_response_time_ms = config.ai_aim.ads_response_time_ms;
-    config_.ai_aim.bodylock_output_limit_x = config.ai_aim.bodylock_output_limit_x;
-    config_.ai_aim.bodylock_output_limit_y = config.ai_aim.bodylock_output_limit_y;
-    config_.ai_aim.bodylock_response_time_x_ms = config.ai_aim.bodylock_response_time_x_ms;
-    config_.ai_aim.bodylock_response_time_y_ms = config.ai_aim.bodylock_response_time_y_ms;
     config_.ai_aim.normalized_assist_parameters = config.ai_aim.normalized_assist_parameters;
     config_.ai_aim.body_lock_feedback_distance_px = config.ai_aim.body_lock_feedback_distance_px;
     config_.ai_aim.body_lock_box_tolerance_px = config.ai_aim.body_lock_box_tolerance_px;
@@ -423,7 +394,12 @@ void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& confi
     bodylock_controller_ = BodylockFollowController(bodylock_config(config_));
     recoil_ = RecoilReducer(config_.recoil);
     auto_fire_gate_.reconfigure(config_.auto_fire, config_.ai_aim);
-    if (!preserve_learning) clear_learning();
+    if (!preserve_learning) {
+        // Install the new priors and invalidate old evidence as one decision.
+        aim_response_estimator_ = AimResponseEstimator(response_estimator_config(config_));
+        ads_response_estimator_ = AdsResponseEstimator(ads_response_estimator_config(config_));
+        clear_learning();
+    }
 }
 
 pipeline_contract::VisionObservationBatch NativeGamepadController::observation_batch_from(
@@ -1240,28 +1216,15 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     pipeline_contract::Vec2f requested{};
     pipeline_contract::Vec2f shaped{};
     BodylockFollowControllerOutput bodylock_diagnostics{};
-    auto assist_generation_intent = intent;
-    assist_generation_intent.filtered_right = {};
-    assist_generation_intent.right_x.confidence = 0.0f;
-    assist_generation_intent.right_y.confidence = 0.0f;
-    assist_generation_intent.right_confidence = 0.0f;
+    // Solvers and shaping own AI proposals; manual arbitration happens below.
     if (plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
-        requested = ads_controller_.compute(
-            plan, assist_generation_intent, dt);
+        requested = ads_controller_.compute(plan);
     } else if (
         plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
-        bodylock_diagnostics = bodylock_controller_.compute_detailed(
-            plan,
-            assist_generation_intent,
-            dt);
+        bodylock_diagnostics = bodylock_controller_.compute_detailed(plan);
         requested = bodylock_diagnostics.stick;
     }
-    shaped = dynamics_shaper_.shape(
-        requested,
-        assist_generation_intent,
-        plan,
-        dt,
-        {});
+    shaped = dynamics_shaper_.shape(requested, plan, dt);
     // Scale only AI, before arbitration. Physical input and recoil stay owned
     // independently; the physical ADS-ready signal selects full ADS strength.
     if (!last_tick_preparation_.scope.physical_ads_ready && hipfire_ratio != 1.0f) {
@@ -1606,8 +1569,7 @@ void NativeGamepadController::reset_after_input_discontinuity() {
 bool NativeGamepadController::expire_visual_output(
     ControlFrame& frame, double now, float max_source_age_ms) noexcept {
     if (last_target_plan_.target_id == 0) return false;
-    const double deadline = resolved_visual_source_seconds_ +
-        static_cast<double>(max_source_age_ms) * .001;
+    const double deadline = visual_output_deadline_seconds(max_source_age_ms);
     if (std::isfinite(now) && std::isfinite(deadline) &&
         now >= resolved_visual_source_seconds_ && now < deadline) return false;
     const auto& physical = frame.physical();
@@ -1631,16 +1593,20 @@ bool NativeGamepadController::expire_visual_output(
     return true;
 }
 
+void NativeGamepadController::invalidate_delivery_history() noexcept {
+    aim_response_history_begin_ = aim_response_history_count_ = 0;
+    bodylock_target_motion_observer_.reset();
+    motion_observation_anchor_ = {};
+    nonfiring_pov_motion_snapshot_ = {};
+}
+
 void NativeGamepadController::observe_delivered_output(
     const GamepadOutputState& output,
     bool delivered, double submitted_at_seconds) {
     if (!delivered || !std::isfinite(submitted_at_seconds) ||
         !std::isfinite(output.right_x) || !std::isfinite(output.right_y)) {
         // No reliable camera-work interval may cross a failed publication.
-        aim_response_history_begin_ = aim_response_history_count_ = 0;
-        bodylock_target_motion_observer_.reset();
-        motion_observation_anchor_ = {};
-        nonfiring_pov_motion_snapshot_ = {};
+        invalidate_delivery_history();
         return;
     }
     const auto delivered_stick = transfer_game_stick(

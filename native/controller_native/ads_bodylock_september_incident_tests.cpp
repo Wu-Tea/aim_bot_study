@@ -45,7 +45,7 @@ void ads_zero_crossing(const native_test::TestContext& context) {
         int index = 0;
         for (float e : {-0.01f, 0.0f, 0.01f}) {
             plan.error_px = vector_axis(e, a);
-            values[index++] = axis(controller.compute(plan, {}, 0.001f), a);
+            values[index++] = axis(controller.compute(plan), a);
         }
         const float step = std::max(std::fabs(values[1] - values[0]),
                                     std::fabs(values[2] - values[1]));
@@ -53,9 +53,9 @@ void ads_zero_crossing(const native_test::TestContext& context) {
         max_zero = std::max(max_zero, std::fabs(values[1]));
         plan.error_rate_px_per_sec = {};
         plan.error_px = vector_axis(-0.01f, a);
-        const float stationary_before = axis(controller.compute(plan, {}, 0.001f), a);
+        const float stationary_before = axis(controller.compute(plan), a);
         plan.error_px = vector_axis(0.01f, a);
-        const float stationary_after = axis(controller.compute(plan, {}, 0.001f), a);
+        const float stationary_after = axis(controller.compute(plan), a);
         max_stationary_step = std::max(max_stationary_step,
             std::fabs(stationary_after - stationary_before));
         report << (cases++ ? "," : "") << "{\"axis\":" << a
@@ -73,7 +73,7 @@ void ads_zero_crossing(const native_test::TestContext& context) {
     moving.response_scale = 500;
     moving.bodylock_target_motion_valid = true;
     moving.bodylock_target_motion_px_per_sec = {100, -100};
-    const auto follow = controller_native::BodylockFollowController().compute(moving, {}, .001f);
+    const auto follow = controller_native::BodylockFollowController().compute(moving);
     const bool controls = max_stationary_step < .01f &&
         std::fabs(follow.x - .2f) < 1e-5f && std::fabs(follow.y - .2f) < 1e-5f;
     report << "],\"case_count\":" << cases << ",\"max_step\":" << max_step

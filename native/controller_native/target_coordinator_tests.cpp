@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <stdexcept>
 #include <random>
@@ -496,6 +497,109 @@ void test_same_generation_cue_is_only_continuity_path() {
                      wrong_generation.aim_authority == 0.0f &&
                      !wrong_generation.current_cue_observation,
                  "wrong-generation cue must not become generic hold authority");
+}
+
+// Freeze this temporal trace before changing production state ownership.
+// Cue is new visual evidence; empty/repeated/stale deliveries are not.
+void test_cue_gap_expiry_reacquisition(const native_test::TestContext& context) {
+    const auto directory = context.artifact_directory / context.case_name;
+    std::filesystem::create_directories(directory);
+    std::ofstream csv(directory / "traces.csv");
+    require_true(bool(csv), "cue trace open failed");
+    csv << std::setprecision(17)
+        << "grace,event,reacquire_ms,tick,id,frame,observation,lifecycle,mode,cue,current_cue,direct,gap,prediction,age,capture_age,remaining,authority,x,y,vx,vy,acquisition,active,terminal,diagnostic_age,gap_reason\n";
+    for (float grace : {0.f, 32.f}) for (int event = 0; event < 4; ++event)
+    for (int reacquire_ms : {30, 70}) {
+        controller_native::TargetCoordinatorConfig config;
+        config.missing_observation_grace_ms = grace;
+        controller_native::TargetCoordinator coordinator(config);
+        const auto intent = ads_intent();
+        coordinator.begin_ads_epoch(1, 2.0);
+        controller_native::TargetControlFeedback feedback;
+        feedback.continuation_valid = true;
+        feedback.continuation_offset_px = {-2, 1};
+        std::uint64_t original_id = 0, acquisition_id = 0;
+        for (int tick = 0; tick <= 80; ++tick) {
+            const double now = 2.002 + tick / 1000.0;
+            auto batch = no_source_tick();
+            if (tick == 0) batch = selected_frame(1, 2.0, 270);
+            if (tick == 10) batch = cue_frame(2, 2.010, 274);
+            if (tick == 12) {
+                if (event == 1) batch = fresh_no_selection(3, now);
+                if (event == 2) batch = cue_frame(2, 2.010, 310);
+                if (event == 3) batch = cue_frame(3, 1.9, 310);
+            }
+            if (tick == reacquire_ms) batch = selected_frame(4, now - .002, 276);
+            const auto p = coordinator.update(batch, intent, now, feedback);
+            if (tick == 0) {
+                original_id = p.target_id; acquisition_id = p.target_acquisition_id;
+                require_true(original_id != 0 && p.ads_acquisition_active, "fixture must start acquiring");
+            }
+            if (tick == 10) require_true(p.target_id == original_id && p.current_cue_observation &&
+                near(p.source_capture_age_ms, 2), "current cue owns its capture time and existing identity");
+            if (tick >= 10 && tick < reacquire_ms) {
+                require_true(near(p.identity_diagnostics.source_age_ms, float((now - 2.010) * 1000)),
+                    "missing, duplicate and stale frames cannot renew cue evidence age");
+                require_true(!p.direct_person_observation && !p.fire_authority && !p.fire_requested,
+                    "cue and missing evidence cannot acquire direct-person/fire authority");
+                if (tick != 10) require_true(!p.current_cue_observation, "retained cue is not current evidence");
+            }
+            if (tick == 59 && reacquire_ms == 70) require_true(p.target_id == 0 && p.aim_authority == 0 &&
+                p.acquisition_terminal_reason == pipeline_contract::AdsDecisionReason::TargetLost,
+                "expired cue must release identity and consume unfinished ADS");
+            if (tick == reacquire_ms) {
+                require_true(p.direct_person_observation && !p.cue_continuation && !p.observation_gap &&
+                    near(p.source_capture_age_ms, 2), "fresh direct evidence restores its own provenance");
+                require_true((p.target_id == original_id) == (reacquire_ms == 30),
+                    "only reacquisition before loss may retain the local identity");
+                require_true(p.target_acquisition_id == acquisition_id &&
+                    p.ads_acquisition_active == (reacquire_ms == 30), "reacquisition must not mint another ADS chance");
+            }
+            csv << grace << ',' << event << ',' << reacquire_ms << ',' << tick << ',' << p.target_id
+                << ',' << p.source_frame_id << ',' << p.source_observation_id << ',' << int(p.lifecycle)
+                << ',' << int(p.mode) << ',' << p.cue_continuation << ',' << p.current_cue_observation
+                << ',' << p.direct_person_observation << ',' << p.observation_gap << ',' << p.gap_prediction_valid
+                << ',' << p.observation_age_ms << ',' << p.source_capture_age_ms << ',' << p.observation_gap_remaining_ms
+                << ',' << p.aim_authority << ',' << p.aim_px.x << ',' << p.aim_px.y
+                << ',' << p.velocity_px_per_sec.x << ',' << p.velocity_px_per_sec.y
+                << ',' << p.target_acquisition_id << ',' << p.ads_acquisition_active
+                << ',' << int(p.acquisition_terminal_reason) << ',' << p.identity_diagnostics.source_age_ms
+                << ',' << p.identity_diagnostics.gap_reason << '\n';
+        }
+    }
+    require_true(bool(csv), "cue trace write failed");
+}
+
+void test_identity_wait_loss_and_replacement_boundaries() {
+    for (int gap : {0, 1, 2}) for (bool changed : {false, true}) for (bool pulse : {false, true}) {
+        controller_native::TargetCoordinator coordinator;
+        const auto intent = ads_intent();
+        coordinator.begin_ads_epoch(8, 8.0);
+        const auto first = coordinator.update(selected_frame(70, 8.0, 268), intent, 8.0);
+        require_true(first.target_id != 0 && first.ads_acquisition_active, "fixture must acquire a target");
+        auto previous = first;
+        if (gap != 0) {
+            const double missing_at = gap == 1 ? 8.006 : 8.060;
+            previous = coordinator.update(fresh_no_selection(71, missing_at), intent, missing_at);
+            require_true(previous.target_id == 0 && previous.ads_acquisition_active == (gap == 1),
+                "temporary evidence wait must differ from expired identity release");
+        }
+        const double next_at = gap == 2 ? 8.070 : 8.012;
+        auto next = selected_frame(72, next_at, 270, 208, 52, changed ? 8 : 7);
+        next.selector_target_changed = pulse;
+        const auto result = coordinator.update(next, intent, next_at);
+        require_true(result.target_id != 0 && (result.target_id != first.target_id) == (changed || gap == 2),
+            "frame-local source ids and raw change pulses must not replace a retained generation");
+        require_true(result.selector_target_changed == changed,
+            "durable generation, including replacement after loss, must own the effective switch");
+        require_true(result.target_acquisition_id == first.target_acquisition_id &&
+            result.physical_ads_epoch == first.physical_ads_epoch &&
+            result.ads_acquisition_active == (!changed && gap != 2),
+            "replacement or loss must not mint another ADS acquisition during held input");
+        require_true(result.identity_diagnostics.previous_id == previous.target_id &&
+            result.identity_diagnostics.resulting_id == result.target_id,
+            "identity diagnostics must compare complete consecutive output plans");
+    }
 }
 
 void test_selector_generation_replacement_preserves_single_snap_token() {
@@ -1000,6 +1104,7 @@ void test_bounded_acquisition_point_geometry(const native_test::TestContext& con
 }  // namespace
 
 void register_target_coordinator_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseEndToEnd", "cue_gap_expiry_reacquisition", test_cue_gap_expiry_reacquisition);
     registry.add_context_case("BaseBodyLock", "intermittent_selection_diagnostics", test_intermittent_selection_diagnostics);
     registry.add_context_case("BaseAds", "bounded_acquisition_point_geometry", test_bounded_acquisition_point_geometry);
     registry.add_case("BaseBodyLock", "randomized_gap_deadlines_and_invalidations", [] {
@@ -1097,6 +1202,7 @@ void register_target_coordinator_tests(native_test::Registry& registry) {
     registry.add_case("BaseBodyLock", "velocity_updates_only_on_fresh_capture", test_velocity_updates_only_on_fresh_capture);
     registry.add_case("BaseRuntimeFreshness", "duplicate_and_stale_captures_cannot_replace_geometry", test_duplicate_and_stale_captures_cannot_replace_geometry);
     registry.add_case("BaseBodyLock", "same_generation_cue_is_only_continuity_path", test_same_generation_cue_is_only_continuity_path);
+    registry.add_case("BaseAds", "identity_wait_loss_and_replacement", test_identity_wait_loss_and_replacement_boundaries);
     registry.add_case("BaseAds", "selector_replacement_preserves_single_snap", test_selector_generation_replacement_preserves_single_snap_token);
     registry.add_case("BaseAds", "replacement_after_consumed_snap_stays_bodylock", test_replacement_after_consumed_snap_stays_bodylock);
     registry.add_case("BaseBodyLock", "manual_correction_moves_d_only_inside_region", test_manual_correction_moves_d_only_inside_r);

@@ -52,7 +52,6 @@ void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
     source_id_ = 0;
     previous_firing_velocity_innovation_ = {};
     firing_velocity_observer_active_ = false;
-    last_observed_seconds_ = 0.0;
     last_observation_capture_seconds_ = 0.0;
     last_observed_reliability_ = 0.0f;
     enemy_cue_current_ = false;
@@ -90,7 +89,7 @@ void TargetCoordinator::update_desired_point_from_manual(
     desired_point_reducer_.reduce_manual(
         intent,
         geometry_reducer_.snapshot(),
-        target_lifecycle_reducer_.snapshot().target_present,
+        target_lifecycle_reducer_.snapshot().has_target(),
         firing_recently,
         dt_seconds);
 }
@@ -111,7 +110,7 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
         // exact same selector generation. It can neither acquire nor switch.
         if (!observations.selector_cue_continuation ||
             !ads_lifecycle_reducer_.snapshot().epoch_active ||
-            !target_lifecycle_reducer_.snapshot().target_present ||
+            !target_lifecycle_reducer_.snapshot().has_target() ||
             observations.selector_target_changed ||
             observations.selector_target_generation == 0 ||
             selector_target_generation_ == 0 ||
@@ -162,31 +161,12 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
     return preferred;
 }
 
-bool TargetCoordinator::is_effective_selector_replacement(
-    const pipeline_contract::VisionObservationBatch& observations,
-    const pipeline_contract::VisionCandidate& candidate) const noexcept {
-    // selector_target_changed is an edge notification and may be skipped by
-    // the latest-only mailbox. The consumed generation is the durable
-    // identity boundary; only the selector's preferred, reliable candidate
-    // may use it to bypass the old target association radius.
-    return target_lifecycle_reducer_.snapshot().target_present &&
-        observations.selector_identity_protocol &&
-        observations.selector_target_generation != 0 &&
-        selector_target_generation_ != 0 &&
-        observations.selector_target_generation !=
-            selector_target_generation_ &&
-        observations.preferred_source_id != 0 &&
-        candidate.reliability > 0.0f &&
-        candidate.source_id == observations.preferred_source_id;
-}
-
 pipeline_contract::TargetPlan TargetCoordinator::no_target_plan(
     double now_seconds,
     std::uint64_t source_frame_id,
     std::uint32_t candidate_count,
     std::uint64_t preferred_source_id) noexcept {
     pipeline_contract::TargetPlan plan{};
-    plan.identity_diagnostics.gap_reason=gap_diagnostic_reason_;
     plan.generation = ++generation_;
     plan.source_frame_id = source_frame_id;
     plan.mode = pipeline_contract::ControlMode::Manual;
@@ -194,7 +174,6 @@ pipeline_contract::TargetPlan TargetCoordinator::no_target_plan(
     plan.ads_activation_radius_px = config_.ads_activation_radius_px;
     plan.ads_candidate_count = candidate_count;
     plan.ads_preferred_source_id = preferred_source_id;
-    latest_ = plan;
     return plan;
 }
 
@@ -222,7 +201,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update(
     d.friendly_rejections=observations.rejected_friendly_count;
     d.reliability_rejections=observations.rejected_low_reliability_count;
     d.source_age_ms=has_observation_capture_time_ ?
-        static_cast<float>((now_seconds-last_observed_seconds_)*1000.0) : -1.f;
+        static_cast<float>((now_seconds-last_observation_capture_seconds_)*1000.0) : -1.f;
     if (previous_id!=plan.target_id) d.transition=plan.target_id==0 ? "released" :
         previous_id==0 ? "acquired_or_reacquired" : "replaced";
     latest_=plan;
@@ -331,7 +310,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     const bool cue_continuation_candidate = candidate != nullptr &&
         observations.selector_cue_continuation &&
         candidate->source_id == 0 &&
-        target_lifecycle_reducer_.snapshot().target_present &&
+        target_lifecycle_reducer_.snapshot().has_target() &&
         ads.epoch_active &&
         observations.selector_target_generation != 0 &&
         observations.selector_target_generation == selector_target_generation_;
@@ -339,20 +318,21 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         cue_continuation_active_ = cue_continuation_candidate;
     }
     bool current_plan_admitted = false;
-    const bool replacement_after_target_loss = candidate != nullptr &&
-        accepted_fresh_capture && ads.snap_consumed &&
-        ads.terminal_reason == pipeline_contract::AdsDecisionReason::TargetLost &&
-        observations.selector_identity_protocol &&
+    // One evidence predicate serves both replacement and generation commit.
+    // The raw changed pulse is not authoritative in a latest-only mailbox.
+    const bool selector_generation_evidence = candidate != nullptr &&
+        accepted_fresh_capture && observations.selector_identity_protocol &&
         observations.selector_target_generation != 0 &&
-        selector_target_generation_ != 0 &&
-        observations.selector_target_generation !=
-            selector_target_generation_ &&
         observations.preferred_source_id == candidate->source_id &&
         candidate->reliability > 0.0f;
-    const bool selector_replacement = candidate != nullptr &&
-        accepted_fresh_capture &&
-        (is_effective_selector_replacement(observations, *candidate) ||
-         replacement_after_target_loss);
+    const bool generation_changed = selector_generation_evidence &&
+        selector_target_generation_ != 0 &&
+        observations.selector_target_generation != selector_target_generation_;
+    const bool ads_ended_by_target_loss = ads.snap_consumed &&
+        ads.terminal_reason == pipeline_contract::AdsDecisionReason::TargetLost;
+    const bool selector_replacement = generation_changed &&
+        ((target_lifecycle_reducer_.snapshot().has_target() && observations.preferred_source_id != 0) ||
+         ads_ended_by_target_loss);
 
     if (candidate == nullptr) {
         if (!pipeline_contract::owns_ads_task(intent.activation)) {
@@ -393,7 +373,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
                 reason = pipeline_contract::AdsDecisionReason::LowReliability;
             } else if (observations.count == 0) {
                 reason = pipeline_contract::AdsDecisionReason::NoTarget;
-            } else if (!target_lifecycle_reducer_.snapshot().target_present ||
+            } else if (!target_lifecycle_reducer_.snapshot().has_target() ||
                        (ads.epoch_active && !ads.snap_consumed &&
                         !ads.target_admitted)) {
                 reason =
@@ -409,11 +389,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     // source_id is frame-local. Only a selector-owned generation may signal a
     // replacement; when that signal is unavailable we deliberately do not
     // infer a switch from an observation id.
-    if (accepted_fresh_capture && observations.selector_identity_protocol &&
-        observations.selector_target_generation != 0 && candidate != nullptr &&
-        observations.preferred_source_id != 0 &&
-        candidate->source_id == observations.preferred_source_id &&
-        candidate->reliability > 0.0f) {
+    if (selector_generation_evidence && observations.preferred_source_id != 0) {
         selector_target_generation_ = observations.selector_target_generation;
     }
     pipeline_contract::TargetLifecycle lifecycle =
@@ -429,7 +405,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         const bool new_observation_sample =
             accepted_fresh_capture && !cue_continuation_candidate;
         const bool new_target =
-            !target_lifecycle_reducer_.snapshot().target_present ||
+            !target_lifecycle_reducer_.snapshot().has_target() ||
             selector_replacement;
         if (selector_replacement) reset_target_owned_state_for_replacement();
         current_plan_admitted = admit_selection(candidate->aim_px,
@@ -620,7 +596,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
             last_observed_target_size_px_ = candidate->box_size_px;
         }
         if (new_observation_sample || cue_continuation_candidate) {
-            last_observed_seconds_ = observation_capture_seconds;
             last_observation_capture_seconds_ =
                 observation_capture_seconds;
             has_observation_capture_time_ = true;
@@ -629,9 +604,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
             cue_continuation_candidate,
             false);
         lifecycle = target_lifecycle_reducer_.snapshot().lifecycle;
-    } else if (target_lifecycle_reducer_.snapshot().target_present) {
+    } else if (target_lifecycle_reducer_.snapshot().has_target()) {
         const float source_age_ms = static_cast<float>(
-            std::max(0.0, (now_seconds - last_observed_seconds_) * 1000.0));
+            std::max(0.0, (now_seconds - last_observation_capture_seconds_) * 1000.0));
         const bool fresh_no_target = accepted_fresh_capture;
         const bool source_expired = source_age_ms >=
             std::max(0.0f, config_.max_observation_age_ms);
@@ -640,7 +615,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         // lifecycle transition, not another source frame: do not renew age,
         // train motion/settling, or recover from a newer rejected observation.
         if (!observations.capture_fresh && !source_expired &&
-            now_seconds >= last_observed_seconds_ &&
+            now_seconds >= last_observation_capture_seconds_ &&
             has_observation_capture_time_ && selector_target_generation_ != 0 &&
             source_id_ != 0 && !observation_gap_active_ &&
             lifecycle == pipeline_contract::TargetLifecycle::Observed &&
@@ -702,17 +677,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
                 pipeline_contract::owns_ads_task(intent.activation), true, fresh_no_target,
                 source_expired || observation_gap_active_, same_generation_miss}, now_seconds);
         if (!retain_identity) observation_gap_active_ = false;
-        if (disposition == AdsTargetDisposition::Wait) {
-            settled_frames_ = 0;
-            last_update_seconds_ = now_seconds;
-            return no_target_plan(
-                now_seconds,
-                observations.frame_id,
-                observations.count + observations.rejected_friendly_count +
-                    observations.rejected_low_reliability_count,
-                observations.preferred_source_id);
-        }
-
         if (disposition == AdsTargetDisposition::Release) {
             target_lifecycle_reducer_.clear();
             enemy_cue_current_ = false;
@@ -723,8 +687,12 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
             source_id_ = 0;
             geometry_reducer_.reset();
             desired_point_reducer_.reset();
-            settled_frames_ = 0;
             observed_frames_ = 0;
+        }
+        // Both paths publish no target; only Release discards owned identity.
+        if (disposition == AdsTargetDisposition::Wait ||
+            disposition == AdsTargetDisposition::Release) {
+            settled_frames_ = 0;
             last_update_seconds_ = now_seconds;
             return no_target_plan(
                 now_seconds,
@@ -805,7 +773,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     const pipeline_contract::Vec2f screen_velocity = velocity_;
     plan.velocity_px_per_sec = screen_velocity;
     plan.acceleration_px_per_sec2 = acceleration_;
-    plan.observation_age_ms = static_cast<float>((now_seconds - last_observed_seconds_) * 1000.0);
+    plan.observation_age_ms = static_cast<float>((now_seconds - last_observation_capture_seconds_) * 1000.0);
     if (plan.observation_gap) plan.observation_gap_remaining_ms = std::max(0.0f,
         std::min(config_.missing_observation_grace_ms, config_.max_observation_age_ms) - plan.observation_age_ms);
     plan.confidence = reliability;
@@ -815,8 +783,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     plan.enemy_cue_checked = enemy_cue_checked_;
     plan.normalized_size = normalized_size;
     const float error_length = length(plan.error_px);
-    ads_lifecycle_reducer_.project(&plan, now_seconds);
-    plan.ads_plan_admitted = current_plan_admitted;
     plan.ads_activation_radius_px = config_.ads_activation_radius_px;
     plan.ads_raw_error_px = plan.error_px;
     plan.ads_candidate_count = std::min<std::uint32_t>(
@@ -900,15 +866,10 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         settled_frames_ >= config_.settle_frames, center_cross, now_seconds);
     plan.mode = intent.activation == pipeline_contract::AssistActivation::Application
         ? pipeline_contract::ControlMode::BodyLockFollow : ads.task_mode;
-    // The acquisition may have completed in the state transition above.
-    // Publish the post-transition truth; the earlier provisional value is
-    // needed while constructing the plan but must not escape to telemetry or
-    // downstream consumers as `BodyLockFollow + active ADS`.
+    // Geometry and completion evidence are resolved before projecting ADS
+    // state, so the plan publishes one post-transition lifecycle snapshot.
     ads_lifecycle_reducer_.project(&plan, now_seconds);
     plan.ads_plan_admitted = current_plan_admitted;
-    if (plan.mode == pipeline_contract::ControlMode::BodyLockFollow) {
-        // BodyLock starts from the current source-owned target point.
-    }
     plan.ads_demand = std::clamp(
         error_length / std::max(1.0f, config_.ads_activation_radius_px),
         0.0f, 1.0f);
@@ -1007,7 +968,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
                 : length(screen_velocity) > 120.0f
                     ? pipeline_contract::FireSuppressionReason::HighVelocity
                     : pipeline_contract::FireSuppressionReason::Ambiguous;
-    latest_ = plan;
     last_update_seconds_ = now_seconds;
     return plan;
 }
@@ -1037,7 +997,6 @@ void TargetCoordinator::reset() noexcept {
     generation_ = 0;
     source_frame_id_ = 0;
     last_processed_frame_id_ = 0;
-    last_observed_seconds_ = 0.0;
     last_observation_capture_seconds_ = 0.0;
     last_processed_capture_seconds_ = 0.0;
     last_update_seconds_ = 0.0;

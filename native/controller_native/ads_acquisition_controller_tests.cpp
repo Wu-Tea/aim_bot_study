@@ -33,8 +33,8 @@ void test_learned_slow_camera_response_automatically_increases_ads_request() {
     auto normal = plan_with(40.0f, 0.0f);
     auto slowed = normal;
     slowed.response_scale = 250.0f;
-    const auto normal_output = controller.compute(normal, {}, 0.01f);
-    const auto slowed_output = controller.compute(slowed, {}, 0.01f);
+    const auto normal_output = controller.compute(normal);
+    const auto slowed_output = controller.compute(slowed);
     require_true(slowed_output.x > normal_output.x * 1.8f,
                  "slower learned camera response must increase ADS correction without range tuning");
 }
@@ -47,46 +47,21 @@ void test_shorter_arrival_horizon_increases_ads_positioning_speed() {
     controller_native::AdsAcquisitionController fast(fast_config);
     controller_native::AdsAcquisitionController slow(slow_config);
     const auto plan = plan_with(40.0f, 0.0f);
-    require_true(fast.compute(plan, {}, 0.01f).x >
-                     slow.compute(plan, {}, 0.01f).x * 1.8f,
+    require_true(fast.compute(plan).x >
+                     slow.compute(plan).x * 1.8f,
                  "ADS snap duration must directly control response-model arrival time");
 }
 
 void test_large_reliable_error_gets_strong_output() {
     controller_native::AdsAcquisitionController controller;
-    const auto output = controller.compute(plan_with(120.0f, 0.0f), {}, 0.01f);
+    const auto output = controller.compute(plan_with(120.0f, 0.0f));
     require_true(output.x > 0.75f, "large reliable ADS error must retain strength");
-}
-
-void test_drift_does_not_weaken_ads() {
-    controller_native::AdsAcquisitionController controller;
-    pipeline_contract::IntentState neutral{};
-    pipeline_contract::IntentState drift{};
-    drift.raw_right.x = -0.0118f;
-    drift.filtered_right.x = 0.0f;
-    drift.right_confidence = 0.0f;
-    const auto a = controller.compute(plan_with(80.0f, 0.0f), neutral, 0.01f);
-    const auto b = controller.compute(plan_with(80.0f, 0.0f), drift, 0.01f);
-    require_true(std::fabs(a.x - b.x) < 0.0001f,
-                 "raw deadzone drift must not reduce ADS output");
-}
-
-void test_manual_input_does_not_create_a_second_authority_policy() {
-    controller_native::AdsAcquisitionController controller;
-    pipeline_contract::IntentState correction{};
-    correction.filtered_right.x = -0.5f;
-    correction.right_confidence = 1.0f;
-    correction.right_x.confidence = 1.0f;
-    const auto neutral = controller.compute(plan_with(80.0f, 0.0f), {}, 0.01f);
-    const auto opposed = controller.compute(plan_with(80.0f, 0.0f), correction, 0.01f);
-    require_true(std::fabs(opposed.x - neutral.x) < 0.0001f,
-                 "manual authority must be owned after ADS by the state machine");
 }
 
 void test_predicted_crossing_applies_terminal_brake() {
     controller_native::AdsAcquisitionController controller;
-    const auto approaching = controller.compute(plan_with(6.0f, -400.0f), {}, 0.01f);
-    const auto stationary = controller.compute(plan_with(6.0f, 0.0f), {}, 0.01f);
+    const auto approaching = controller.compute(plan_with(6.0f, -400.0f));
+    const auto stationary = controller.compute(plan_with(6.0f, 0.0f));
     require_true(std::fabs(approaching.x) < std::fabs(stationary.x),
                  "stopping error must brake an imminent crossing");
 }
@@ -95,7 +70,7 @@ void test_screen_y_error_is_converted_to_stick_y_direction() {
     controller_native::AdsAcquisitionController controller;
     auto plan = plan_with(0.0f, 0.0f);
     plan.error_px.y = 60.0f;
-    const auto output = controller.compute(plan, {}, 0.01f);
+    const auto output = controller.compute(plan);
     require_true(output.y < 0.0f,
                  "a target below center requires negative stick Y in screen coordinates");
 }
@@ -108,8 +83,8 @@ void test_close_visual_target_converges_faster_than_mid_far_target() {
     mid_far.normalized_size = 0.12f;
     auto close = mid_far;
     close.normalized_size = 0.42f;
-    const auto mid_far_output = controller.compute(mid_far, {}, 0.005f);
-    const auto close_output = controller.compute(close, {}, 0.005f);
+    const auto mid_far_output = controller.compute(mid_far);
+    const auto close_output = controller.compute(close);
     const float close_to_mid_far = close_output.x / mid_far_output.x;
     require_true(
         close_to_mid_far >= 1.45f,
@@ -122,10 +97,8 @@ void test_close_visual_target_converges_faster_than_mid_far_target() {
     just_below_transition.normalized_size = 0.179f;
     auto just_above_transition = just_below_transition;
     just_above_transition.normalized_size = 0.181f;
-    const float below = controller.compute(
-        just_below_transition, {}, 0.005f).x;
-    const float above = controller.compute(
-        just_above_transition, {}, 0.005f).x;
+    const float below = controller.compute(just_below_transition).x;
+    const float above = controller.compute(just_above_transition).x;
     require_true(
         std::fabs(above - below) < 0.01f,
         "close-target ADS timing must change continuously without a range step");
@@ -145,8 +118,8 @@ VerticalConvergenceMetrics measure_vertical_convergence() {
     auto target_below = target_above;
     target_below.error_px.y = 50.0f;
     return {
-        std::fabs(controller.compute(target_above, {}, 0.01f).y),
-        std::fabs(controller.compute(target_below, {}, 0.01f).y),
+        std::fabs(controller.compute(target_above).y),
+        std::fabs(controller.compute(target_below).y),
     };
 }
 
@@ -184,8 +157,8 @@ void test_reliability_does_not_create_a_second_ads_gain_policy() {
     // ADS plan, this controller must honor that authority without multiplying
     // it by confidence/reliability again.
     admitted_low_evidence.aim_authority = 1.0f;
-    const float expected = controller.compute(full_evidence, {}, 0.01f).x;
-    const float actual = controller.compute(admitted_low_evidence, {}, 0.01f).x;
+    const float expected = controller.compute(full_evidence).x;
+    const float actual = controller.compute(admitted_low_evidence).x;
     require_true(std::fabs(actual - expected) < 0.0001f,
                  "admitted ADS must not be weakened by reliability");
 }
@@ -220,11 +193,11 @@ void test_september_ads_precenter_brake(const native_test::TestContext& context)
             return axis == 0 ? value.x : value.y;
         };
         plan.error_px = vector(sign * error);
-        const auto stationary = controller.compute(plan, {}, 0.001f);
+        const auto stationary = controller.compute(plan);
         plan.error_rate_px_per_sec = vector(-sign * error / crossing_seconds);
-        const auto approaching = controller.compute(plan, {}, 0.001f);
+        const auto approaching = controller.compute(plan);
         plan.error_rate_px_per_sec = vector(sign * error / crossing_seconds);
-        const auto receding = controller.compute(plan, {}, 0.001f);
+        const auto receding = controller.compute(plan);
         const float baseline = std::fabs(component(controller_native::forward_aim_response_curve(
             stationary, config.response_curve)));
         if (!(baseline > 1.0e-5f)) native_test::invalid_fixture("nonzero stationary demand required");
@@ -264,8 +237,6 @@ void test_september_ads_precenter_brake(const native_test::TestContext& context)
 void register_ads_acquisition_controller_tests(native_test::Registry& registry) {
     registry.add_context_case("BaseAds", "september_ads_precenter_brake", test_september_ads_precenter_brake);
     registry.add_case("BaseAds", "large_reliable_error_gets_strong_output", test_large_reliable_error_gets_strong_output);
-    registry.add_case("BaseAds", "drift_does_not_weaken_ads", test_drift_does_not_weaken_ads);
-    registry.add_case("BaseAds", "manual_input_does_not_create_second_ads_policy", test_manual_input_does_not_create_a_second_authority_policy);
     registry.add_case("BaseAds", "predicted_crossing_applies_terminal_brake", test_predicted_crossing_applies_terminal_brake);
     registry.add_case("BaseAds", "screen_y_error_converts_to_stick_direction", test_screen_y_error_is_converted_to_stick_y_direction);
     registry.add_case("BaseAds", "target_above_gets_bounded_urgency", test_target_above_gets_bounded_directional_urgency);

@@ -33,18 +33,18 @@ void solver_boundaries() {
     p.bodylock_target_motion_px_per_sec={10000,-10000};
     for(int axis=0;axis<2;++axis) for(int sign:{-1,1}) {
         p.error_px={};(axis?p.error_px.y:p.error_px.x)=sign*3;
-        auto u=owner.compute(p,{},.001f);
+        auto u=owner.compute(p);
         check(u.x==0 && u.y==0,"tolerance edge is inclusive and motion cannot awaken a centered axis");
         (axis?p.error_px.y:p.error_px.x)=sign*3.001f;
-        u=owner.compute(p,{},.001f);
+        u=owner.compute(p);
         check((axis?-u.y:u.x)*sign>0,"outside tolerance must request point correction");
         check((axis?u.x:u.y)==0,"quiet axis must not spend the other axis's velocity");
     }
     p.aim_authority=0;
-    auto u=owner.compute(p,{},.001f);
+    auto u=owner.compute(p);
     check(u.x==0 && u.y==0,"point policy cannot restore revoked authority");
     p.aim_authority=1;p.lifecycle=pipeline_contract::TargetLifecycle::None;
-    u=owner.compute(p,{},.001f);
+    u=owner.compute(p);
     check(u.x==0 && u.y==0,"no target means no point control");
 }
 void moving_plant() {
