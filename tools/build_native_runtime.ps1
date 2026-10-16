@@ -6,8 +6,7 @@ param(
     [string]$ViGEmClientDll = "",
     [string]$SDL2Dll = "",
     [string]$CudaArchitectures = "",
-    [bool]$EnableViGEm = $true,
-    [switch]$OfflineBenchmarks
+    [bool]$EnableViGEm = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,14 +53,15 @@ if ([string]::IsNullOrWhiteSpace($SDL2Dll)) {
 $ConfigureArgs += "-DViGEmClient_DLL=$ViGEmClientDll"
 $ConfigureArgs += "-DSDL2_DLL=$SDL2Dll"
 $ConfigureArgs += "-DNATIVE_ENABLE_VIGEM=$($EnableViGEm.ToString().ToUpperInvariant())"
-$ConfigureArgs += "-DNATIVE_TEST_ENABLE_OFFLINE_BENCHMARKS=$($OfflineBenchmarks.IsPresent.ToString().ToUpperInvariant())"
 if (-not [string]::IsNullOrWhiteSpace($CudaArchitectures)) {
     $ConfigureArgs += "-DCMAKE_CUDA_ARCHITECTURES=$CudaArchitectures"
 }
 
 $BuildArgs = @(
     "--build", $BuildDir,
-    "--config", $Configuration
+    "--config", $Configuration,
+    "--parallel", "8",
+    "--target", "cod_native_runtime", "fusion_canvas"
 )
 
 $QuotedConfigureArgs = ($ConfigureArgs | ForEach-Object { "`"$_`"" }) -join " "

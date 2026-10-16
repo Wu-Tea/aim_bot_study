@@ -1,52 +1,23 @@
-# yolo-study-001
+# 手柄助手 · clean
 
-Windows 上的 C++ 原生视觉辅助控制项目。手柄、鼠标、Vision、Fusion 和离线仿真由原生代码执行。桌面 GUI 使用 React/WebView2，Python 负责桌面宿主、配置、曲线、进程管理、IPC 和界面检查；旧 Tk 界面已移除，不恢复 Python 控制器、视觉 fallback、训练或分析工具。
+这个分支提供完整的桌面助手与原生控制程序：在 GUI 中选择独立配置、模型和输入设备，调整 ADS、BodyLock、手动输入、固定压枪及自动开火参数，然后启动、查看运行反馈、保存并应用或停止。
 
-## 启动与配置
+桌面 GUI 是 **React/WebView2 + Python 宿主**，入口为根目录 `启动助手.vbs`。**Fusion 是可选的画面叠加显示**，由独立原生进程提供。它们分别承担配置操作和显示职责。
 
-双击根目录 `启动助手.vbs` 打开现有配置工作室。创建或导入独立配置，选择 TensorRT engine，调整参数与响应曲线后保存并启动。新配置默认不指定模型，需要主动选择可用 engine。切换编辑配置不等于切换实际运行实例。
+## 使用
 
-GUI 使用现有 `D:\env\python\pythonw.exe`、pywebview 和 Microsoft Edge WebView2。首次准备依赖或更新前端资源时运行 `scripts/setup_desktop.ps1`。构建好的 runtime 位于 `native/build/Release/cod_native_runtime.exe`。关闭 GUI 保留运行中的 runtime。
+1. 首次准备环境时按 [构建与运行](docs/BUILD_AND_RUN.md) 安装依赖，构建原生程序和桌面资源。
+2. 双击 `启动助手.vbs`。在“配置管理”中创建或导入配置，在“模型与设备”中选择本地 TensorRT engine 和手柄。
+3. 调整参数后点击“启动配置”。运行中可“保存并应用”支持热更新的参数；需要重启的设置会明确提示。Fusion 和性能采集沿用 GUI 的独立开关。
+4. 点击“停止”请求原生程序正常退出。关闭 GUI 窗口不会自动停止已启动的原生程序。
 
-USB DSE 的人物方向震动位于“参数调校 → 目标与识别 → 人物震动提醒”。默认关闭，力度默认 24%，可调 0～100%；保存并应用后生效。
+固定压枪只在有效开火期间施加配置的纵向输出；物理 ADS 就绪时使用完整值，腰射使用显式倍率。不加载武器识别、压枪轨迹、学习曲线或文件回放。响应学习属于瞄准控制链，继续保留。
 
-完整操作见 [桌面助手](docs/project/DESKTOP_ASSISTANT.md)。个人 config.toml、profiles、模型、数据及运行记录保留。
+## 目录与维护
 
-“参数调校”的首次瞄准倍率控制开镜时拉向目标的可用力度，1× 保留原力度。“范围与跟随”调整 L2 阈值、拾取范围、跟随半径、纠偏距离及跟随力度上限。上限直接显示百分比；距离支持有效 1～3000 px。拖动图中的目标，会显示当前偏差下的纠偏方向、估算力度以及上限是否生效。示例按已选静止目标和线性响应计算，真实游戏输出受工具曲线、学习和手动权限影响。半径与距离保存后重启，力度和 L2 阈值可热加载。
+- `python/desktop_app/`：桌面界面、配置库、曲线、进程管理与 IPC；`web_ui/` 是 React 前端。
+- `native/`：Vision、手柄控制、固定压枪、输出、运行诊断和 Fusion 的生产依赖。
+- `scripts/`、`tools/`：桌面设置、原生构建、模型转换以及 GUI 实际调用的 Fusion/采集助手。
+- `docs/`：当前运行结构和构建说明。[架构说明](docs/ARCHITECTURE.md) 解释状态与交互。
 
-## 原生构建与验证
-
-依赖 Windows、Visual Studio 2022 C++、CUDA、TensorRT 和原生设备 DLL，准备方式见 [runtime_deps](runtime_deps/README.md)。原生构建不依赖 Python 或 pybind11。
-
-```powershell
-.\tools\build_native_runtime.ps1 -CudaArchitectures 75 -OfflineBenchmarks
-ctest --test-dir native/build -C Release --output-on-failure
-$env:PYTHONPATH = "$PWD\python"
-D:\env\python\python.exe -m desktop_app.test_desktop
-```
-
-CUDA 架构应匹配 GPU；SDK 和 DLL 路径可由脚本参数指定。OfflineBenchmarks 是可选数值仿真，无 SHA256 清单、比较门禁或发布裁决。
-
-日常检查可直接执行 `D:\env\python\python.exe python/tools/check_app.py`，加 `--scope config` 只检查配置，加 `--build` 先构建原生程序。GUI 检查在独立 Windows 桌面运行，不占用日常桌面的窗口和焦点；增加数值参数与检查范围见 [配置项与检查工作流](docs/project/CONFIGURATION_AND_CHECKS.md)。
-
-已有 ONNX 可使用 SDK 原生工具构建新 engine：
-
-```powershell
-.\tools\build_engine.ps1 -OnnxPath models/model.onnx -EnginePath models/candidate.engine
-.\tools\run_native_vision_smoke.ps1 -EnginePath models/candidate.engine
-```
-
-动态模型可通过 InputShape 指定实际输入名称/形状。旧训练、采集研究和分析脚本已退役，资产没有随工具删除。
-
-## 代码责任
-
-| 位置 | 责任 |
-| --- | --- |
-| [native](native/README.md) | 统一 CMake、runtime、控制器、Vision、鼠标及 Fusion |
-| python/desktop_app、python/project_paths.py | 保留的 dev GUI、独立配置工作室、曲线、进程和 IPC |
-| python/tests/test_desktop*.py | 保留 GUI 功能与原生配置衔接检查 |
-| scripts/launch | 手柄、鼠标、Fusion 的启停入口 |
-| tools | 原生构建、engine 构建和 Vision 检查 |
-| runtime_deps | 本机原生设备 DLL 输入 |
-
-职责、生命周期和验证边界见 [当前项目模型](docs/project/CURRENT_STATE.md)。原始手动零死区、默认 15%–30% intent、身份/交接及同 tick 控制链保持；手动意图的忽略与完整阈值可按配置调节。仿真通过不等于现场游戏验收。
+模型、设备 DLL、个人配置库与运行日志留在本地。测试 runner、仿真、实验结果和历史研究保留在 DEV；clean 不构建测试目标。修改生产行为时，从 DEV 使用与 clean 匹配的验证夹具，再把通过验证的产品修改合入。大改动使用临时分支，clean 保持已验证的运行基线。

@@ -33,12 +33,3 @@ target_include_directories(controller_native_core PUBLIC
 target_compile_definitions(controller_native_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_compile_options(controller_native_core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(controller_native_core PUBLIC windowsapp)
-
-# Retired file-backed recoil tools are isolated from the production link graph.
-add_library(recoil_profile_tools STATIC
-    controller_native/recoil_profile.cpp
-    controller_native/recoil_calibration.cpp
-    controller_native/recoil_compensation.cpp
-    recoil_native/recoil_compensation.cpp
-    recoil_native/recoil_visual_model.cpp)
-cod_native_defaults(recoil_profile_tools)

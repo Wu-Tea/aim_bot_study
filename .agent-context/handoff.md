@@ -1,25 +1,9 @@
-# Agent Handoff
+# clean 当前接续
 
-Last updated: 2026-10-16
-Active scope: DEV checkpoint and selective synchronization of completed clean optimizations; clean deletion is paused.
+当前分支从 DEV `aa0f918` 重建，保留完整 React/WebView2 桌面助手、原生手柄 runtime、固定压枪与实际使用的依赖。GUI 与 Fusion 是两个不同组件，入口和结构见 [README](../README.md)。
 
-## Current state
+旧 clean 原样归档在分支 `codex/runtime-clean-archive-20261016`（`ca0ea11`），独立归档工作目录保留原源码及本地资产。删除前的验证材料还可从既有归档分支追溯。本分支不携带测试、实验记录或历史文档。
 
-- User changed the work order: commit DEV uncommitted work first, then sync clean optimizations back to DEV. The checkpoint is `6496f84` (long capture, React toggle, Vision profiling and diagnostics). Capture recordings/logs under `output/` remain local and untracked.
-- Optimization source is the deletion-before archive `5eb02ff` on `codex/runtime-clean-validation-archive-20261016`, compared with the original DEV source snapshot. All selected existing source/test baselines matched DEV. No clean-only packaging cuts or orphan historical files were imported.
-- DEV retains React/WebView2, mouse runtime, tests and offline tools. Solvers no longer take unused manual/time inputs; arbitration, target/ADS state, observation expiry, output continuity and reload rules use their existing owners with duplicate state removed. Three DEV-only mouse tests were adapted to the reduced signatures without changing assertions.
-- Current behavior and state/interaction documentation: [configuration and checks](../docs/project/CONFIGURATION_AND_CHECKS.md), [current project model](../docs/project/CURRENT_STATE.md).
-- Clean's earlier uncommitted product-only cleanup remains paused in its own worktree. It is not part of this DEV synchronization.
+本地模型、设备 DLL 和桌面配置库已准备；个人配置与模型保持本地。验证使用 DEV 夹具和记录目录，产品构建输出位于 `native/build/Release/` 与 `python/desktop_app/web_ui/dist/`。
 
-## Verification and limits
-
-- Before: Release runtime/base/functional/Fusion build and 50/50 CTest groups pass. After: full default Release build, 51/51 CTest groups, frontend build, 80 desktop tests, 10 capture tests and real WebView2 smoke pass. The user stopped the running runtime; the default `native/build/Release` executable was then rebuilt successfully.
-- Original DEV replay fixture linked against the updated controller gives identical records for two independent seeds, 192 short/long scenarios and 676,544 ticks. Detailed clean replay records also match for cue gaps, revocation, delivery history, learning reload and policy commit. Policy commit replay models scheduling; it is not direct concurrent RuntimeLoop integration coverage.
-- Runtime loaded the real engine and completed a bounded 1,000-tick smoke with output and haptics disabled. Actual gameplay feel and live device reconnect are not established by these checks. DSE pulse feel was accepted previously; automatic live-game notification acceptance remains open.
-- Local build/test evidence is in the session's `dev-sync` scratch directory. No raw capture or validation artifacts are committed. No remote push requested.
-
-## Resume and boundaries
-
-- Next action: await the user's next scope decision; do not resume clean deletion automatically.
-- Preserve source-selected chest reference, per-axis 15–30% manual authority, raw passthrough, identity/handover and full controller lockstep. Preserve user models/profiles/configuration. Do not restore retired provenance gates or Tk GUI.
-- No blocker for DEV synchronization. Live-game validation remains separate from this task.
+下一动作：使用完成验证的产品版本；新的大改动另开临时分支。实际游戏手感和物理设备交付仍需现场确认，不能以仿真或关闭输出的运行代替。

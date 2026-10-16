@@ -36,10 +36,6 @@ add_executable(cod_native_runtime
     runtime_app/ads_visual_transition.cpp
     runtime_app/ads_transition_collector.cpp
     runtime_app/downward_diagnostics.cpp
-    runtime_app/native_replay_writer.cpp
-    runtime_app/native_replay_runner.cpp
-    replay_native/replay_reader.cpp
-    replay_native/replay_metrics.cpp
     runtime_app/vision_controller_adapter.cpp
     controller_native/virtual_gamepad.cpp
     controller_native/io_recovery_policy.cpp

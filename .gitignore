@@ -42,3 +42,10 @@ scheduler_benchmark.json
 /native/build-*/
 /python/*.egg-info/
 /runtime_deps/windows-x64/*.dll
+
+# Local runtime output and IDE generated state
+/output/
+/native/out/
+**/.vs/
+.vs/
+*.log
