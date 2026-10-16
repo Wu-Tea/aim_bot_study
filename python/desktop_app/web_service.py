@@ -12,6 +12,7 @@ from .fields import field_presentation, field_value, CHOICE_LABELS
 from .parameter_catalog import configured_value
 from .settings import lookup, UiPreferences
 from .curves import CurveLibrary, curve_document, read_curve, seed_points
+from .long_capture import capture_status, set_capture_enabled
 
 
 def schema():
@@ -143,10 +144,20 @@ class WorkspaceService:
         status['rates'] = self.manager.frame_rates(record) if record else None
         status['learning'] = self.manager.learning() if record else None
         status['fusion'] = bool(self.manager.fusion_state())
+        status['capture'] = capture_status(self.root, record)
         status.pop('output', None)
         return status
 
     def _dispatch(self, command, p):
+        if command == 'capture':
+            if type(p.get('enabled')) is not bool:
+                raise ValueError('性能采集必须是开关值。')
+            from .runtime import launch_lock
+            with launch_lock(self.root):
+                if self.manager.active():
+                    raise ValueError('请先停止助手，再更改性能采集开关。')
+                set_capture_enabled(self.root, p['enabled'])
+            return dict(status=self._status(), message='性能采集已开启，最长 12 小时。' if p['enabled'] else '性能采集已关闭，已有日志保留。')
         if command == 'bootstrap':
             entries = self.repo.entries()
             return dict(profiles=[self._open(doc['id']) for doc in entries], errors=self.repo.errors,

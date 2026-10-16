@@ -16,6 +16,9 @@ namespace runtime_app {
 struct RuntimeTelemetryOptions {
     bool enabled = false;
     bool start_writer = true;
+    // Explicit diagnostic-session policy: retain ordinary records through
+    // brief queue-pop lock contention. Disk I/O remains outside this lock.
+    bool preserve_on_lock_contention = false;
     std::filesystem::path directory = "runs/native_perf";
     std::size_t queue_capacity = 8192;
     std::size_t rotate_size_bytes = 256ull * 1024ull * 1024ull;

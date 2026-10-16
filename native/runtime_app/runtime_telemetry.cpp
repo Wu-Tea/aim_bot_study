@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <iomanip>
 #include <string>
 
@@ -207,7 +208,7 @@ void RuntimeTelemetry::stop() {
 bool RuntimeTelemetry::enqueue(const TelemetryRecord& record) noexcept {
     if (!options_.enabled || writer_failed_.load()) return false;
     std::unique_lock<std::mutex> lock(mutex_, std::defer_lock);
-    if (record.critical) {
+    if (record.critical || options_.preserve_on_lock_contention) {
         // Critical transition records are rare. The writer only holds this
         // mutex while moving an item out of the queue, never during file I/O,
         // so waiting here is bounded and prevents target/ADS evidence from
@@ -267,6 +268,11 @@ const std::filesystem::path& RuntimeTelemetry::log_path() const noexcept {
 bool RuntimeTelemetry::open_next_file() {
     try {
         std::filesystem::create_directories(options_.directory);
+        if(std::getenv("AIMLAB_DIAGNOSTIC_SESSION_DIR") &&
+           std::filesystem::space(options_.directory).available<2ull*1024*1024*1024){
+            if(!writer_failed_.exchange(true))++writer_failures_;
+            return false;
+        }
         if (output_.is_open()) output_.close();
         const std::size_t slot = file_index_++;
         const char* session_id = has_session_metadata_

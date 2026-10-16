@@ -4,6 +4,8 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 from project_paths import PROJECT_ROOT
 from desktop_app.test_desktop import require_isolated_gui
 from desktop_app.web_host import launch
@@ -40,6 +42,37 @@ def main():
                     })()''')
                     assert all(layout[key][0]<=layout[key][1]+1 for key in ['outer','body']), (page_name,layout)
                     layouts.append({'page':page_name,**layout})
+                window.evaluate_js('Array.from(document.querySelectorAll("nav button")).find(e=>e.textContent==="模型与设备").click()')
+                window.evaluate_js('Array.from(document.querySelectorAll("button")).find(e=>e.textContent==="手柄与诊断").click()')
+                time.sleep(.3)
+                def capture_ui():
+                    return window.evaluate_js('''(() => {const e=document.getElementById('performance-capture');
+                        return {checked:e.checked,disabled:e.disabled,visible:e.getBoundingClientRect().height>0};})()''')
+                assert capture_ui()==dict(checked=False,disabled=False,visible=True), capture_ui()
+                def fake_collectors(root, enabled):
+                    base=Path(root)/'output/gui-capture'
+                    base.mkdir(parents=True,exist_ok=True)
+                    marker=Path(root)/'runs/desktop/long-capture.json'
+                    marker.parent.mkdir(parents=True,exist_ok=True)
+                    marker.write_text(json.dumps(dict(enabled=enabled,directory=str(base),
+                        expires_utc=(datetime.now(timezone.utc)+timedelta(hours=12)).isoformat())))
+                    (base/'monitor-health.json').write_text('{"gpu_running":true,"presentmon_running":true}')
+                with patch('desktop_app.web_service.set_capture_enabled',side_effect=fake_collectors) as setter:
+                    for enabled in (True,False):
+                        window.evaluate_js('document.getElementById("performance-capture").click()')
+                        deadline=time.monotonic()+5
+                        while time.monotonic()<deadline:
+                            if capture_ui()['checked']==enabled:break
+                            time.sleep(.1)
+                        else:raise RuntimeError('Capture toggle did not update')
+                        setter.assert_called_with(Path(folder).resolve(),enabled)
+                service.manager.record={'process_id':123,'profile_id':service.repo.entries()[0]['id']}
+                deadline=time.monotonic()+5
+                while time.monotonic()<deadline:
+                    if capture_ui()['disabled']:break
+                    time.sleep(.1)
+                else:raise RuntimeError('Capture toggle remained editable during runtime')
+                service.manager.record=None
                 window.evaluate_js('Array.from(document.querySelectorAll("nav button")).find(e=>e.textContent==="参数调校").click()')
                 window.evaluate_js('Array.from(document.querySelectorAll("button")).find(e=>e.textContent==="目标与识别").click()')
                 time.sleep(.2)
@@ -85,7 +118,8 @@ def main():
                 else:raise RuntimeError('Native close did not protect unsaved draft')
                 window.evaluate_js('Array.from(document.querySelectorAll("[role=dialog] button")).find(e=>e.textContent==="取消").click()')
                 print(json.dumps({'webview2_bootstrap':True,'title':state['title'],'bridge':state['bridge'],
-                    'profile_loaded':True,'native_close_guard':True,'directional_haptics_saved':True,'layouts':layouts}),flush=True)
+                    'profile_loaded':True,'native_close_guard':True,'directional_haptics_saved':True,
+                    'capture_toggle_and_running_guard':True,'layouts':layouts}),flush=True)
             except Exception as error:failure.append(error)
             finally:window.run_js('window.pywebview.api.dispatch("window_close")')
         launch(folder,service=service,ready=check)

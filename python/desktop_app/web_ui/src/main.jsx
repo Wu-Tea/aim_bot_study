@@ -1086,6 +1086,34 @@ function App() {
                               切换输入设备后需要重启。刷新列表只枚举设备，不启动输出。
                             </p>
                             <h2 style={{ marginTop: 28 }}>诊断记录</h2>
+                            <div className="row field-row">
+                              <label htmlFor="performance-capture">性能采集</label>
+                              <input
+                                id="performance-capture"
+                                type="checkbox"
+                                className="switch"
+                                checked={!!status.capture?.enabled}
+                                disabled={!!active || !status.capture}
+                                aria-describedby="performance-capture-help"
+                                onChange={(event) => {
+                                  const enabled = event.target.checked;
+                                  safely(enabled ? "正在开启性能采集…" : "正在关闭性能采集…", async () => {
+                                    const result = await rpc("capture", { enabled });
+                                    ++statusEpoch.current;
+                                    setStatus(result.status);
+                                    return result.message;
+                                  });
+                                }}
+                              />
+                            </div>
+                            <p className="note" id="performance-capture-help">
+                              记录逐帧耗时、GPU 占用和游戏帧时间，最长 12 小时。
+                              开关立即生效，无需保存配置；关闭后保留已有日志。
+                              {active ? "停止助手后可更改。" : "先开启采集，再启动助手。"}
+                            </p>
+                            <p className="note" role="status">
+                              {status.capture?.message ?? "正在读取采集状态…"}
+                            </p>
                             {(groups["诊断记录"] ?? []).map((f) => (
                               <Field
                                 key={f.path}

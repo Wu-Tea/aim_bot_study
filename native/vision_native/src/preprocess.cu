@@ -130,6 +130,42 @@ __global__ void bgra_hwc_to_chw_float_kernel(
     dst_chw[(plane_size * 2) + pixel_index] = sample_hwc_channel_bilinear(src_bgra, src_width, src_height, row_pitch, 4, 0, src_x, src_y);
 }
 
+__device__ float interpolate_bytes(unsigned char a, unsigned char b,
+    unsigned char c, unsigned char d, float tx, float ty) {
+    const float top = (static_cast<float>(a) * (1.0f - tx)) + (static_cast<float>(b) * tx);
+    const float bottom = (static_cast<float>(c) * (1.0f - tx)) + (static_cast<float>(d) * tx);
+    return ((top * (1.0f - ty)) + (bottom * ty)) / 255.0f;
+}
+
+__global__ void bgra_texture_to_chw_kernel(cudaTextureObject_t source,
+    int left, int top, int sw, int sh, int dw, int dh, float* out) {
+    const int x=blockIdx.x*blockDim.x+threadIdx.x;
+    const int y=blockIdx.y*blockDim.y+threadIdx.y;
+    if(x>=dw || y>=dh)return;
+    const int i=y*dw+x, plane=dw*dh;
+    if(sw==dw && sh==dh){
+        const uchar4 p=tex2D<uchar4>(source,static_cast<float>(left+x)+0.5f,static_cast<float>(top+y)+0.5f);
+        out[i]=static_cast<float>(p.z)/255.0f;
+        out[plane+i]=static_cast<float>(p.y)/255.0f;
+        out[2*plane+i]=static_cast<float>(p.x)/255.0f;
+        return;
+    }
+    const float sx=clamp_float(((static_cast<float>(x)+0.5f)*(static_cast<float>(sw)/static_cast<float>(dw)))-0.5f,0.0f,static_cast<float>(sw-1));
+    const float sy=clamp_float(((static_cast<float>(y)+0.5f)*(static_cast<float>(sh)/static_cast<float>(dh)))-0.5f,0.0f,static_cast<float>(sh-1));
+    const int x0=static_cast<int>(floorf(sx)), y0=static_cast<int>(floorf(sy));
+    const int x1=x0+1<sw?x0+1:sw-1, y1=y0+1<sh?y0+1:sh-1;
+    const float tx=sx-static_cast<float>(x0),ty=sy-static_cast<float>(y0);
+    // Clamp within the ROI before adding its origin; neighboring image pixels
+    // must not leak into interpolation at a nonzero ROI boundary.
+    const uchar4 a=tex2D<uchar4>(source,left+x0+0.5f,top+y0+0.5f);
+    const uchar4 b=tex2D<uchar4>(source,left+x1+0.5f,top+y0+0.5f);
+    const uchar4 c=tex2D<uchar4>(source,left+x0+0.5f,top+y1+0.5f);
+    const uchar4 d=tex2D<uchar4>(source,left+x1+0.5f,top+y1+0.5f);
+    out[i]=interpolate_bytes(a.z,b.z,c.z,d.z,tx,ty);
+    out[plane+i]=interpolate_bytes(a.y,b.y,c.y,d.y,tx,ty);
+    out[2*plane+i]=interpolate_bytes(a.x,b.x,c.x,d.x,tx,ty);
+}
+
 __global__ void bgra_array_to_gray_u8_kernel(
     cudaTextureObject_t source_texture,
     int src_width,
@@ -220,6 +256,12 @@ void launch_bgra_hwc_to_chw_float(
         dst_width,
         dst_height,
         dst_chw);
+}
+
+void launch_bgra_texture_to_chw_float(cudaTextureObject_t source,
+    int left, int top, int sw, int sh, int dw, int dh, float* out, cudaStream_t stream) {
+    const dim3 block(16,16),grid((dw+15)/16,(dh+15)/16);
+    bgra_texture_to_chw_kernel<<<grid,block,0,stream>>>(source,left,top,sw,sh,dw,dh,out);
 }
 
 cudaTextureObject_t launch_bgra_array_to_gray_u8(

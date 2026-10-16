@@ -350,7 +350,7 @@ bool VisionService::step(std::chrono::steady_clock::time_point now) {
     lock.unlock(); // Release any old detection allocation outside the mutex.
     if (trace) {
         trace->publish_unlock_ns = trace_now_ns();
-        options_.live_trace->vision(*trace);
+        options_.live_trace->vision(*trace, final_snapshot.result.detections);
     }
     return true;
 }

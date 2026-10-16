@@ -13,6 +13,19 @@ enum class PixelFormat {
     BGRA8,
 };
 
+// Opt-in profiling only. GPU durations are nested in preprocess_ms; CPU
+// timestamps use the same steady clock as capture, not the GPU event clock.
+struct InferenceTrace {
+    bool enabled = false;
+    float array_copy_gpu_ms = 0;
+    float preprocess_kernel_gpu_ms = 0;
+    uint64_t submit_begin_ns = 0;
+    uint64_t submit_end_ns = 0;
+    uint64_t output_submit_begin_ns = 0;
+    uint64_t wait_begin_ns = 0;
+    uint64_t wait_end_ns = 0;
+};
+
 enum class MemoryKind {
     CpuHwc,
     D3D11Texture,
@@ -22,6 +35,7 @@ enum class PreprocessMode {
     Unknown,
     RgbHostCopy,
     OldBgraCopy,
+    DirectBgraArray,
 };
 
 inline const char* preprocess_mode_name(PreprocessMode mode) {
@@ -30,6 +44,8 @@ inline const char* preprocess_mode_name(PreprocessMode mode) {
         return "rgb_host_copy";
     case PreprocessMode::OldBgraCopy:
         return "old_bgra_copy";
+    case PreprocessMode::DirectBgraArray:
+        return "direct_bgra_array";
     case PreprocessMode::Unknown:
     default:
         return "none";
@@ -86,6 +102,7 @@ struct Detection {
 };
 
 struct DetectionBatch {
+    InferenceTrace inference_trace{};
     uint64_t frame_id = 0;
     uint64_t capture_acquire_begin_ns = 0;
     uint64_t capture_acquire_complete_ns = 0;
@@ -119,6 +136,7 @@ struct DetectionBatch {
 };
 
 struct VisionResult {
+    InferenceTrace inference_trace{};
     pipeline_contract::SelectionDiagnostics selection_diagnostics{};
     bool selector_identity_protocol = false;
     std::uint64_t selector_target_generation = 0;

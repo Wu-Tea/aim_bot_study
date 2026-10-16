@@ -27,6 +27,12 @@ void launch_bgra_hwc_to_chw_float(
     float* dst_chw,
     cudaStream_t stream);
 
+// Point-sampled uchar4 texture; caller owns its lifetime through GPU completion.
+// Manual interpolation intentionally matches the existing linear-buffer kernel.
+void launch_bgra_texture_to_chw_float(cudaTextureObject_t source,
+    int roi_left, int roi_top, int src_width, int src_height,
+    int dst_width, int dst_height, float* dst_chw, cudaStream_t stream);
+
 // Copies only a bounded low-resolution grayscale staging image from a mapped
 // BGRA CUDA array. The caller never performs a full-resolution host readback.
 cudaTextureObject_t launch_bgra_array_to_gray_u8(

@@ -21,6 +21,9 @@ struct TensorRTEngineOptions {
     bool bind_tensor_addresses_once = true;
     bool use_high_priority_stream = true;
     bool use_cuda_graph = true;
+    // Native benchmark candidates; desktop configuration/default behavior unchanged.
+    bool direct_array_preprocess = false;
+    bool blocking_output_wait = true;
 };
 
 class TensorRTEngine {
@@ -97,6 +100,8 @@ private:
     cudaGraphExec_t cuda_graph_exec_ = nullptr;
     cudaEvent_t preprocess_start_event_ = nullptr;
     cudaEvent_t preprocess_end_event_ = nullptr;
+    cudaEvent_t array_copy_end_event_ = nullptr;
+    bool detailed_trace_ = false;
     cudaEvent_t infer_start_event_ = nullptr;
     cudaEvent_t infer_end_event_ = nullptr;
     cudaEvent_t output_copy_start_event_ = nullptr;

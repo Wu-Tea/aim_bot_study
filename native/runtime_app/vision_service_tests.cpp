@@ -718,6 +718,31 @@ void register_vision_service_tests(native_test::Registry& registry) {
         unsigned v=0,c=0;while(std::getline(csv,line)){if(line[0]=='V')++v;if(line[0]=='C')++c;}
         REQUIRE(v==1000 && c==1000);
     });
+    registry.add_context_case("BaseRuntimeFreshness", "trace_rotation_retains_all_boxes_and_rows", [](const native_test::TestContext& context) {
+        auto trace=std::make_unique<runtime_app::LivePipelineTrace>(context.artifact_directory,1024,0);
+        std::vector<vision_native::Detection> boxes(300);
+        for(unsigned i=0;i<boxes.size();++i){boxes[i].conf=.5f;boxes[i].x1=float(i);}
+        runtime_app::LiveTraceRecord v;v.sequence=1;v.frame_id=7;v.boxes=boxes.size();trace->vision(v,boxes);
+        for(unsigned i=1;i<=600;++i){runtime_app::LiveTraceRecord c;c.lane='C';c.tick_id=i;trace->controller(c);}
+        trace->stop();unsigned rows=0,detections=0,parts=0;
+        for(const auto& item:std::filesystem::directory_iterator(trace->directory())){
+            if(item.path().extension()!=".csv")continue;++parts;
+            std::ifstream input(item.path());std::string line;std::getline(input,line);
+            const auto columns=std::count(line.begin(),line.end(),',');
+            while(std::getline(input,line)){REQUIRE(std::count(line.begin(),line.end(),',')==columns);++rows;if(line[0]=='D')++detections;}
+        }
+        REQUIRE(parts>=3);REQUIRE(rows==901);REQUIRE(detections==300);
+        std::ifstream done(trace->directory()/"completion.json");std::string line;std::getline(done,line);
+        REQUIRE(line.find("\"complete\":true")!=std::string::npos);
+        REQUIRE(line.find("\"written\":901")!=std::string::npos);
+    });
+    registry.add_context_case("BaseRuntimeFreshness", "trace_disk_reserve_reports_incomplete_without_throwing_to_control", [](const native_test::TestContext& context) {
+        auto trace=std::make_unique<runtime_app::LivePipelineTrace>(context.artifact_directory,1024,~std::uint64_t(0));
+        trace->controller({});std::this_thread::sleep_for(std::chrono::milliseconds(1150));trace->stop();
+        std::ifstream done(trace->directory()/"completion.json");std::string line;std::getline(done,line);
+        REQUIRE(line.find("\"writer_failed\":true")!=std::string::npos);
+        REQUIRE(line.find("\"complete\":false")!=std::string::npos);
+    });
     registry.add_case("BaseRuntimeFreshness", "relay_trace_times_actual_write_and_rejects_expired_visual", [] {
         using namespace controller_native;
         runtime_app::ManualRelay relay([]{return incident_fixture::ads_input();},

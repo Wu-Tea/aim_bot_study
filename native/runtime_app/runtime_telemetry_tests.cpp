@@ -316,6 +316,20 @@ void test_selection_decision_keeps_source_and_release_separate(const native_test
 } // namespace
 
 void register_runtime_telemetry_tests(native_test::Registry& registry) {
+    registry.add_context_case("FeatureTelemetryAndDiagnostics", "capture_retains_records_under_concurrent_queue_contention", [](const native_test::TestContext& context) {
+        runtime_app::RuntimeTelemetryOptions options;
+        options.enabled=true;options.start_writer=false;options.queue_capacity=4096;
+        options.preserve_on_lock_contention=true;options.directory=context.artifact_directory;
+        runtime_app::RuntimeTelemetry telemetry(options);
+        std::atomic<bool> start{false};std::vector<std::thread> producers;
+        for(unsigned p=0;p<4;++p)producers.emplace_back([&,p]{
+            while(!start.load())std::this_thread::yield();
+            for(unsigned i=0;i<1000;++i){runtime_app::TelemetryRecord r;r.tick_id=p*1000+i+1;telemetry.enqueue(r);}
+        });
+        start.store(true);for(auto& producer:producers)producer.join();
+        const auto c=telemetry.counters();REQUIRE(c.accepted_records==4000);
+        REQUIRE(c.dropped_normal_records==0 && c.dropped_critical_records==0);
+    });
     registry.add_context_case("FeatureTelemetryAndDiagnostics", "selection_decision_source_and_release", test_selection_decision_keeps_source_and_release_separate);
     registry.add_case("FeatureTelemetryAndDiagnostics", "disabled_mode_has_zero_side_effects", test_disabled_mode_has_zero_side_effects);
     registry.add_case("FeatureTelemetryAndDiagnostics", "bounded_queue_counts_exact_overflow", test_bounded_queue_counts_exact_overflow_without_writer);

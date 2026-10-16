@@ -17,6 +17,7 @@ import time
 
 from .settings import effective, lookup
 from .fields import COMMON_FIELDS, GAME_FIELDS, field_value, validate_fields
+from .long_capture import attach_capture
 
 CREATE_NO_WINDOW = 0x08000000
 kernel = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -291,6 +292,7 @@ class RuntimeManager:
             env['FUSION_ENABLED'] = '1'
             env['FUSION_SHOW_ALL_DETECTIONS'] = '0'
             config_path = Path(config_path or self.root / 'config.toml').resolve()
+            capture_folder = attach_capture(self.root, session, config_path, env)
             arguments = [str(self.executable), '--config', str(config_path), '--game', game]
             with stdout.open('wb') as out, stderr.open('wb') as err:
                 self.child = subprocess.Popen(arguments, cwd=self.root, env=env, stdout=out, stderr=err,
@@ -305,6 +307,9 @@ class RuntimeManager:
                       'fusion_session': env['FUSION_SESSION'], 'fusion_channel_enabled': True,
                       'started_at_utc': datetime.now(timezone.utc).isoformat()}
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            if capture_folder:
+                record['capture_directory'] = str(capture_folder)
+                (capture_folder / 'runtime.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
             temporary = self.state_path.with_suffix('.tmp')
             temporary.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
             temporary.replace(self.state_path)

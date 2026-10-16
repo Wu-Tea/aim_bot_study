@@ -430,6 +430,7 @@ VisionResult VisionEngine::poll_once() {
         result.external_cue_y = batch.external_cue_y;
         result.external_cue_score = batch.external_cue_score;
         result.preprocess_ms = batch.preprocess_ms;
+        result.inference_trace = batch.inference_trace;
         result.infer_ms = batch.infer_ms;
         result.enqueue_cpu_ms = batch.enqueue_cpu_ms;
         result.output_copy_sync_ms = batch.output_copy_sync_ms;

@@ -3,6 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from desktop_app.web_service import WorkspaceService
 from desktop_app.runtime import RuntimeManager
 from project_paths import PROJECT_ROOT
@@ -54,6 +55,23 @@ class WebServiceTests(unittest.TestCase):
         result=self.service.dispatch(command,p)
         self.assertTrue(result['ok'],result.get('error'))
         return result['data']
+
+    def test_capture_is_global_immediate_and_requires_stopped_assistant(self):
+        before = deepcopy(self.profile)
+        self.assertEqual(self.call('status')['capture']['state'], 'off')
+        with patch('desktop_app.web_service.set_capture_enabled') as setter:
+            self.call('capture', {'enabled': True})
+            setter.assert_called_once_with(Path(self.temp.name).resolve(), True)
+            setter.reset_mock()
+            self.runtime.record = {'process_id': 123}
+            result = self.service.dispatch('capture', {'enabled': False})
+            self.assertFalse(result['ok'])
+            self.assertIn('先停止助手', result['error'])
+            setter.assert_not_called()
+            self.runtime.record = None
+            self.assertFalse(self.service.dispatch('capture', {'enabled': 'false'})['ok'])
+            setter.assert_not_called()
+        self.assertEqual(self.profile, before)
 
     def test_crud_independent_drafts_and_conflict(self):
         p=deepcopy(self.profile);p['values']['gamepad.assist.input_deadzone']=0

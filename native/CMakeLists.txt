@@ -104,6 +104,11 @@ endfunction()
 
 add_subdirectory(vision_native)
 
+add_executable(vision_preprocess_equivalence_tests EXCLUDE_FROM_ALL
+    vision_native/src/preprocess_equivalence_tests.cpp)
+cod_native_defaults(vision_preprocess_equivalence_tests)
+target_link_libraries(vision_preprocess_equivalence_tests PRIVATE vision_native_core)
+
 add_library(fusion_shared STATIC
     shared_fusion/fusion_channel.cpp
     shared_fusion/fusion_channel.h)
@@ -165,6 +170,11 @@ add_executable(vision_contention_benchmark EXCLUDE_FROM_ALL
     vision_native/src/vision_contention_benchmark.cpp runtime_app/runtime_timing.cpp)
 cod_native_defaults(vision_contention_benchmark)
 target_link_libraries(vision_contention_benchmark PRIVATE vision_native_core winmm)
+
+add_executable(vision_cue_video_review EXCLUDE_FROM_ALL
+    vision_native/src/cue_video_review.cpp)
+cod_native_defaults(vision_cue_video_review)
+target_link_libraries(vision_cue_video_review PRIVATE vision_native_core)
 
 include(mouse_native/mouse_targets.cmake)
 

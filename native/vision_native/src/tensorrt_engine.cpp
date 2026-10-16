@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -43,6 +44,30 @@ uint64_t now_ns() {
             .count());
 }
 
+struct FrameTexture {
+    cudaTextureObject_t value = 0;
+    cudaStream_t stream;
+    explicit FrameTexture(cudaStream_t s) : stream(s) {}
+    FrameTexture(const FrameTexture&) = delete;
+    FrameTexture& operator=(const FrameTexture&) = delete;
+    ~FrameTexture() {
+        if(value){ // Exception cleanup must not destroy an in-flight resource.
+            (void)cudaStreamSynchronize(stream);
+            (void)cudaDestroyTextureObject(value);
+        }
+    }
+    void create(cudaArray_t source) {
+        cudaResourceDesc resource{};resource.resType=cudaResourceTypeArray;resource.res.array.array=source;
+        cudaTextureDesc texture{};texture.filterMode=cudaFilterModePoint;
+        texture.readMode=cudaReadModeElementType;texture.normalizedCoords=0;
+        texture.addressMode[0]=texture.addressMode[1]=cudaAddressModeClamp;
+        check_cuda(cudaCreateTextureObject(&value,&resource,&texture,nullptr),"create input texture");
+    }
+    void completed() {
+        if(value){check_cuda(cudaDestroyTextureObject(value),"destroy input texture");value=0;}
+    }
+};
+
 size_t volume(nvinfer1::Dims const& dims) {
     if (dims.nbDims <= 0) {
         return 0;
@@ -70,11 +95,14 @@ TensorRTEngine::TensorRTEngine(
     std::string engine_path,
     TensorRTEngineOptions options)
     : options_(options) {
+    const char* trace = std::getenv("AIMLAB_LIVE_TRACE_DIR");
+    detailed_trace_ = trace && *trace;
     load_engine(engine_path);
     allocate_buffers();
 }
 
 TensorRTEngine::~TensorRTEngine() {
+    if (array_copy_end_event_) cudaEventDestroy(array_copy_end_event_);
     if (cuda_graph_exec_ != nullptr) {
         cudaGraphExecDestroy(cuda_graph_exec_);
     }
@@ -268,6 +296,7 @@ void TensorRTEngine::enqueue_inference(cudaStream_t stream) {
 }
 
 void TensorRTEngine::allocate_timing_events() {
+    if (detailed_trace_) check_cuda(cudaEventCreate(&array_copy_end_event_), "cudaEventCreate array_copy_end");
     check_cuda(cudaEventCreate(&preprocess_start_event_), "cudaEventCreate preprocess_start");
     check_cuda(cudaEventCreate(&preprocess_end_event_), "cudaEventCreate preprocess_end");
     check_cuda(cudaEventCreate(&infer_start_event_), "cudaEventCreate infer_start");
@@ -276,7 +305,8 @@ void TensorRTEngine::allocate_timing_events() {
     // The output event is the final operation before CPU decoding. Sleeping
     // until it completes avoids spending a CPU core polling GPU progress.
     // Timing remains enabled for the existing transfer diagnostics.
-    check_cuda(cudaEventCreateWithFlags(&output_copy_end_event_, cudaEventBlockingSync),
+    check_cuda(cudaEventCreateWithFlags(&output_copy_end_event_,
+        options_.blocking_output_wait ? cudaEventBlockingSync : cudaEventDefault),
         "cudaEventCreateWithFlags output_copy_end");
 }
 
@@ -345,13 +375,17 @@ DetectionBatch TensorRTEngine::infer_rgb(
     const uint64_t enqueue_end = now_ns();
     batch.enqueue_cpu_ms = static_cast<float>(enqueue_end - enqueue_start) / 1'000'000.0f;
     check_cuda(cudaEventRecord(infer_end_event_, stream), "cudaEventRecord infer_end");
+    if (batch.inference_trace.enabled) batch.inference_trace.submit_end_ns = now_ns();
     const uint64_t output_copy_start = now_ns();
+    if (batch.inference_trace.enabled) batch.inference_trace.output_submit_begin_ns = output_copy_start;
     check_cuda(cudaEventRecord(output_copy_start_event_, stream), "cudaEventRecord output_copy_start");
     check_cuda(
         cudaMemcpyAsync(host_output_, device_output_, output_element_count_ * sizeof(float), cudaMemcpyDeviceToHost, stream),
         "cudaMemcpyAsync output");
     check_cuda(cudaEventRecord(output_copy_end_event_, stream), "cudaEventRecord output_copy_end");
+    if (batch.inference_trace.enabled) batch.inference_trace.wait_begin_ns = now_ns();
     check_cuda(cudaEventSynchronize(output_copy_end_event_), "cudaEventSynchronize output_copy_end");
+    if (batch.inference_trace.enabled) batch.inference_trace.wait_end_ns = now_ns();
     const uint64_t output_copy_end = now_ns();
     batch.output_copy_sync_ms = static_cast<float>(output_copy_end - output_copy_start) / 1'000'000.0f;
 
@@ -360,6 +394,10 @@ DetectionBatch TensorRTEngine::infer_rgb(
     check_cuda(cudaEventElapsedTime(&batch.gpu_total_ms, preprocess_start_event_, infer_end_event_), "cudaEventElapsedTime gpu_total");
     check_cuda(cudaEventElapsedTime(&batch.output_copy_ms, output_copy_start_event_, output_copy_end_event_), "cudaEventElapsedTime output_copy");
     batch.output_wait_ms = std::max(0.0f, batch.output_copy_sync_ms - batch.output_copy_ms);
+    if (batch.inference_trace.enabled) {
+        check_cuda(cudaEventElapsedTime(&batch.inference_trace.array_copy_gpu_ms, preprocess_start_event_, array_copy_end_event_), "array copy timing");
+        check_cuda(cudaEventElapsedTime(&batch.inference_trace.preprocess_kernel_gpu_ms, array_copy_end_event_, preprocess_end_event_), "preprocess kernel timing");
+    }
 
     const uint64_t decode_start = now_ns();
     batch.detections.reserve(static_cast<size_t>(output_rows_));
@@ -435,35 +473,46 @@ DetectionBatch TensorRTEngine::infer_bgra_array_roi(
     batch.captured_at_ns = now_ns();
     batch.frame_width = width;
     batch.frame_height = height;
-    batch.preprocess_mode = PreprocessMode::OldBgraCopy;
+    batch.preprocess_mode = options_.direct_array_preprocess ? PreprocessMode::DirectBgraArray : PreprocessMode::OldBgraCopy;
+    batch.inference_trace.enabled = detailed_trace_;
+    if (detailed_trace_) batch.inference_trace.submit_begin_ns = now_ns();
 
     const int row_pitch = width * 4;
     const size_t frame_bytes = static_cast<size_t>(row_pitch) * static_cast<size_t>(height);
-    ensure_frame_buffer(frame_bytes);
+    if (!options_.direct_array_preprocess) ensure_frame_buffer(frame_bytes);
 
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+    FrameTexture texture(stream);
+    if(options_.direct_array_preprocess) texture.create(frame_bgra);
     check_cuda(cudaEventRecord(preprocess_start_event_, stream), "cudaEventRecord preprocess_start");
-    check_cuda(
-        cudaMemcpy2DFromArrayAsync(
-            device_frame_,
-            static_cast<size_t>(row_pitch),
-            frame_bgra,
-            static_cast<size_t>(roi_left) * 4,
-            static_cast<size_t>(roi_top),
-            static_cast<size_t>(row_pitch),
-            static_cast<size_t>(height),
-            cudaMemcpyDeviceToDevice,
-            stream),
-        "cudaMemcpy2DFromArrayAsync frame");
-    launch_bgra_hwc_to_chw_float(
-        static_cast<const uint8_t*>(device_frame_),
-        width,
-        height,
-        row_pitch,
-        input_width_,
-        input_height_,
-        device_input_,
-        stream);
+    if(options_.direct_array_preprocess){
+        if (detailed_trace_) check_cuda(cudaEventRecord(array_copy_end_event_, stream), "cudaEventRecord array_copy_end");
+        launch_bgra_texture_to_chw_float(texture.value,roi_left,roi_top,width,height,
+            input_width_,input_height_,device_input_,stream);
+    } else {
+        check_cuda(
+            cudaMemcpy2DFromArrayAsync(
+                device_frame_,
+                static_cast<size_t>(row_pitch),
+                frame_bgra,
+                static_cast<size_t>(roi_left) * 4,
+                static_cast<size_t>(roi_top),
+                static_cast<size_t>(row_pitch),
+                static_cast<size_t>(height),
+                cudaMemcpyDeviceToDevice,
+                stream),
+            "cudaMemcpy2DFromArrayAsync frame");
+        if (detailed_trace_) check_cuda(cudaEventRecord(array_copy_end_event_, stream), "cudaEventRecord array_copy_end");
+        launch_bgra_hwc_to_chw_float(
+            static_cast<const uint8_t*>(device_frame_),
+            width,
+            height,
+            row_pitch,
+            input_width_,
+            input_height_,
+            device_input_,
+            stream);
+    }
     check_cuda(cudaGetLastError(), "launch_bgra_hwc_to_chw_float");
     check_cuda(cudaEventRecord(preprocess_end_event_, stream), "cudaEventRecord preprocess_end");
 
@@ -477,13 +526,17 @@ DetectionBatch TensorRTEngine::infer_bgra_array_roi(
     const uint64_t enqueue_end = now_ns();
     batch.enqueue_cpu_ms = static_cast<float>(enqueue_end - enqueue_start) / 1'000'000.0f;
     check_cuda(cudaEventRecord(infer_end_event_, stream), "cudaEventRecord infer_end");
+    if (batch.inference_trace.enabled) batch.inference_trace.submit_end_ns = now_ns();
     const uint64_t output_copy_start = now_ns();
+    if (batch.inference_trace.enabled) batch.inference_trace.output_submit_begin_ns = output_copy_start;
     check_cuda(cudaEventRecord(output_copy_start_event_, stream), "cudaEventRecord output_copy_start");
     check_cuda(
         cudaMemcpyAsync(host_output_, device_output_, output_element_count_ * sizeof(float), cudaMemcpyDeviceToHost, stream),
         "cudaMemcpyAsync output");
     check_cuda(cudaEventRecord(output_copy_end_event_, stream), "cudaEventRecord output_copy_end");
+    if (batch.inference_trace.enabled) batch.inference_trace.wait_begin_ns = now_ns();
     check_cuda(cudaEventSynchronize(output_copy_end_event_), "cudaEventSynchronize output_copy_end");
+    if (batch.inference_trace.enabled) batch.inference_trace.wait_end_ns = now_ns();
     const uint64_t output_copy_end = now_ns();
     batch.output_copy_sync_ms = static_cast<float>(output_copy_end - output_copy_start) / 1'000'000.0f;
 
@@ -492,7 +545,16 @@ DetectionBatch TensorRTEngine::infer_bgra_array_roi(
     check_cuda(cudaEventElapsedTime(&batch.gpu_total_ms, preprocess_start_event_, infer_end_event_), "cudaEventElapsedTime gpu_total");
     check_cuda(cudaEventElapsedTime(&batch.output_copy_ms, output_copy_start_event_, output_copy_end_event_), "cudaEventElapsedTime output_copy");
     batch.output_wait_ms = std::max(0.0f, batch.output_copy_sync_ms - batch.output_copy_ms);
+    if (batch.inference_trace.enabled) {
+        check_cuda(cudaEventElapsedTime(&batch.inference_trace.array_copy_gpu_ms, preprocess_start_event_, array_copy_end_event_), "array copy timing");
+        check_cuda(cudaEventElapsedTime(&batch.inference_trace.preprocess_kernel_gpu_ms, array_copy_end_event_, preprocess_end_event_), "preprocess kernel timing");
+        if(options_.direct_array_preprocess){
+            batch.inference_trace.array_copy_gpu_ms=0;
+            batch.inference_trace.preprocess_kernel_gpu_ms=batch.preprocess_ms;
+        }
+    }
 
+    texture.completed(); // Output event has completed; release before D3D unmaps the array.
     const uint64_t decode_start = now_ns();
     batch.detections.reserve(static_cast<size_t>(output_rows_));
     const float scale_x = static_cast<float>(width) / static_cast<float>(input_width_);

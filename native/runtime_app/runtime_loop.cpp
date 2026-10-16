@@ -41,6 +41,7 @@ RuntimeTelemetryOptions telemetry_options_from(
     const std::filesystem::path& session_directory) {
     RuntimeTelemetryOptions options;
     options.enabled = config.telemetry.enabled;
+    options.preserve_on_lock_contention = std::getenv("AIMLAB_DIAGNOSTIC_SESSION_DIR") != nullptr;
     options.directory = session_directory.empty()
         ? std::filesystem::path(config.telemetry.directory)
         : session_directory;
@@ -482,9 +483,16 @@ int RuntimeLoop::run() {
         vision_service_->stop();
     }
     perf_summary_logger_.stop();
-    if (live_trace_) live_trace_->stop();
     telemetry_collectors_.shutdown(steady_time_point_ns(std::chrono::steady_clock::now()));
     telemetry_.stop();
+    if(live_trace_){
+        const auto c=telemetry_.counters();
+        std::ofstream out(live_trace_->directory()/"telemetry-completion.json");
+        out<<"{\"accepted\":"<<c.accepted_records<<",\"serialized\":"<<c.serialized_records
+           <<",\"dropped_normal\":"<<c.dropped_normal_records<<",\"dropped_critical\":"<<c.dropped_critical_records
+           <<",\"writer_failures\":"<<c.writer_failures<<",\"queue_high_watermark\":"<<c.queue_high_watermark<<"}\n";
+        live_trace_->stop();
+    }
     log_session_manager_.close();
     if (failure) std::rethrow_exception(failure);
     return 0;
@@ -553,6 +561,7 @@ void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
         trace->input_sequence = input_sample.sequence;
         trace->input_scope = input_sample.scope_revision;
         trace->physical_read_ns = steady_time_point_ns(input_sample.read_at);
+        trace->tick_begin_ns = trace_now_ns();
     }
     if (input_sample.scope_revision > last_input_scope_revision_ + 1) {
         // Record the causal reset before it erases the previous controller ID.
@@ -754,6 +763,15 @@ void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
         trace->aiming = aiming;
         trace->left_trigger = physical.left_trigger;
         trace->right_trigger = physical.right_trigger;
+        trace->physical_lx=physical.left_x;trace->physical_ly=physical.left_y;
+        trace->physical_rx=physical.right_x;trace->physical_ry=physical.right_y;
+        trace->physical_buttons=trace_buttons(physical);trace->physical_connected=physical.connected;
+        trace->touch0_active=physical.touchpad_fingers[0].active;trace->touch0_x=physical.touchpad_fingers[0].x;trace->touch0_y=physical.touchpad_fingers[0].y;
+        trace->touch1_active=physical.touchpad_fingers[1].active;trace->touch1_x=physical.touchpad_fingers[1].x;trace->touch1_y=physical.touchpad_fingers[1].y;
+        trace->output_lx=output.left_x;trace->output_ly=output.left_y;trace->output_rx=output.right_x;trace->output_ry=output.right_y;
+        trace->output_lt=output.left_trigger;trace->output_rt=output.right_trigger;trace->output_buttons=trace_buttons(output);
+        trace->delivered_rx=output_result.delivered_right_x;trace->delivered_ry=output_result.delivered_right_y;
+        trace->output_error=output_result.error_code;trace->output_reconnect_count=output_result.reconnect_count;
         trace->output_enabled = config_.output.enabled;
         trace->output_delivered = output_result.delivered;
         trace->relay_accepted = receipt.request_accepted;
@@ -763,7 +781,6 @@ void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
         trace->device_begin_ns = receipt.device_begin_ns;
         trace->device_end_ns = receipt.device_end_ns;
         trace->visual_expired = visual_expired;
-        live_trace_->controller(*trace);
     }
     // Everything below is observation, diagnostics, or future-frame setup.
     // It must never delay the output calculated from a newly consumed result.
@@ -828,6 +845,14 @@ void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
         {tick_started, controller_pipeline_started, vigem_update_started,
          vigem_update_finished, physical_read_at_ns},
         aiming, assist_aiming, fresh_vision ? &viewport_observation : nullptr);
+    if(trace){
+        trace->tick_end_ns=trace_now_ns();
+        const auto counters=telemetry_.counters();
+        trace->telemetry_accepted=counters.accepted_records;
+        trace->telemetry_dropped=counters.dropped_normal_records+counters.dropped_critical_records;
+        trace->telemetry_failed=counters.writer_failures;
+        live_trace_->controller(*trace);
+    }
 }
 
 controller_native::PhysicalGamepadState RuntimeLoop::read_physical_gamepad() {

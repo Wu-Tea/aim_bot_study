@@ -14,6 +14,7 @@
 #include <atomic>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include "controller_native/bodylock_feedback_geometry.h"
@@ -127,9 +128,18 @@ void populate_build_metadata(controller_native::RuntimeConfig& config) {
 #endif
 }
 
-void dump_effective_config(const controller_native::RuntimeConfig& config) {
-    auto line = [&config](const char* key, const auto& value) {
-        std::cout << key << '=' << value << " source=" << config.effective_source(key) << '\n';
+void apply_diagnostic_session(controller_native::RuntimeConfig& config) {
+    const char* dir=std::getenv("AIMLAB_DIAGNOSTIC_SESSION_DIR");
+    if(!dir || !*dir) return;
+    config.telemetry.enabled=true;
+    config.telemetry.directory=(std::filesystem::path(dir)/"telemetry").string();
+    config.effective_sources["runtime.telemetry.enabled"]="diagnostic-session";
+    config.effective_sources["runtime.telemetry.directory"]="diagnostic-session";
+}
+
+void dump_effective_config(const controller_native::RuntimeConfig& config, std::ostream& out=std::cout) {
+    auto line = [&config,&out](const char* key, const auto& value) {
+        out << key << '=' << value << " source=" << config.effective_source(key) << '\n';
     };
     line("runtime.profile", config.profile);
     line("runtime.game", config.game);
@@ -497,6 +507,7 @@ int main(int argc, char** argv) {
                 options.config_path,
                 options.profile.value_or(std::string{}), options.game);
         apply_cli_overrides(options, config);
+        apply_diagnostic_session(config);
         // Read the physical backend without creating virtual output or vision.
         if (options.probe_input) return runtime_app::probe_physical_input(config.gamepad);
         populate_build_metadata(config);
@@ -507,6 +518,13 @@ int main(int argc, char** argv) {
             return 0;
         }
         const bool perf_log = options.perf_log || config.vision.perf_log;
+        if(const char* dir=std::getenv("AIMLAB_DIAGNOSTIC_SESSION_DIR");dir && *dir){
+            std::filesystem::create_directories(dir);
+            std::ofstream effective(std::filesystem::path(dir)/"effective-config.txt");
+            dump_effective_config(config,effective);
+            effective<<"# effective-config complete\n";
+            if(!effective)throw std::runtime_error("cannot save diagnostic effective config");
+        }
         print_startup_summary(options, config);
 
         runtime_app::HighResolutionTimerPeriod timer_period(1u);
@@ -532,6 +550,7 @@ int main(int argc, char** argv) {
             auto next = controller_native::load_runtime_config(options.config_path,
                 options.profile.value_or(std::string{}), options.game);
             apply_cli_overrides(options, next);
+            apply_diagnostic_session(next);
             return next;
         });
         loop.attach_control_bridge(&control_bridge);
