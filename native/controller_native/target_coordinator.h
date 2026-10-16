@@ -11,7 +11,8 @@ namespace controller_native {
 
 struct TargetCoordinatorConfig {
     float max_observation_age_ms = 50.0f;
-    // Explicit gamepad miss policy; adapters retain immediate release.
+    // Prediction horizon for same-generation gamepad misses. Identity uses
+    // max_observation_age_ms; zero keeps the adapters' immediate-miss policy.
     float missing_observation_grace_ms = 0.0f;
     float association_radius_px = 80.0f;
     float settle_radius_px = 8.0f;
