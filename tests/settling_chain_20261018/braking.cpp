@@ -96,7 +96,7 @@ void simulations(unsigned seed,const std::string& directory) {
         float late_peak=0,post_handoff_peak=0;double late_squared=0;
         auto previous_mode=ControlMode::Manual;
         std::ofstream trace;
-        if(duration==2000 && scenario<2) {
+        if(duration==2000 && (scenario<2 || scenario==8)) {
             trace.open(directory+"/trace-"+std::to_string(seed)+"-"+std::to_string(scenario)+".csv");
             trace<<"tick,error_x,error_y,output_x,output_y,mode,authority,source_age_ms,manual_exit,source_error_x,source_error_y,target_motion_x,target_motion_y,response,request_x,request_y\n";
         }

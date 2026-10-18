@@ -141,7 +141,7 @@ D:\env\python\python.exe -m desktop_app.test_desktop -m unittest test_desktop_we
 | `gamepad.bodylock.response_time_y_ms` | 5～1000ms | 纵向响应时间 |
 | `gamepad.assist.hipfire_ratio` | 0～100% | 腰射辅助保留比例 |
 | `gamepad.recoil.output_amount` | 0～100% | 开镜压枪输出 |
-| `gamepad.assist.input_deadzone` | 0～100% | AI 输入死区 |
+| `gamepad.assist.input_deadzone` | 0～100% | AI 观测降噪；保留旧键名，按响应与捕获间隔换算位置噪声尺度 |
 | `runtime.vision.capture_fps` | 1～1000 | 检测帧率 |
 | `runtime.vision.idle_capture_fps` | 1～240 | 空闲检测帧率 |
 | `runtime.vision.capture_width` | 32～8192 | 捕获宽度 |
@@ -185,7 +185,7 @@ COD 复现与修复补充：11:06 会话 `20261006T030616Z_30968_1` 确认持续
 
 ## 2026-10-06 最终收尾与连续跟随
 
-低速参考是追赶阶段的参考量，不再覆盖近点刹车。求解器保留按实际抓取范围缩放的预算，在实际瞄点附近叠加连续收尾与名义 25 ms 刹车预算；可信移动补偿独立保留。`gamepad.assist.arrival_radius_px` 的界面名称改为“近点收尾半径”，它作为连续收尾尺度，同时仍用于 ADS 完成判断。进入半径不会让 BodyLock 突然把位置任务归零。输入死区仍按配置逐轴过滤，未引入隐藏最小输出。
+低速参考是追赶阶段的参考量，不再覆盖近点刹车。求解器保留按实际抓取范围缩放的预算，在实际瞄点附近叠加连续收尾与名义 25 ms 刹车预算；可信移动补偿独立保留。`gamepad.assist.arrival_radius_px` 的界面名称改为“近点收尾半径”，它作为连续收尾尺度，同时仍用于 ADS 完成判断。进入半径不会让 BodyLock 突然把位置任务归零。该次实现保留逐轴输入死区；2026-10-18 后由观测降噪取代末端清零，见 [3% 过滤职责修复](EVIDENCE_NOISE_20261018.md)。
 
 速度估计用最多五个有效视觉观测间隔、最长 25 ms 的镜头补偿后位移累计，替代三次瞬时速度中值。没有新增光流、固定 10 帧预测后 2 帧或归零延时。原生与 Python 静态线性预览通过 v3 协议的 864 组样例对照。
 

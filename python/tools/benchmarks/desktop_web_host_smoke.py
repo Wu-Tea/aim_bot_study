@@ -93,7 +93,11 @@ def main():
                 window.evaluate_js('document.dispatchEvent(new KeyboardEvent("keydown",{key:"s",ctrlKey:true,bubbles:true}))')
                 deadline=time.monotonic()+10
                 while time.monotonic()<deadline:
-                    saved=service.repo.entries()[0]['config'].get('gamepad',{}).get('detection_haptics',{})
+                    # Save is asynchronous. A directory scan can overlap the
+                    # profile replacement; inspect the completed snapshot in
+                    # this existing wait instead of indexing a transient list.
+                    entries=service.repo.entries()
+                    saved=entries[0]['config'].get('gamepad',{}).get('detection_haptics',{}) if entries else {}
                     if saved.get('enabled') is True and abs(saved.get('strength',0)-.42)<1e-6:break
                     time.sleep(.1)
                 else:raise RuntimeError('WebView2 haptics controls did not persist: '+str(saved))

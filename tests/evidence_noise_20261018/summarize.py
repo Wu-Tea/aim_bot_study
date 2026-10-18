@@ -26,7 +26,8 @@ def compare(before, after, seeds, prefix):
             pairs.append({'before': a, 'after': b})
     metrics = (['mean_error', 'mean_late_error', 'within_4_fraction', 'center_crossings',
                 'late_peak', 'late_rms', 'handoffs', 'first_2_ms', 'first_stable_4_ms']
-               if prefix == 'seed' else ['late_mean', 'late_rms', 'peak', 'within_half', 'delivered_work', 'handoffs'])
+               if prefix == 'seed' else ['late_mean', 'late_rms', 'peak', 'within_half', 'delivered_work', 'handoffs',
+                                        'raw_measurement_rms', 'control_measurement_rms'])
     groups = []
     for kind in range(5):
         rows = [p for p in pairs if int(p['after']['kind']) == kind]
@@ -53,6 +54,21 @@ result['ablation'] = {prefix: compare('development-off', 'development-accepted',
 result['cases_per_revision'] = 400
 result['ticks_per_revision'] = 4_400_000
 (root / 'results.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+legacy = []
+for seeds, before, after in [(development, 'legacy-before', 'legacy-dev'),
+                             (independent, 'legacy-independent-before', 'legacy-independent-dev')]:
+    for seed in seeds:
+        old, new = read(before, 'seed', seed), read(after, 'seed', seed)
+        assert len(old) == len(new) == 64
+        for a, b in zip(old, new):
+            assert all(a[k] == b[k] for k in ['seed', 'case', 'duration_ms'])
+            legacy.append({'before': a, 'after': b})
+legacy_groups = []
+for cue in ['0', '1']:
+    rows = [p for p in legacy if p['after']['kind'] == '1' and p['after']['enemy_evidence'] == cue]
+    legacy_groups.append({'enemy_evidence': cue, 'cases': len(rows), 'late_error': {
+        side: st.mean(float(p[side]['mean_late_error']) for p in rows) for side in ['before', 'after']}})
+(root / 'legacy-results.json').write_text(json.dumps({'moving_groups': legacy_groups, 'per_case': legacy}, indent=2))
 for phase in ['development', 'independent', 'ablation']:
     print(phase)
     for prefix in ['seed', 'focused']:
