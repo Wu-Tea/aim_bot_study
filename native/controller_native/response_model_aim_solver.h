@@ -68,13 +68,6 @@ struct ResponseModelAimOutput {
         ResponseModelConstraintReason::None;
 };
 
-// AI-only input boundary. No rescaling, hysteresis, or manual/recoil state.
-inline pipeline_contract::Vec2f filter_ai_input(pipeline_contract::Vec2f value, float deadzone) noexcept {
-    if (std::fabs(value.x) <= deadzone) value.x = 0.0f;
-    if (std::fabs(value.y) <= deadzone) value.y = 0.0f;
-    return value;
-}
-
 ResponseModelAimOutput solve_response_model_aim(
     const ResponseModelAimRequest& request) noexcept;
 

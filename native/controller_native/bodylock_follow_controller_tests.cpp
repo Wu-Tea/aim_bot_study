@@ -413,7 +413,7 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
             if (capture_tick < 0) continue;
             plan.source_capture_age_ms = static_cast<float>(tick-capture_tick);
             const auto request = controller.compute(plan);
-            const auto value = filter_ai_input(shaper.shape(request, plan, .001f), .03f);
+            const auto value = shaper.shape(request, plan, .001f);
             const float quantizer = value.x >= 0 ? 127.f : 128.f;
             outputs[tick] = std::round(value.x * quantizer) / quantizer;
             require_true(std::isfinite(outputs[tick]) && std::abs(outputs[tick]) <= .305f,
@@ -503,7 +503,7 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
         request.position_range_px=300;const float wider=solve_response_model_aim(request).stick.x;
         require_true(std::abs(wider/near-std::sqrt(.5f))<1e-5f,"real range changes must reach the solver");
     });
-    registry.add_case("BaseBodyLock","bounded_position_and_ai_deadzone_boundaries", [] {
+    registry.add_case("BaseBodyLock","bounded_position_and_disabled_axis_boundaries", [] {
         controller_native::ResponseModelAimRequest request;
         request.response_curve.algorithm=controller_native::AimResponseCurveAlgorithm::Linear;
         request.range_position_response=true;request.position_range_px=150.f;request.arrival_horizon_seconds=.08f;
@@ -516,15 +516,6 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
         const auto disabled=controller_native::solve_response_model_aim(request);
         require_true(disabled.stick.x==0 && near(disabled.stick.y,-.025f),
             "disabled horizontal axis must not attenuate the vertical position response");
-        for(float sign : {-1.f,1.f}) {
-            for(float value : {0.f,.029f,.03f,.030001f,.3f,1.f}) {
-                const auto input=pipeline_contract::Vec2f{sign*value,-sign*.2f};
-                const auto actual=controller_native::filter_ai_input(input,.03f);
-                require_true(actual.x==(value<=.03f ? 0.f : input.x) && actual.y==input.y,
-                    "threshold is inclusive per axis and does not stretch surviving input");
-                require_true(controller_native::filter_ai_input(input,0).x==input.x,"zero disables filtering");
-            }
-        }
         controller_native::AdsAcquisitionControllerConfig ads;
         ads.range_position_response=true;ads.arrival_horizon_seconds=.08f;ads.force_headroom=1;
         ads.response_curve.algorithm=controller_native::AimResponseCurveAlgorithm::Linear;
@@ -555,9 +546,8 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
                 request.range_position_response=true;request.position_range_px=250.f;request.minimum_position_stick=.10f+.05f*(scenario%3);request.arrival_radius_px=2;request.arrival_horizon_seconds=time;request.max_force={cap,cap};
                 for(int tick=0;tick<ticks;++tick) {
                     request.error_px={error+(unit(rng)*2-1)*noise,0};
-                    const auto aim=controller_native::filter_ai_input(controller_native::solve_response_model_aim(request).stick,.03f);
-                    require_true(std::isfinite(aim.x) && std::abs(aim.x)<=cap+1e-6f &&
-                        (aim.x==0 || std::abs(aim.x)>.03f),"random delayed plant obeys caps and deadzone");
+                    const auto aim=controller_native::solve_response_model_aim(request).stick;
+                    require_true(std::isfinite(aim.x) && std::abs(aim.x)<=cap+1e-6f,"random delayed plant obeys the force envelope");
                     require_true(aim.x*request.error_px.x>=0,
                         "continuous position approach cannot push away from the observed point");
                     const int slot=tick%history.size();const float delivered=history[slot];history[slot]=aim.x;

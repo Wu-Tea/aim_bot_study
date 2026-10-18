@@ -49,6 +49,8 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
         ? "bodylock_delay_aware_velocity" : "bodylock_response_model";
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
+    request.error_px.x += plan.measurement_error_offset_px.x;
+    request.error_px.y += plan.measurement_error_offset_px.y;
     request.position_stopping_reserve_px = plan.position_stopping_reserve_px;
     request.point_tolerance_px = config_.bodylock_point_tolerance_px;
     request.relative_velocity_px_per_sec = result.error_rate_px_per_sec;

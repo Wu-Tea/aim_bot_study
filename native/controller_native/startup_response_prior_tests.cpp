@@ -859,7 +859,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
 
     });
 
-    registry.add_case("BaseBodyLock","ai_deadzone_hot_reload_preserves_manual_and_recoil", [] {
+    registry.add_case("BaseBodyLock","evidence_noise_hot_reload_preserves_manual_and_recoil", [] {
         GamepadRuntimeConfig config;
         config.ai_aim.normalized_assist_parameters=true;
         config.ai_aim.arrival_radius_px=1;
@@ -884,19 +884,20 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         for(unsigned frame=1;frame<=3;++frame)tick(frame,0);
         const auto output=tick(4,1.5f);
         require(controller.last_output_components().requested_assist_stick.x>0 &&
-            controller.last_output_components().shaped_assist_stick.x==0,
-            "small real native AI request is filtered at the input boundary");
-        require(output.right_x==physical.right_x && output.right_y==physical.right_y,
-            "AI filtering must preserve tiny physical input exactly while aiming");
+            controller.last_output_components().shaped_assist_stick.x>0,
+            "credible position correction must survive at a small amplitude");
+        require(controller.last_output_components().physical_stick.x==physical.right_x &&
+            controller.last_output_components().physical_stick.y==physical.right_y,
+            "measurement noise handling cannot edit physical input");
         const auto identity=controller.last_target_plan().target_id;
         config.ai_aim.ai_input_deadzone=0;controller.apply_hot_config(config,true);tick(5,1.5f);
         require(controller.last_output_components().shaped_assist_stick.x>0,
-            "zero deadzone immediately admits the same request");
+            "disabling evidence correction does not erase the request");
         config.ai_aim.ai_input_deadzone=1;controller.apply_hot_config(config,true);
         physical.right_trigger=1;
         const auto firing=tick(6,1.5f);
-        require(std::abs(firing.right_y-(physical.right_y-.2f))<1e-6f,
-            "independent recoil bypasses AI deadzone");
+        require(std::abs(firing.right_y-(controller.last_output_components().before_recoil_stick.y-.2f))<1e-6f,
+            "independent recoil remains separate from measurement noise handling");
         require(controller.last_target_plan().target_id==identity,"filter changes cannot discard identity");
     });
     registry.add_case("BaseBodyLock","independent_parameters_hot_apply_keeps_identity", [] {
@@ -929,9 +930,16 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         config.ai_aim.bodylock_output_limit_x=.2f;
         controller.apply_hot_config(config,true);
         require(std::abs(tick(5,1.5f)-before)<1e-5f,"hot limit change must leave unsaturated position demand alone");
+        // Compare the same capture and delivered history. A nonzero fine
+        // correction now reaches the actuator, so a later tick is not the
+        // same physical state as the pre-reload tick.
+        auto unchanged=controller;
+        unchanged.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,6,now,1.5f,0));
+        unchanged.build_output(incident_fixture::ads_input());
+        const float same_capture=unchanged.last_output_components().bodylock_position_stick.x;
         config.ai_aim.bodylock_response_time_x_ms=100;
         controller.apply_hot_config(config,true);
-        require(std::abs(tick(6,1.5f)-before*2)<1e-5f,"hot response time must change actual native demand");
+        require(std::abs(tick(6,1.5f)-same_capture*2)<1e-5f,"hot response time must change actual native demand");
         require(controller.last_target_plan().target_id==identity &&
             controller.last_target_plan().mode==pipeline_contract::ControlMode::BodyLockFollow,
             "hot control updates must preserve selected identity and lifecycle");

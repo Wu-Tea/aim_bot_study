@@ -351,6 +351,7 @@ std::array<AimResponseEstimate, 4> NativeGamepadController::learning_snapshot() 
 }
 
 void NativeGamepadController::clear_learning() noexcept {
+    capture_evidence_.reset();
     camera_alignment_.reset();
     aim_response_effect_delay_seconds_=std::clamp(config_.ai_aim.aim_response_effect_delay_ms,0.f,30.f)*.001;
     aim_response_estimator_.reset();
@@ -1106,10 +1107,19 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                             &delivered,&tracking,&ambiguous);
                     }
                 }
+                auto measured_rate=pipeline_contract::Vec2f{
+                    float((current.x-previous.x)/motion_interval),float((current.y-previous.y)/motion_interval)};
+                if(canonical_gamepad) {
+                    const float camera_scale=plan.response_scale*float(motion_interval);
+                    capture_evidence_.align_interval(motion_anchor.capture_seconds);
+                    capture_evidence_.update(plan.target_id,plan.cue_continuation,pixel_pair,
+                        capture_seconds,source_error_px,
+                        {-tracking.x*camera_scale,tracking.y*camera_scale},
+                        plan.response_scale,config_.ai_aim.ai_input_deadzone);
+                }
                 bodylock_target_motion_observer_.update({
                     plan.target_id, capture_seconds, static_cast<float>(motion_interval),
-                    {static_cast<float>((current.x-previous.x)/motion_interval),
-                     static_cast<float>((current.y-previous.y)/motion_interval)},
+                    measured_rate,
                     tracking, plan.response_scale, plan.reliability, plan.direct_person_observation, plan.current_cue_observation});
             }
         }
@@ -1122,6 +1132,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     }
     if (plan.target_id == 0 ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
+        capture_evidence_.reset();
         bodylock_target_motion_observer_.reset();
         motion_observation_anchor_ = {};
         nonfiring_pov_motion_snapshot_ = {};
@@ -1238,6 +1249,13 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             };
         }
     }
+    if(canonical_gamepad && !plan.observation_gap && plan.source_capture_age_ms<=32.f) {
+        const auto evidence=capture_evidence_.at(plan.target_id,now-plan.source_capture_age_ms*.001);
+        plan.measurement_error_offset_px=evidence.position_offset;
+        plan.measurement_rate_offset_px_per_sec=evidence.position_rate_offset;
+    }
+    components.control_error_px={plan.error_px.x+plan.measurement_error_offset_px.x,
+                                 plan.error_px.y+plan.measurement_error_offset_px.y};
     // One stopping coordinate for both modes. Reserve camera work already
     // committed since this capture and the current shaper's decay tail.
     // Identity-only gaps retain zero authority and never enter this solve.
@@ -1303,9 +1321,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             shaped.y *= budget / magnitude;
         }
     }
-    if (config_.ai_aim.normalized_assist_parameters && !config_.ai_aim.adapter_direct_mouse_manual) {
-        shaped = filter_ai_input(shaped, config_.ai_aim.ai_input_deadzone);
-    }
+    // Noise has already been resolved in capture evidence. Do not erase a
+    // qualified position/follow command solely because its amplitude is small.
     components.bodylock_error_rate_px_per_sec = {
         bodylock_diagnostics.error_rate_px_per_sec.x,
         bodylock_diagnostics.error_rate_px_per_sec.y};
@@ -1656,6 +1673,7 @@ bool NativeGamepadController::expire_visual_output(
 }
 
 void NativeGamepadController::invalidate_delivery_history() noexcept {
+    capture_evidence_.reset();
     aim_response_history_begin_ = aim_response_history_count_ = 0;
     camera_alignment_.invalidate_evidence();
     bodylock_target_motion_observer_.reset();

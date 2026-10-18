@@ -373,6 +373,53 @@ void test_firing_does_not_erase_ads_closing_rate() {
 }
 
 void register_response_model_aim_solver_tests(native_test::Registry& registry) {
+    registry.add_case("BaseAds", "capture_noise_preserves_offset_motion_and_time", [] {
+        CaptureEvidenceFilter filter;
+        double raw_energy=0,filtered_energy=0;
+        for(int i=0;i<80;++i) {
+            const float noise=i%2?.3f:-.3f;
+            const auto result=filter.update(1,false,false,10+i*.005,{noise,noise},{},1500,.03f);
+            if(i>8) {raw_energy+=2*noise*noise;filtered_energy+=2*std::pow(noise+result.position_offset.x,2);}
+        }
+        require(filtered_energy<raw_energy*.85,"centered measurement noise must be reduced before solving");
+        filter.reset();
+        for(int i=0;i<40;++i) {
+            // Camera moves +20px/s on screen, target moves -8px/s. The fit
+            // preserves both the small absolute offset and current timestamp.
+            const pipeline_contract::Vec2f point{1.5f+i*.005f*12,-2.f};
+            const auto e=filter.update(7,false,false,20+i*.005,point,{.1f,0},1500,.03f);
+            require_near(e.position_offset.x,0,.0001f,"constant target motion acquired phase lag or a dead band");
+            require_near(e.position_offset.y,0,.0001f,"small static residual was classified as noise");
+        }
+        const auto replaced=filter.update(8,false,false,20.2,{30,-20},{},1500,.03f);
+        require(replaced.position_offset.x==0 && replaced.position_offset.y==0,"new identity inherited old noise history");
+        require(filter.at(7,20.2).position_offset.x==0,"old identity retained evidence");
+        filter.align_interval(21);
+        require(!filter.at(8,20.2).rate_available,"missing delivery interval retained old evidence");
+    });
+    registry.add_case("BaseAds", "credible_small_correction_is_not_output_noise", [] {
+        auto cfg=incident_fixture::base_config(40,190);
+        cfg.ai_aim.normalized_assist_parameters=true;
+        cfg.ai_aim.ai_input_deadzone=.03f;
+        cfg.ai_aim.minimum_position_stick=.5f;
+        cfg.ai_aim.arrival_radius_px=2;
+        cfg.ai_aim.aim_response_learning_enabled=false;
+        cfg.ai_aim.ads_slow_initial_scale=cfg.ai_aim.ads_free_initial_scale=2500;
+        double now=10;NativeGamepadController controller(cfg,&now);
+        incident_fixture::TargetSpec spec;spec.observation_id=1;spec.selector_generation=7;
+        spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        GamepadOutputState output;
+        for(int i=0;i<20;++i) {
+            now=10+i*.005;
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,i+1,now,1.5f,-2.f));
+            output=controller.build_output(incident_fixture::ads_input());
+        }
+        const auto request=controller.last_output_components().requested_assist_stick;
+        require(request.x>0 && request.x<.03f && request.y>0 && request.y<.03f,
+            "fixture must require an already-small correction on both axes");
+        require(output.right_x>0 && output.right_y>0,
+            "credible unsatisfied position was erased solely because output was small");
+    });
     registry.add_case("BaseAds","handoff_keeps_scoped_camera_prior", [] {
         auto cfg=incident_fixture::base_config(40,190);cfg.ai_aim.normalized_assist_parameters=true;
         cfg.ai_aim.ads_slow_initial_scale=900;cfg.ai_aim.ads_free_initial_scale=1400;
