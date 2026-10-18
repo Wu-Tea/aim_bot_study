@@ -389,7 +389,7 @@
       "path": "gamepad.assist.input_deadzone",
       "member": "ai_aim.ai_input_deadzone",
       "constant": "AiInputDeadzone",
-      "label": "AI 输入死区",
+      "label": "AI 观测降噪",
       "default": 0.03,
       "min": 0,
       "max": 1,
@@ -400,7 +400,7 @@
       "unit": "%",
       "hot_reload": true,
       "preserve_learning": true,
-      "help": "逐轴过滤送入合成器的 AI 瞄准量：绝对值小于或等于此值时归零，超过时原值通过，不重新缩放。默认 3%，0% 关闭过滤；不影响实体摇杆和独立压枪。",
+      "help": "按相机响应与捕获间隔换算观测扰动尺度，默认 3%。在实际相机运动对齐后抑制围绕近期轨迹的测量扰动；可信小偏差和慢速移动仍可产生小修正。此项不再按最终杆量清零，不抬高输出，不影响手动权和独立压枪；兼容旧配置字段，0% 不修正观测。",
       "page": "ads"
     },
     {
@@ -435,7 +435,7 @@
       "unit": "px",
       "hot_reload": false,
       "preserve_learning": false,
-      "help": "以 target 瞄点为中心的连续收尾尺度，默认 2 px；越大则近点修正越柔和，不再进入半径就突然归零。ADS 仍用此半径判断抓取完成，随后 BodyLock 继续向瞄点收敛，可信移动补偿持续跟随。最终输出仍受 AI 输入死区约束。保存后重启生效。"
+      "help": "以 target 瞄点为中心的连续收尾尺度，默认 2 px；越大则近点修正越柔和，不再进入半径就突然归零。ADS 仍用新鲜来源与运动证据判断抓取完成，随后 BodyLock 继续向瞄点收敛，可信移动补偿持续跟随。观测降噪不按最终杆量截断小修正。保存后重启生效。"
     }
   ],
   "relations": [

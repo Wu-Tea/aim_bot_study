@@ -163,10 +163,22 @@ ResponseModelAimOutput solve_response_model_aim(
         output.radial_motion_bound_reason =
             ResponseModelConstraintReason::PositionRadialMotionBound;
     }
-    output.pre_curve_stick = {
-        (output.position_stick.x + output.bounded_motion_stick.x) * authority,
-        (output.position_stick.y + output.bounded_motion_stick.y) * authority,
-    };
+    // A canonical BodyLock estimate is already the total target velocity
+    // needed to hold zero error. Identity authority limits its delivered
+    // budget below; multiplying that velocity again here breaks feasible
+    // centered tracking. Position keeps its existing gain. Screen-rate
+    // lookahead and the legacy/mouse policies retain their original meaning.
+    const bool total_target_velocity = request.range_position_response &&
+        request.delay_aware_velocity_response && !point_policy &&
+        request.motion_is_sustaining_target_motion &&
+        !request.motion_is_error_rate_lookahead;
+    output.pre_curve_stick = total_target_velocity
+        ? pipeline_contract::Vec2f{
+            output.position_stick.x * authority + output.bounded_motion_stick.x,
+            output.position_stick.y * authority + output.bounded_motion_stick.y}
+        : pipeline_contract::Vec2f{
+            (output.position_stick.x + output.bounded_motion_stick.x) * authority,
+            (output.position_stick.y + output.bounded_motion_stick.y) * authority};
     output.unclamped_stick = inverse_aim_response_curve(
         output.pre_curve_stick, request.response_curve);
 

@@ -1,5 +1,6 @@
 #pragma once
 #include "camera_response_alignment.h"
+#include "capture_evidence_filter.h"
 
 #include "ads_acquisition_controller.h"
 #include "ads_reacquisition_reducer.h"
@@ -241,6 +242,7 @@ private:
     TargetCoordinator target_coordinator_{};
     AimResponseEstimator aim_response_estimator_{};
     CameraResponseAlignment camera_alignment_{};
+    CaptureEvidenceFilter capture_evidence_{};
     AdsResponseEstimator ads_response_estimator_;
     AdsAcquisitionController ads_controller_{};
     AdsReacquisitionReducer ads_reacquisition_reducer_{};

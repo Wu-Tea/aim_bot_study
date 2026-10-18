@@ -50,8 +50,12 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         close_weight * (close_horizon - nominal_horizon)) / config_.arrival_speed;
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
+    request.error_px.x += plan.measurement_error_offset_px.x;
+    request.error_px.y += plan.measurement_error_offset_px.y;
     request.position_stopping_reserve_px = plan.position_stopping_reserve_px;
     request.relative_velocity_px_per_sec = plan.error_rate_px_per_sec;
+    request.relative_velocity_px_per_sec.x += plan.measurement_rate_offset_px_per_sec.x;
+    request.relative_velocity_px_per_sec.y += plan.measurement_rate_offset_px_per_sec.y;
     request.response_px_per_stick_second = response;
     request.arrival_horizon_seconds = horizon;
     request.arrival_horizon_y_seconds = plan.error_px.y < 0.0f

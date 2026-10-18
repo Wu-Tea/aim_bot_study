@@ -351,6 +351,7 @@ std::array<AimResponseEstimate, 4> NativeGamepadController::learning_snapshot() 
 }
 
 void NativeGamepadController::clear_learning() noexcept {
+    capture_evidence_.reset();
     camera_alignment_.reset();
     aim_response_effect_delay_seconds_=std::clamp(config_.ai_aim.aim_response_effect_delay_ms,0.f,30.f)*.001;
     aim_response_estimator_.reset();
@@ -435,63 +436,68 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
          snapshot.state.target_tier == "observed_strong");
     batch.rejected_friendly_count = snapshot.rejected_friendly_count;
     batch.rejected_low_reliability_count = snapshot.rejected_low_reliability_count;
-    const auto limit = std::min<std::size_t>(
-        snapshot.candidates.size(), pipeline_contract::kMaxVisionCandidates);
-    for (std::size_t index = 0; index < limit; ++index) {
-        const auto& source = snapshot.candidates[index];
-        if (!source.valid || source.is_friendly) continue;
-        auto& destination = batch.candidates[batch.count++];
-        destination.source_id = source.id;
-        const float width = std::max(0.0f, source.body_box_px.w);
-        const float height = std::max(0.0f, source.body_box_px.h);
-        destination.aim_px = {
-            source.aim_point_px.x, source.aim_point_px.y};
-        destination.has_aim_point = source.has_aim_point;
-        destination.box_size_px = {width, height};
-        destination.body_box_px = source.body_box_px;
-        destination.has_body_box = width > 0.0f && height > 0.0f;
-        destination.aim_region_px = source.aim_region_px;
-        destination.aim_region_source = source.aim_region_source;
-        destination.has_aim_region = source.has_aim_region &&
-            source.aim_region_px.w > 1.0f &&
-            source.aim_region_px.h > 1.0f;
-        if (!destination.has_aim_region && destination.has_body_box &&
-            destination.has_aim_point) {
-            // Explicit compatibility boundary for fixtures/legacy producers:
-            // use the observed body box as conservative R, but never recompute
-            // the selector's anatomical point from a second height ratio.
-            destination.aim_region_px = source.body_box_px;
-            destination.aim_region_source =
-                pipeline_contract::AimRegionSource::BodyBoxFallback;
-            destination.has_aim_region = true;
+    // A cue continuation is the selector's authoritative observation. Raw
+    // unselected person boxes remain in the snapshot/vision diagnostics; they
+    // must not occupy the control candidate list or displace cue geometry.
+    if (!batch.selector_cue_continuation) {
+        const auto limit = std::min<std::size_t>(
+            snapshot.candidates.size(), pipeline_contract::kMaxVisionCandidates);
+        for (std::size_t index = 0; index < limit; ++index) {
+            const auto& source = snapshot.candidates[index];
+            if (!source.valid || source.is_friendly) continue;
+            auto& destination = batch.candidates[batch.count++];
+            destination.source_id = source.id;
+            const float width = std::max(0.0f, source.body_box_px.w);
+            const float height = std::max(0.0f, source.body_box_px.h);
+            destination.aim_px = {
+                source.aim_point_px.x, source.aim_point_px.y};
+            destination.has_aim_point = source.has_aim_point;
+            destination.box_size_px = {width, height};
+            destination.body_box_px = source.body_box_px;
+            destination.has_body_box = width > 0.0f && height > 0.0f;
+            destination.aim_region_px = source.aim_region_px;
+            destination.aim_region_source = source.aim_region_source;
+            destination.has_aim_region = source.has_aim_region &&
+                source.aim_region_px.w > 1.0f &&
+                source.aim_region_px.h > 1.0f;
+            if (!destination.has_aim_region && destination.has_body_box &&
+                destination.has_aim_point) {
+                // Explicit compatibility boundary for fixtures/legacy producers:
+                // use the observed body box as conservative R, but never recompute
+                // the selector's anatomical point from a second height ratio.
+                destination.aim_region_px = source.body_box_px;
+                destination.aim_region_source =
+                    pipeline_contract::AimRegionSource::BodyBoxFallback;
+                destination.has_aim_region = true;
+            }
+            destination.motion_anchor_px = {
+                source.motion_anchor_px.x, source.motion_anchor_px.y};
+            destination.motion_anchor_score =
+                std::clamp(source.motion_anchor_score, 0.0f, 1.0f);
+            destination.has_motion_anchor =
+                source.has_motion_anchor &&
+                source.motion_anchor_score >= 0.20f;
+            destination.confidence = std::clamp(source.confidence, 0.0f, 1.0f);
+            destination.cue_confidence = std::clamp(source.cue_score, 0.0f, 1.0f);
+            if (source.id == snapshot.selected_observation_id) {
+                batch.selector_enemy_cue_checked = source.color_classified;
+            }
+            destination.normalized_size = std::clamp(
+                height / std::max(1.0f, batch.frame_height_px), 0.0f, 1.0f);
+            // Target size is not visibility: a small but crisp enemy in an optic
+            // may be more trustworthy than a large false person. Detector/geometry
+            // confidence remains the base; selector enemy evidence caps authority
+            // later in TargetCoordinator.
+            destination.reliability = destination.confidence;
+            destination.body_cue = source.has_cue_point;
         }
-        destination.motion_anchor_px = {
-            source.motion_anchor_px.x, source.motion_anchor_px.y};
-        destination.motion_anchor_score =
-            std::clamp(source.motion_anchor_score, 0.0f, 1.0f);
-        destination.has_motion_anchor =
-            source.has_motion_anchor &&
-            source.motion_anchor_score >= 0.20f;
-        destination.confidence = std::clamp(source.confidence, 0.0f, 1.0f);
-        destination.cue_confidence = std::clamp(source.cue_score, 0.0f, 1.0f);
-        if (source.id == snapshot.selected_observation_id) {
-            batch.selector_enemy_cue_checked = source.color_classified;
-        }
-        destination.normalized_size = std::clamp(
-            height / std::max(1.0f, batch.frame_height_px), 0.0f, 1.0f);
-        // Target size is not visibility: a small but crisp enemy in an optic
-        // may be more trustworthy than a large false person. Detector/geometry
-        // confidence remains the base; selector enemy evidence caps authority
-        // later in TargetCoordinator.
-        destination.reliability = destination.confidence;
-        destination.body_cue = source.has_cue_point;
     }
     // The selector owns target identity, D and R. The only target-shaped state
-    // that may arrive without a person candidate is an explicit same-generation
+    // that may arrive without a selected person is an explicit same-generation
     // cue continuation. Any other has_target/candidate mismatch must fail closed
     // in TargetCoordinator instead of creating a second controller-side target
     // protocol from the flattened legacy state.
-    if (batch.count == 0 && batch.selector_cue_continuation) {
+    if (batch.selector_cue_continuation) {
         auto& destination = batch.candidates[0];
         batch.count = 1;
         destination.source_id = snapshot.state.selected_track_id != 0
@@ -1106,10 +1112,19 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                             &delivered,&tracking,&ambiguous);
                     }
                 }
+                auto measured_rate=pipeline_contract::Vec2f{
+                    float((current.x-previous.x)/motion_interval),float((current.y-previous.y)/motion_interval)};
+                if(canonical_gamepad) {
+                    const float camera_scale=plan.response_scale*float(motion_interval);
+                    capture_evidence_.align_interval(motion_anchor.capture_seconds);
+                    capture_evidence_.update(plan.target_id,plan.cue_continuation,pixel_pair,
+                        capture_seconds,source_error_px,
+                        {-tracking.x*camera_scale,tracking.y*camera_scale},
+                        plan.response_scale,config_.ai_aim.ai_input_deadzone);
+                }
                 bodylock_target_motion_observer_.update({
                     plan.target_id, capture_seconds, static_cast<float>(motion_interval),
-                    {static_cast<float>((current.x-previous.x)/motion_interval),
-                     static_cast<float>((current.y-previous.y)/motion_interval)},
+                    measured_rate,
                     tracking, plan.response_scale, plan.reliability, plan.direct_person_observation, plan.current_cue_observation});
             }
         }
@@ -1122,6 +1137,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     }
     if (plan.target_id == 0 ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
+        capture_evidence_.reset();
         bodylock_target_motion_observer_.reset();
         motion_observation_anchor_ = {};
         nonfiring_pov_motion_snapshot_ = {};
@@ -1238,6 +1254,13 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             };
         }
     }
+    if(canonical_gamepad && !plan.observation_gap && plan.source_capture_age_ms<=32.f) {
+        const auto evidence=capture_evidence_.at(plan.target_id,now-plan.source_capture_age_ms*.001);
+        plan.measurement_error_offset_px=evidence.position_offset;
+        plan.measurement_rate_offset_px_per_sec=evidence.position_rate_offset;
+    }
+    components.control_error_px={plan.error_px.x+plan.measurement_error_offset_px.x,
+                                 plan.error_px.y+plan.measurement_error_offset_px.y};
     // One stopping coordinate for both modes. Reserve camera work already
     // committed since this capture and the current shaper's decay tail.
     // Identity-only gaps retain zero authority and never enter this solve.
@@ -1303,9 +1326,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             shaped.y *= budget / magnitude;
         }
     }
-    if (config_.ai_aim.normalized_assist_parameters && !config_.ai_aim.adapter_direct_mouse_manual) {
-        shaped = filter_ai_input(shaped, config_.ai_aim.ai_input_deadzone);
-    }
+    // Noise has already been resolved in capture evidence. Do not erase a
+    // qualified position/follow command solely because its amplitude is small.
     components.bodylock_error_rate_px_per_sec = {
         bodylock_diagnostics.error_rate_px_per_sec.x,
         bodylock_diagnostics.error_rate_px_per_sec.y};
@@ -1656,6 +1678,7 @@ bool NativeGamepadController::expire_visual_output(
 }
 
 void NativeGamepadController::invalidate_delivery_history() noexcept {
+    capture_evidence_.reset();
     aim_response_history_begin_ = aim_response_history_count_ = 0;
     camera_alignment_.invalidate_evidence();
     bodylock_target_motion_observer_.reset();

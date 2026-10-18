@@ -138,6 +138,9 @@ struct TargetPlan {
     bool manual_exit_requested = false;
     Vec2f error_px{};
     Vec2f error_rate_px_per_sec{};
+    // Capture evidence corrections, never changes to the anatomical reference.
+    Vec2f measurement_error_offset_px{};
+    Vec2f measurement_rate_offset_px_per_sec{};
     // Delivered work plus the shaper's remaining work reduces position
     // pursuit; it never moves the source anatomical reference.
     Vec2f position_stopping_reserve_px{};
@@ -243,6 +246,7 @@ inline bool valid(const TargetPlan& plan) noexcept {
     return finite(plan.source_aim_px) && finite(plan.aim_px) &&
            finite(plan.desired_point_normalized) && region_contract_valid &&
            finite(plan.error_px) && finite(plan.error_rate_px_per_sec) &&
+           finite(plan.measurement_error_offset_px) && finite(plan.measurement_rate_offset_px_per_sec) &&
            finite(plan.position_stopping_reserve_px) &&
            std::isfinite(plan.camera_effect_delay_seconds) &&
            finite(plan.velocity_px_per_sec) && finite(plan.acceleration_px_per_sec2) &&
