@@ -23,3 +23,11 @@ Final tests: Release, 50 CTest groups, 111 desktop checks. Two-seed plant experi
 ## Review triggers
 
 Revisit when new live Apex telemetry shows persistent overshoot, delayed reversals, cue/source jumps, sensitivity mismatch or deadzone-induced interruption. Do not treat simulated error reduction as live acceptance. Preserve manual authority, acquisition/identity/handover performance and the retired validation-framework boundary.
+
+## 2026-10-16 clarification
+
+The 32 ms limit remains the prediction horizon. Clean now retains same-generation identity and unfinished ADS without aim/fire authority after 32 ms and before the existing 40 ms live source deadline. See [the identity/prediction boundary](DEC-2026-10-16-001-clean-gap-identity-and-prediction.md); other decisions above are not superseded. Live-game acceptance is still pending.
+
+## 2026-10-18 pursuit/braking clarification
+
+The user explicitly retained the minimum pursuit reference to avoid premature slowdown inside a person/hitbox, with stable arrival at the source chest point as the common purpose of acquisition, hold and follow. The reference must not refill a residual after braking or redistribute cancelled work into the other axis. See [the accepted ordering and validation](DEC-2026-10-18-002-pursuit-reference-before-braking.md); manual authority, response curves, BodyLock and the 32/40 ms boundaries remain unchanged.
