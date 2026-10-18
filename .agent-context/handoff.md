@@ -1,28 +1,30 @@
-# Agent Handoff
+# 当前接续
 
-Last updated: 2026-10-16
-Active scope: clean rebuilt from the verified DEV baseline; product and development worktrees are separated.
+更新：2026-10-18。最新要求：只在dev修有效目标维持速度被重复缩小；保留原权限预算、最低追赶、胸部、逐轴手动和32/40ms，不除法补偿/增权/延迟交接；位置增益与70px边界只分析；不合clean。
 
-## Current state
+## 当前状态
 
-- User changed the work order: commit DEV uncommitted work first, then sync clean optimizations back to DEV. The checkpoint is `6496f84` (long capture, React toggle, Vision profiling and diagnostics). Capture recordings/logs under `output/` remain local and untracked.
-- Optimization source is the deletion-before archive `5eb02ff` on `codex/runtime-clean-validation-archive-20261016`, compared with the original DEV source snapshot. All selected existing source/test baselines matched DEV. No clean-only packaging cuts or orphan historical files were imported.
-- DEV retains React/WebView2, mouse runtime, tests and offline tools. Solvers no longer take unused manual/time inputs; arbitration, target/ADS state, observation expiry, output continuity and reload rules use their existing owners with duplicate state removed. Three DEV-only mouse tests were adapted to the reduced signatures without changing assertions.
-- Current behavior and state/interaction documentation: [configuration and checks](../docs/project/CONFIGURATION_AND_CHECKS.md), [current project model](../docs/project/CURRENT_STATE.md).
-- User authorized recreating clean from current DEV while retaining full React/WebView2 GUI, native runtime, fixed recoil and dependencies; tests/experiments stay in DEV. New clean is `ba679ce`, tagged `codex/clean-baseline-20261016`, derived from `aa0f918`. GUI is not Fusion; this distinction is now explicit in clean AGENTS/README.
-- Old clean, including its unfinished trim, is archived as `ca0ea11` on `codex/runtime-clean-archive-20261016`; its separate archive worktree preserves source and 2,394 copied/verified local files. The new clean keeps the original worktree path.
-- Clean has 232 tracked product files; 203 retained native/GUI source and resource files match DEV. Runtime/GUI algorithms were not changed by packaging. Four local GUI profiles and their required engines are present; models/configs/DLLs stay ignored.
+- DEV生产修复与报告提交 **15a292d**，基线a11f221（生产f9f42d3）。实际clean `D:/work/AI/yolo-study-001-clean` / `codex/runtime-clean`仍 **86b34ea**；旧3%候选worktree仍1cb9a12，未合入。不要把任何候选测试说成实机验收。
+- **重复缩小反例已修复，但整体停稳行为未通过。** dev保留候选，不接受噪声/开火/部分慢移退步，不发布clean。
+- 原capture最多32ms缺帧预测；超过32ms且未到40ms只保留身份/未完成ADS，缺帧瞄准/开火权零；40ms释放，不续期。源胸部、逐轴手动、原始透传、最低追赶未改。
 
-## Verification and limits
+## 修改及证据
 
-- Clean migration: native/frontend builds pass; external DEV fixtures linked against clean libraries pass 448 native cases; 80 desktop and 10 capture cases pass against clean modules. Seven replay tables match DEV exactly. Real WebView2 start → actual engine initialization → fixed-recoil hot reload Applied → stop passes with output/haptics disabled. Actual Fusion attach/close passes and closing Fusion preserves runtime. Evidence and temporary validation harness: `runs/clean-recreate-20261016/` in DEV (ignored).
-- Before: Release runtime/base/functional/Fusion build and 50/50 CTest groups pass. After: full default Release build, 51/51 CTest groups, frontend build, 80 desktop tests, 10 capture tests and real WebView2 smoke pass. The user stopped the running runtime; the default `native/build/Release` executable was then rebuilt successfully.
-- Original DEV replay fixture linked against the updated controller gives identical records for two independent seeds, 192 short/long scenarios and 676,544 ticks. Detailed clean replay records also match for cue gaps, revocation, delivery history, learning reload and policy commit. Policy commit replay models scheduling; it is not direct concurrent RuntimeLoop integration coverage.
-- Runtime loaded the real engine and completed a bounded 1,000-tick smoke with output and haptics disabled. Actual gameplay feel and live device reconnect are not established by these checks. DSE pulse feel was accepted previously; automatic live-game notification acceptance remains open.
-- Local build/test evidence is in the session's `dev-sync` scratch directory. No raw capture or validation artifacts are committed. No remote push requested.
+- 生产仅改solver需求合成：canonical有效总目标运动用 `a*position + bounded_motion`，其他路径仍 `a*(position+bounded_motion)`；原曲线后二维预算保留。没有修改coordinator、位置增益、估计器、压枪、手动策略、配置或时效。
+- 生产反例：误差0、R1000、60px/s，.06<.0736预算；旧输出.004416，新.06。新增原生回归先红后绿，二维/曲线/零权限/超预算/禁用轴/legacy与lookahead隔离通过。
+- dev Release、51/51 CTest（447 Base）、93实录capture和92solver反例通过。开发2026101853/32452909，独立49979731/104395409；每版本928个2/20秒场景、10,208,000tick。全部约束断言通过不等于行为无退步。
+- 独立.0736全链预算内恒速后段30.683→.226px，20秒38.142→.105px；旧高速弱证据23.848→6.623px。
+- **未通过项**：.0736居中噪声RMS .0421→.2941px（独立峰值.897、开发.996）；明确敌人开火8.246→8.603px；随机慢移2.281→3.075px。不得用旧宽松断言或平均值声称全通过。
 
-## Resume and boundaries
+## 已定位的后续职责问题（工程证据，未实施）
 
-- Next action: use the new clean baseline; branch temporary work from it for major changes. Keep tests and experiment history in DEV, and apply product changes only after comparison against clean.
-- Preserve source-selected chest reference, per-axis 15–30% manual authority, raw passthrough, identity/handover and full controller lockstep. Preserve user models/profiles/configuration. Do not restore retired provenance gates or Tk GUI.
-- No migration blocker remains. Live-game feel and actual physical-device output/reconnect acceptance remain separate from output-disabled smoke and simulations.
+1. 位置降噪仍有效（独立测量RMS .2847→.2622），但运动估计入口消费原始位移率，只作原25ms积分；旧身份增益意外压噪。需要在运动估计所属坐标域处理噪声，不能把总速度重新乘a，也不能直接把解剖源点滤波偏移挪给像素对应点。
+2. 开火非线性合成：账本用 `F(final)-F(recoil)`，solver对残余速度单独逆曲线后又加压枪杆量；两者坐标不一致。生产探针r=-.2、扰动.2，预算.3325/.92时合成过补.138603响应；.0736时则确实欠.028211响应。这是另一缺陷/预算边界，本轮未修，不靠增权或延迟掩盖。
+3. 位置增益未变：固定小误差的局部误差/修正速度随a约344/115/27.5ms（a=.0736/.2208/.92），不是新增等待。70px同身份同证据仍.0736↔.2208三倍跳变；只分析，不能擅自取消策略或放大位置项。
+
+## 资料与复跑
+
+- [本轮报告](../docs/project/SUSTAINING_MOTION_20261018.md)、[夹具说明](../tests/sustaining_motion_20261018/README.md)、[决策005](decisions/DEC-2026-10-18-005-sustaining-motion-budget-ownership.md)。
+- 结果 `runs/sustaining-motion-20261018/`：comparison.csv/json、red/green/ctest.log、diagnostics/{position,boundary,composition}.csv。正式focused使用before-v3/after-v3，逐例轨迹保留。
+- v1未确保BodyLock、v2实际预算.3325，均为探索诊断，排除正式.0736结果；最终独立种子未用于调生产算法。浮点FIFO仿真缺实机量化、检测/枪械动力学、latest-only调度，不能替代实机。
+- 历史见session-log及决策004。已有未提交的前轮分析文档/上下文及其他用户文件保留，不能批量清理或覆盖。建议另开归档工作整理长历史。
