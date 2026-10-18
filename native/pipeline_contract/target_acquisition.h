@@ -7,6 +7,10 @@ namespace pipeline_contract {
 
 inline constexpr float kPickupSizeGain = 0.75f;
 inline constexpr float kWideLowAspectThreshold = 0.65f;
+// Spatial reference anchors: fully wide at 0.30, fully ordinary at 1.00.
+// These bound a continuous geometric estimate, not a timed pose transition.
+inline constexpr float kBodyAimWideAspect = 0.30f;
+inline constexpr float kBodyAimOrdinaryAspect = 1.00f;
 inline constexpr float kAimRegionShrinkX = 0.22f;
 inline constexpr float kAimRegionHalfHeightRatio = 0.18f;
 inline constexpr float kWideLowAimRegionHalfHeightRatio = 0.22f;
@@ -19,6 +23,13 @@ inline constexpr float kMaxAspectRatio = 4.50f;
 
 inline bool wide_low_body_shape(float width, float height) noexcept {
     return (width > 0 ? height / width : 0.0f) < kWideLowAspectThreshold;
+}
+
+inline float ordinary_body_reference_weight(float width, float height) noexcept {
+    const float aspect = width > 0 ? height / width : 0.0f;
+    const float t = std::clamp((aspect - kBodyAimWideAspect) /
+        (kBodyAimOrdinaryAspect - kBodyAimWideAspect), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
 }
 
 inline bool body_geometry_admitted(float width, float height, int frame_width, int frame_height,
@@ -44,10 +55,15 @@ inline BodyAimGeometry body_aim_geometry(float left, float top, float right, flo
                                          float ordinary_ratio, float wide_low_ratio) noexcept {
     const float width = right - left, height = bottom - top;
     BodyAimGeometry result;
+    // Keep the categorical label for evidence policy/diagnostics. It must not
+    // switch the source-owned chest reference or its support region.
     result.wide_low = wide_low_body_shape(width, height);
+    const float ordinary_weight = ordinary_body_reference_weight(width, height);
+    const float wide_weight = 1.0f - ordinary_weight;
     result.aim_x = (left + right) * .5f;
-    result.aim_y = top + height * (result.wide_low ? wide_low_ratio : ordinary_ratio);
-    const float half = height * (result.wide_low ? kWideLowAimRegionHalfHeightRatio : kAimRegionHalfHeightRatio);
+    result.aim_y = top + height * (ordinary_weight * ordinary_ratio + wide_weight * wide_low_ratio);
+    const float half = height * (ordinary_weight * kAimRegionHalfHeightRatio +
+        wide_weight * kWideLowAimRegionHalfHeightRatio);
     result.left = left + width * kAimRegionShrinkX;
     result.right = right - width * kAimRegionShrinkX;
     result.top = std::max(top, result.aim_y - half);
