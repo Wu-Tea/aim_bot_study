@@ -808,6 +808,104 @@ void test_cue_continuation_is_same_generation_aim_only_evidence() {
             "wrong-generation cue retained the prior target");
 }
 
+
+void test_cue_continuation_ignores_unselected_detection_clutter() {
+    for (unsigned clutter : {1u, 3u, 40u}) {
+        double now = 10.;
+        auto config = current_config();
+        config.tracker.max_observation_age_ms = 40;
+        config.ai_aim.normalized_assist_parameters = true;
+        NativeGamepadController reference(config, &now), with_clutter(config, &now);
+        const auto manual = physical_input(.30f, 0);
+        for (unsigned tick = 0; tick < 110; ++tick) {
+            now = 10. + tick * .001;
+            if (tick % 5 == 0) {
+                auto source = tick < 40
+                    ? observed_snapshot(tick+1, now, 20, -3, tick+1, 71)
+                    : cue_snapshot(tick+1, now, 20, -3, 71);
+                reference.submit_vision_snapshot(source);
+                if (tick >= 40) {
+                    for (unsigned n = 0; n < clutter; ++n) {
+                        auto rejected = candidate(900+n, -140, 60);
+                        rejected.has_aim_point = false;
+                        rejected.confidence = .34f;
+                        source.candidates.push_back(rejected);
+                    }
+                }
+                with_clutter.submit_vision_snapshot(source);
+            }
+            const auto a = reference.build_output(manual);
+            const auto b = with_clutter.build_output(manual);
+            const auto& p = with_clutter.last_target_plan();
+            if (tick >= 40) {
+                require(p.cue_continuation && !p.observation_gap,
+                        "unselected detection blocked current cue evidence");
+                require(p.target_id == reference.last_target_plan().target_id &&
+                        p.source_observation_id == 0 && !p.direct_person_observation,
+                        "cue inherited a detector identity");
+                require_near(p.aim_authority, reference.last_target_plan().aim_authority, 1e-6f,
+                             "diagnostic clutter changed original cue authority");
+                require_near(p.source_aim_px.x, p.aim_px.x, 1e-6f, "manual moved cue chest X");
+                require_near(p.source_aim_px.y, p.aim_px.y, 1e-6f, "manual moved cue chest Y");
+                require(!p.fire_authority && !p.fire_requested && !b.rb,
+                        "cue gained fire permission");
+            }
+            require_near(a.right_x, b.right_x, 1e-6f, "clutter changed 30% manual cooperation X");
+            require_near(a.right_y, b.right_y, 1e-6f, "clutter changed manual cooperation Y");
+            reference.observe_delivered_output(a, true, now);
+            with_clutter.observe_delivered_output(b, true, now);
+        }
+        // Genuine missing evidence still expires from its original capture.
+        // The last accepted cue was at tick 105; none of these misses renew it.
+        for (unsigned tick = 110; tick <= 150; ++tick) {
+            now = 10. + tick * .001;
+            if (tick % 5 == 0) {
+                auto missing = empty_snapshot(tick+1, now);
+                missing.selector_target_generation = 71;
+                with_clutter.submit_vision_snapshot(missing);
+            }
+            const auto out = with_clutter.build_output(manual);
+            const auto& plan = with_clutter.last_target_plan();
+            if (tick >= 138) {
+                require(plan.aim_authority == 0 && !plan.fire_authority,
+                        "fresh cue fix extended missing-source permission beyond 32 ms");
+                require_near(out.right_x, .30f, 1e-6f,
+                             "expired target continued suppressing manual input");
+            }
+            if (tick >= 146) require(plan.target_id == 0,
+                                     "missing cue kept identity past 40 ms");
+            with_clutter.observe_delivered_output(out, true, now);
+        }
+    }
+}
+
+void test_cue_clutter_does_not_bypass_identity_or_freshness() {
+    for (unsigned variant = 0; variant < 6; ++variant) {
+        double now = 20.;
+        auto config = current_config();
+        config.tracker.max_observation_age_ms = 40;
+        config.ai_aim.normalized_assist_parameters = true;
+        NativeGamepadController c(config, &now);
+        if (variant != 0) {
+            c.submit_vision_snapshot(observed_snapshot(1, now, 20, 0, 10, 71));
+            c.build_output(physical_input(.30f));
+        }
+        now += .005;
+        auto cue = cue_snapshot(2, now, 20, 0, variant == 1 ? 72 : 71);
+        if (variant == 2) cue.selector_target_changed = true;
+        if (variant == 3) { cue.capture_time_seconds = now-.050; cue.state.observed_at_seconds = now-.050; }
+        if (variant == 4) { cue.state.has_body_box = false; cue.state.body_x2=cue.state.body_x1; }
+        if (variant == 5) cue.state.aim_authority = false;
+        add_alternative(cue, 999, 25);
+        c.submit_vision_snapshot(cue);
+        c.build_output(physical_input(.30f));
+        require(!c.last_target_plan().cue_continuation,
+                "invalid cue gained ownership through an unselected detection");
+        require(c.last_target_plan().source_observation_id != 999,
+                "unselected detector candidate became authoritative");
+    }
+}
+
 void test_boundary_qualified_handover_releases_then_captures() {
     double now = 60.0;
     auto config = current_config();
@@ -1073,6 +1171,8 @@ void register_target_pipeline_integration_tests(
     registry.add_case("BaseEndToEnd", "fresh_no_target_removes_authority", test_fresh_no_target_removes_authority_immediately);
     registry.add_case("BaseEndToEnd", "non_cue_without_candidates_fails_closed", test_non_cue_target_without_candidates_fails_closed);
     registry.add_case("BaseEndToEnd", "cue_continuation_is_same_generation_aim_only", test_cue_continuation_is_same_generation_aim_only_evidence);
+    registry.add_case("BaseEndToEnd", "cue_ignores_unselected_clutter", test_cue_continuation_ignores_unselected_detection_clutter);
+    registry.add_case("BaseEndToEnd", "cue_clutter_preserves_boundaries", test_cue_clutter_does_not_bypass_identity_or_freshness);
     registry.add_case("BaseEndToEnd", "boundary_handover_releases_then_captures", test_boundary_qualified_handover_releases_then_captures);
     registry.add_case("BaseEndToEnd", "strong_outward_transfer_releases_old_target", test_strong_outward_transfer_releases_old_target_within_one_ads_window);
     registry.add_case("BaseEndToEnd", "autofire_requires_fresh_authority", test_autofire_requires_fresh_observed_authority_and_preserves_physical_fire);
