@@ -16,26 +16,7 @@ for root in (dev, product):
         target = source / name.removeprefix('native/')
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(p.read_bytes())
-# This legacy fixture used 34 ms as identity expiry with a 50 ms source limit.
-# The corrected contract retains identity (never prediction) up to that limit.
-p = source / 'controller_native/target_coordinator_tests.cpp'
-body = p.read_text(encoding='utf-8')
-old_expiry = 'coordinator.update(fresh_no_selection(6,2.052),intent,2.052)'
-assert body.count(old_expiry) == 1
-body = body.replace(old_expiry, 'coordinator.update(fresh_no_selection(6,2.069),intent,2.069)')
-old_budget = '''                        require_true((now-capture)*1000<=std::min(32.f,config.max_observation_age_ms)+1e-5,
-                            "prediction cannot exceed original source-age budget");'''
-new_budget = '''                        require_true((now-capture)*1000<config.max_observation_age_ms+1e-5,
-                            "identity cannot exceed original hard source-age budget");
-                        if(plan.gap_prediction_valid || plan.aim_authority>0)
-                            require_true((now-capture)*1000<=std::min(32.f,config.max_observation_age_ms)+1e-5,
-                                "prediction cannot exceed original source-age budget");
-                        if((now-capture)*1000>32.+1e-5)
-                            require_true(!plan.gap_prediction_valid && plan.aim_authority==0,
-                                "identity retention cannot authorize prediction after grace");'''
-assert body.count(old_budget) == 1
-body = body.replace(old_budget, new_budget)
-p.write_text(body, encoding='utf-8')
+# DEV fixtures now directly own the separate identity/prediction assertions.
 cm = (dev / 'native/cmake/ProductTests.cmake').read_text(encoding='utf-8')
 files = cm.split('add_executable(cod_native_base_tests', 1)[1].split(')', 1)[0].split()
 lines = ['cmake_minimum_required(VERSION 3.26)', 'project(clean_suites LANGUAGES CXX)', 'set(CMAKE_CXX_STANDARD 17)',

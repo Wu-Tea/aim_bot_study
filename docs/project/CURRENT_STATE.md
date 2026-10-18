@@ -1,8 +1,8 @@
 # 当前项目模型与任务进度
 
-更新：2026-10-16。当前 DEV 使用 C++ runtime 与 React/WebView2 桌面助手。`启动助手.vbs` 经 Python 宿主打开 GUI；Python 保留配置、曲线、进程管理、IPC 和界面检查，不参与原生控制 tick。旧 Tk 界面已经移除。
+更新：2026-10-18。当前 DEV 使用 C++ runtime 与 React/WebView2 桌面助手。`启动助手.vbs` 经 Python 宿主打开 GUI；Python 保留配置、曲线、进程管理、IPC 和界面检查，不参与原生控制 tick。旧 Tk 界面已经移除。
 
-本次先提交 DEV 未保存的采集和诊断改动，再同步 clean 删除前已完成的控制链精简；DEV 保留测试、鼠标路径及实验工具。运行配置、状态所有权、交互图和本次比较证据见 [配置与检查](CONFIGURATION_AND_CHECKS.md)。以下组件表继续描述完整 DEV；历史验证不能代替当前实机验收。
+DEV 已同步 clean `739bc3d` 的身体框准入和短缺帧身份修复；32 ms 预测与 40 ms live 来源硬时限分别保留。51 组 CTest、桌面闭环、独立种子仿真及跨分支记录比较通过，详见 [本次同步与优化线索](DEV_CLEAN_SYNC_20261018.md)。DEV 继续保留测试、鼠标路径及实验工具；原有配置和所有权说明见 [配置与检查](CONFIGURATION_AND_CHECKS.md)。以下组件表描述完整 DEV，仿真与关闭输出的验证不能代替实机验收。
 
 ## 项目 → 业务组成 → 能力
 

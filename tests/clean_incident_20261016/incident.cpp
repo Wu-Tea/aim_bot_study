@@ -80,10 +80,11 @@ void boundaries() {
         check(p.target_id==0 && p.aim_authority==0 && !p.fire_authority,"40ms source deadline extended");
     }
 }
-void simulations(unsigned seed,const std::string& directory) {
+void simulations(unsigned seed,const std::string& directory,int extra_delay_ms=0) {
+    check(extra_delay_ms>=0 && extra_delay_ms<=20,"unsupported synthetic latency offset");
     std::filesystem::create_directories(directory);
     std::ofstream report(directory+"/seed-"+std::to_string(seed)+".csv");
-    report<<"seed,scenario,duration_ms,ticks,selected_frames,assist_ticks,prediction_ticks,identity_only_ticks,expired_ticks,mean_error_px,max_error_px,center_crossings,max_output_delta\n";
+    report<<"seed,scenario,duration_ms,ticks,selected_frames,assist_ticks,prediction_ticks,identity_only_ticks,expired_ticks,mean_error_px,max_error_px,center_crossings,max_output_delta,extra_delay_ms,tracking_ticks,tracking_mean_error_px\n";
     for(int duration:{2000,20000}) for(int scenario=0;scenario<16;++scenario) {
         std::mt19937 rng(seed ^ (scenario*7919u+duration));
         auto cfg=fixture::base_config(40,190);cfg.ai_aim.normalized_assist_parameters=true;
@@ -98,7 +99,7 @@ void simulations(unsigned seed,const std::string& directory) {
         std::deque<std::pair<int,ControllerVisionSnapshot>> pending;
         std::deque<GamepadOutputState> motion(9);
         float ex=80,ey=-35,previous_x=0,previous_error=80,maximum_delta=0,maximum_error=0;
-        double error_sum=0;unsigned selected=0,assist=0,predicted=0,identity_only=0,expired=0,crossings=0;
+        double error_sum=0,tracking_error=0;unsigned selected=0,assist=0,predicted=0,identity_only=0,expired=0,crossings=0,tracking_ticks=0;
         unsigned frame=0;int next_capture=0;
         for(int tick=0;tick<duration;++tick) {
             now=10+tick*.001;const int phase=tick%1625;
@@ -125,8 +126,10 @@ void simulations(unsigned seed,const std::string& directory) {
                     b.detections={d};
                 }
                 auto v=selector.select(b);selected+=v.has_target;
-                v.frame_id=frame;v.captured_at_ns=b.captured_at_ns;v.result_at_ns=b.captured_at_ns+6000000;v.frame_updated=true;
-                pending.emplace_back(tick+2+int(rng()%11),runtime_app::adapt_vision_result(v));
+                const int result_delay_ms=2+int(rng()%11)+extra_delay_ms;
+                v.frame_id=frame;v.captured_at_ns=b.captured_at_ns;
+                v.result_at_ns=b.captured_at_ns+static_cast<std::uint64_t>(result_delay_ms)*1000000;v.frame_updated=true;
+                pending.emplace_back(tick+result_delay_ms,runtime_app::adapt_vision_result(v));
             }
             while(!pending.empty() && pending.front().first<=tick) {controller.submit_vision_snapshot(pending.front().second);pending.pop_front();}
             auto out=controller.build_output(input);
@@ -146,21 +149,55 @@ void simulations(unsigned seed,const std::string& directory) {
             if(p.manual_exit_requested)check(components.manual_passthrough_x && components.manual_passthrough_y,"explicit manual exit lost authority");
             assist+=p.aim_authority>0;predicted+=p.gap_prediction_valid;identity_only+=p.observation_gap && p.aim_authority==0;
             const float error=std::hypot(ex,ey);error_sum+=error;maximum_error=std::max(maximum_error,error);
+            // Compare the same commanded tracking windows, including lost targets;
+            // conditioning on aim_authority would hide the cost of failed selection.
+            if(phase>=100 && phase<1500){++tracking_ticks;tracking_error+=error;}
             crossings+=ex*previous_error<0 && phase!=0;previous_error=ex;
             maximum_delta=std::max(maximum_delta,std::abs(out.right_x-previous_x));previous_x=out.right_x;
             controller.observe_delivered_output(out,true,now);motion.push_back(out);
         }
-        report<<seed<<','<<scenario<<','<<duration<<','<<duration<<','<<selected<<','<<assist<<','<<predicted<<','<<identity_only<<','<<expired<<','<<error_sum/duration<<','<<maximum_error<<','<<crossings<<','<<maximum_delta<<'\n';
+        report<<seed<<','<<scenario<<','<<duration<<','<<duration<<','<<selected<<','<<assist<<','<<predicted<<','<<identity_only<<','<<expired<<','<<error_sum/duration<<','<<maximum_error<<','<<crossings<<','<<maximum_delta<<','<<extra_delay_ms<<','<<tracking_ticks<<','<<tracking_error/tracking_ticks<<'\n';
     }
     check(bool(report),"simulation report write failed");
 }
+void geometry_probe(const std::string& directory) {
+    std::filesystem::create_directories(directory);
+    std::ofstream csv(directory+"/geometry-sweep.csv");
+    csv<<"tick,height,raw_aim_y,source_aim_y,output_y,target_id\n";
+    auto cfg=fixture::base_config(40,190);cfg.ai_aim.normalized_assist_parameters=true;
+    double now=10;NativeGamepadController controller(cfg,&now);
+    vision_native::VisionTargetSelector selector(640,512,190,true,.2f,.65f);
+    for(int tick=0;tick<1000;++tick) {
+        now=10+tick*.001;
+        const float height=(tick/100)%2 ? 65.2f:64.8f;
+        const auto geometry=body_aim_geometry(270,220,370,220+height,.2f,.65f);
+        if(tick%10==0) {
+            vision_native::DetectionBatch b;b.frame_width=640;b.frame_height=512;
+            b.frame_id=tick/10+1;b.captured_at_ns=static_cast<std::uint64_t>(now*1e9);
+            vision_native::Detection d;d.x1=270;d.x2=370;d.y1=220;d.y2=220+height;
+            d.conf=.92f;d.color_classified=true;b.detections={d};
+            auto v=selector.select(b);v.frame_id=b.frame_id;v.captured_at_ns=b.captured_at_ns;
+            v.result_at_ns=b.captured_at_ns;v.frame_updated=true;
+            controller.submit_vision_snapshot(runtime_app::adapt_vision_result(v));
+        }
+        auto out=controller.build_output(fixture::ads_input());
+        const auto& plan=controller.last_target_plan();
+        csv<<tick<<','<<height<<','<<geometry.aim_y<<','<<plan.source_aim_px.y<<','<<out.right_y<<','<<plan.target_id<<'\n';
+        controller.observe_delivered_output(out,true,now);
+    }
+    check(bool(csv),"geometry probe report write failed");
+}
 int main(int argc,char**argv) {
+    if(argc==3 && std::string(argv[1])=="--geometry-probe") {
+        try {geometry_probe(argv[2]);return 0;}
+        catch(const std::exception&e){std::cout<<e.what()<<'\n';return 1;}
+    }
     int failures=0;
     for(auto test:std::array<std::pair<const char*,std::function<void()>>,3>{{{"recorded_geometry",geometry},{"recorded_short_gap",short_gap},{"adjacent_boundaries",boundaries}}}) {
       try {test.second();std::cout<<"PASS "<<test.first<<'\n';}catch(const std::exception&e){++failures;std::cout<<"FAIL "<<test.first<<": "<<e.what()<<'\n';}
     }
     if(argc>=3) {
-      try {simulations(static_cast<unsigned>(std::stoul(argv[1])),argv[2]);std::cout<<"PASS randomized seed "<<argv[1]<<" (32 short/long cases, 352000 ticks)\n";}
+      try {simulations(static_cast<unsigned>(std::stoul(argv[1])),argv[2],argc>=4?std::stoi(argv[3]):0);std::cout<<"PASS randomized seed "<<argv[1]<<" (32 short/long cases, 352000 ticks)\n";}
       catch(const std::exception&e){++failures;std::cout<<"FAIL randomized: "<<e.what()<<'\n';}
     }
     return failures?1:0;

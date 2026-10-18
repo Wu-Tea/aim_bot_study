@@ -25,4 +25,4 @@ runpy.run_path(str(dev/'python/tools/benchmarks/desktop_web_host_smoke.py'),run_
 for name,module in list(sys.modules.items()):
  if name.startswith('desktop_app') and name!='desktop_app.test_desktop' and getattr(module,'__file__',None):
   assert Path(module.__file__).resolve().is_relative_to(clean), (name,module.__file__)
-print('Production desktop modules all loaded from clean; tests/helper retained in DEV.')
+print(f'Production desktop modules all loaded from {clean}; tests/helper retained in DEV.')

@@ -328,7 +328,7 @@ int main(int argc, char** argv) {
                 << ",\"pickup_min_area\":" << kMinPickupAreaRatio
                 << ",\"tracking_min_area\":" << kMinTrackingAreaRatio
                 << ",\"min_aspect\":" << kMinAspectRatio
-                << ",\"wide_min_aspect\":" << kMinWideLowAspectRatio
+                << ",\"wide_min_aspect\":" << kMinAspectRatio
                 << ",\"max_aspect\":" << kMaxAspectRatio
                 << ",\"default_completion_radius\":" << controller_native::GamepadAiAimConfig{}.arrival_radius_px
                 << ",\"feedback_minimum_px\":1,\"feedback_multiplier\":1"

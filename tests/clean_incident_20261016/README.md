@@ -25,7 +25,7 @@ foreach ($seed in 20261016,730201,982451,416103) {
 
 需要将产品使用的 SDL2.dll 放在测试 exe 旁。`run_env.py` 统一 Windows 环境变量大小写，避免宿主同时提供 Path/PATH 导致 MSBuild 失败；不更改系统环境。
 
-`prepare_suites.py <ProductRoot>` 把 DEV 已跟踪的测试源与产品源组合到 `runs/.../suites`，生成 Base 与压枪/开火测试构建。夹具来自 DEV 9e7d2da；只在生成副本中校正两处旧时限假设：身份可到硬来源时限，预测仍不超过 32 ms；50 ms 配置下的过期断言从来源年龄 34 ms 改为 51 ms。原 DEV 生产代码和原测试文件不修改。复制 SDL2 后运行：
+`prepare_suites.py <ProductRoot>` 把 DEV 已跟踪的测试源与产品源组合到 `runs/.../suites`，生成 Base 与压枪/开火测试构建。2026-10-18 同步修复到 DEV 后，原生夹具直接分别检查身份硬时限与 32 ms 预测时限，不再在生成副本中替换断言。50 ms 测试配置的身份过期在原 capture 年龄 51 ms 检查。复制 SDL2 后运行：
 
 ```powershell
 python tests/clean_incident_20261016/prepare_suites.py D:/work/AI/yolo-study-001-clean
@@ -43,3 +43,11 @@ python tests/clean_incident_20261016/prepare_suites.py D:/work/AI/yolo-study-001
 捕获间隔 5–12 ms，结果延迟 2–12 ms，缺帧覆盖 22/35/75 ms 和 200 ms；覆盖友军拒绝、逐轴轻推/反向/强推、开火和压枪。相机显式假设为线性 1400 px/(stick·s)、9 ms 输出延迟；并非游戏真实响应曲线。检查来源时限、预测时限、原始透传、显式退出、源瞄点不受手动改写、物理输出范围与 ADS/BodyLock 生命周期。
 
 逐案例 CSV 记录误差、中心穿越、最大输出变化及各状态 tick 数，供观察行为，不是游戏表现分数或实机验收。真实显示延迟、遮挡和模型漏检只能在实机继续验证。
+
+## 2026-10-18 DEV 同步与探索
+
+相同夹具分别链接 DEV 与 clean，使用新种子 20261018、104729（开发）和 15485863、32452843（独立验证）。本轮结果位于 DEV `runs/dev-clean-sync-20261018/`。生产同步及探索结论见 [报告](../../docs/project/DEV_CLEAN_SYNC_20261018.md)。
+
+`incident_checks.exe <seed> <目录> [额外延迟毫秒]` 支持测试侧的 0–20 ms 延迟偏移，不改生产时限或参数。本轮比较 0/6/12 ms，捕获、输入和目标节奏保持相同种子；result 时间戳与合成完成时间一致。合成结果按 FIFO 交付，后到期的早帧可能阻塞后帧；这是仿真假设，不代表生产 latest-only mailbox。新增 tracking 指标使用固定的每周期 100–1500 ms 窗口，包含失去目标时的误差，避免只统计辅助有效帧造成偏差。`expired_ticks` 历史列名实际表示无目标 tick，也包括松杆和周期空隙。
+
+`incident_checks.exe --geometry-probe <目录>` 固定框的左上角和宽度，将高度每 100 ms 在 64.8/65.2 px 间切换，经生产 selector/adapter/controller 记录源瞄点和输出。它是隔离几何因果的开环探针：不让输出改变输入画面，不能把该输出振幅当作实际游戏振荡幅度。测试侧 CSV 可复查公式跨越 0.65 时的连续性。

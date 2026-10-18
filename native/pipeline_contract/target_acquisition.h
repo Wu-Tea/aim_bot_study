@@ -14,8 +14,7 @@ inline constexpr float kMinPickupHeightRatio = 0.08f;
 inline constexpr float kMinTrackingHeightRatio = 0.06f;
 inline constexpr float kMinPickupAreaRatio = 0.003f;
 inline constexpr float kMinTrackingAreaRatio = 0.002f;
-inline constexpr float kMinAspectRatio = 0.85f;
-inline constexpr float kMinWideLowAspectRatio = 0.30f;
+inline constexpr float kMinAspectRatio = 0.30f;
 inline constexpr float kMaxAspectRatio = 4.50f;
 
 inline bool wide_low_body_shape(float width, float height) noexcept {
@@ -25,8 +24,9 @@ inline bool wide_low_body_shape(float width, float height) noexcept {
 inline bool body_geometry_admitted(float width, float height, int frame_width, int frame_height,
                                    bool tracking_candidate) noexcept {
     const float aspect = width > 0 ? height / width : 0.0f;
-    const float min_aspect = wide_low_body_shape(width, height) ? kMinWideLowAspectRatio : kMinAspectRatio;
-    if (aspect < min_aspect || aspect > kMaxAspectRatio) return false;
+    // Pose affects the aim point, not whether an otherwise plausible person
+    // exists. Partial occlusion must not create a rejection hole at 0.65-0.85.
+    if (aspect < kMinAspectRatio || aspect > kMaxAspectRatio) return false;
     const float min_height = frame_height * (tracking_candidate ? kMinTrackingHeightRatio : kMinPickupHeightRatio);
     const float min_area = (frame_width * frame_height) * (tracking_candidate ? kMinTrackingAreaRatio : kMinPickupAreaRatio);
     return height >= min_height && width * height >= min_area;

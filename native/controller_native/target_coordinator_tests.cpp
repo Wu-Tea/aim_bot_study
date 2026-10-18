@@ -1126,8 +1126,14 @@ void register_target_coordinator_tests(native_test::Registry& registry) {
                     feedback.continuation_offset_px={-static_cast<float>((now-capture)*50),0};
                     const auto plan=coordinator.update(batch,intent,now,feedback);
                     if(plan.observation_gap) {
-                        require_true((now-capture)*1000<=std::min(32.f,config.max_observation_age_ms)+1e-5,
-                            "prediction cannot exceed original source-age budget");
+                        require_true((now-capture)*1000<config.max_observation_age_ms+1e-5,
+                            "identity cannot exceed original hard source-age budget");
+                        if(plan.gap_prediction_valid || plan.aim_authority>0)
+                            require_true((now-capture)*1000<=std::min(32.f,config.max_observation_age_ms)+1e-5,
+                                "prediction cannot exceed original source-age budget");
+                        if((now-capture)*1000>32.+1e-5)
+                            require_true(!plan.gap_prediction_valid && plan.aim_authority==0,
+                                "identity retention cannot authorize prediction after grace");
                         require_true(!plan.direct_person_observation && !plan.fire_authority,
                             "random misses never become observation/fire evidence");
                     }
@@ -1188,7 +1194,7 @@ void register_target_coordinator_tests(native_test::Registry& registry) {
             !recovered.observation_gap && recovered.mode==pipeline_contract::ControlMode::BodyLockFollow,
             "fresh pixels resume the same identity without another Snap");
         coordinator.update(fresh_no_selection(5,2.024),intent,2.024);
-        const auto expired=coordinator.update(fresh_no_selection(6,2.052),intent,2.052);
+        const auto expired=coordinator.update(fresh_no_selection(6,2.069),intent,2.069);
         require_true(expired.target_id==0 && expired.aim_authority==0,
             "repeated misses cannot renew identity beyond original capture deadline");
     });

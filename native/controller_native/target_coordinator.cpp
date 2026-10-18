@@ -636,8 +636,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
             observations.selector_target_generation ==
                 selector_target_generation_;
 
-        // User-authorized short miss policy: original capture time owns the
-        // deadline. Missing frames cannot renew it or train observations.
+        // Original capture time owns both limits. Prediction expires at the
+        // shorter grace; identity and the unfinished ADS task remain valid
+        // until the existing hard source deadline. Misses renew neither.
         if (fresh_no_target) {
             observation_gap_active_ = config_.missing_observation_grace_ms > 0.f && same_generation_miss &&
                 observations.rejected_friendly_count == 0 &&
@@ -645,7 +646,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         }
         const bool retain_identity = config_.missing_observation_grace_ms > 0.f &&
             observation_gap_active_ && !source_expired &&
-            source_age_ms <= config_.missing_observation_grace_ms &&
             pipeline_contract::requests_target_search(intent.activation) &&
             intent.right_purpose != pipeline_contract::UserAimIntentPurpose::HandoverTarget &&
             !latest_.manual_exit_requested;
@@ -654,12 +654,14 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         // A short-lived identity is not permission to extrapolate arbitrarily.
         // Stop prediction once camera/target displacement leaves the last
         // observed half-region support; reacquisition still owns new pixels.
-        gap_prediction_valid = feedback.continuation_valid &&
+        gap_prediction_valid = source_age_ms <= config_.missing_observation_grace_ms &&
+            feedback.continuation_valid &&
             pipeline_contract::finite(offset) && geometry_reducer_.snapshot().available && region.w > 0 && region.h > 0 &&
             std::fabs(offset.x) <= region.w * .5f &&
             std::fabs(offset.y) <= region.h * .5f;
         gap_diagnostic_reason_ = retain_identity ?
-            (gap_prediction_valid ? "bridged" : feedback.continuation_valid ?
+            (source_age_ms > config_.missing_observation_grace_ms ? "prediction_deadline" :
+             gap_prediction_valid ? "bridged" : feedback.continuation_valid ?
                 "identity_only_prediction_outside_region" : feedback.continuation_rejection) :
             source_expired ? "source_expired" :
             config_.missing_observation_grace_ms<=0 ? "grace_disabled" :
@@ -667,7 +669,6 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
             observations.rejected_friendly_count>0 ? "friendly_rejection" :
             observations.rejected_low_reliability_count>0 ? "reliability_rejection" :
             !observation_gap_active_ ? "no_active_gap" :
-            source_age_ms>config_.missing_observation_grace_ms ? "gap_deadline" :
             !pipeline_contract::requests_target_search(intent.activation) ? "scope_inactive" :
             intent.right_purpose==pipeline_contract::UserAimIntentPurpose::HandoverTarget ? "manual_handover" :
             latest_.manual_exit_requested ? "manual_exit" :
