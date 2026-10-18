@@ -19,6 +19,7 @@ enum class ResponseModelConstraintReason : unsigned char {
 
 struct ResponseModelAimRequest {
     pipeline_contract::Vec2f error_px{};
+    pipeline_contract::Vec2f position_stopping_reserve_px{};
     pipeline_contract::Vec2f relative_velocity_px_per_sec{};
     float response_px_per_stick_second = 500.0f;
     float arrival_horizon_seconds = 0.050f;

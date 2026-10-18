@@ -38,6 +38,7 @@ struct BodylockTargetMotionObservation {
 };
 
 struct BodylockTargetMotionEstimate {
+    float response_px_per_stick_second = 500.f;
     // Total camera command that would make the selected target stationary on
     // screen. This is target motion, not residual screen motion and not an AI
     // delta to add to the user's stick.
@@ -81,6 +82,7 @@ private:
     std::uint64_t target_id_ = 0;
     double last_capture_seconds_ = 0.0;
     float confidence_ = 0.0f;
+    float response_scale_ = 500.f;
     std::uint32_t accepted_samples_ = 0;
     bool initialized_ = false;
     bool last_observation_was_cue_ = false;

@@ -32,8 +32,14 @@ ResponseModelAimOutput solve_response_model_aim(
         return point_policy && std::fabs(error) <= request.point_tolerance_px
             ? 0.0f : error;
     };
+    const auto remaining_error = [](float error,float reserve) noexcept {
+        // Already delivered work may brake to zero, not reverse an axis
+        // before the source position itself crosses the point.
+        return error*reserve>0.f ? std::copysign(std::max(0.f,std::fabs(error)-std::fabs(reserve)),error) : error;
+    };
     pipeline_contract::Vec2f control_error{
-        point_error(request.error_px.x), -point_error(request.error_px.y)};
+        point_error(remaining_error(request.error_px.x,request.position_stopping_reserve_px.x)),
+        -point_error(remaining_error(request.error_px.y,request.position_stopping_reserve_px.y))};
     if (request.range_position_response) {
         if (request.max_force.x <= 0.f) control_error.x = 0.f;
         if (request.max_force.y <= 0.f) control_error.y = 0.f;

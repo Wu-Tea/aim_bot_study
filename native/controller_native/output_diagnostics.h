@@ -40,6 +40,11 @@ struct NativeControllerOutputComponents {
     bool manual_exit_requested = false;
     bool handover_requested = false;
     bool handover_braking = false;
+    common_native::Vec2f closing_rate_px_per_sec;
+    common_native::Vec2f stopping_reserve_px;
+    float camera_response_scale=0.f;
+    float camera_effect_delay_ms=0.f;
+    bool camera_alignment_valid=false;
     common_native::Vec2f bodylock_error_rate_px_per_sec;
     common_native::Vec2f bodylock_position_stick;
     common_native::Vec2f bodylock_motion_stick;

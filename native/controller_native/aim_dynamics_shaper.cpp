@@ -141,6 +141,25 @@ pipeline_contract::Vec2f AimDynamicsShaper::current() const noexcept {
     return current_;
 }
 
+pipeline_contract::Vec2f AimDynamicsShaper::stopping_work(
+    pipeline_contract::Vec2f sustaining,const AimResponseCurveConfig& curve) const noexcept {
+    // Integrate the existing decay envelope in camera-response coordinates.
+    // Prediction only: no altered slew, wait or queued output.
+    const auto follow=inverse_aim_response_curve(sustaining,curve);
+    const float rate=std::max(.001f,config_.decay_slew_per_second);
+    const float horizon=std::max(std::fabs(current_.x-follow.x),std::fabs(current_.y-follow.y))/rate;
+    pipeline_contract::Vec2f integral{};
+    constexpr int steps=16;
+    for(int i=0;i<steps;++i) {
+        const float t=horizon*(i+.5f)/steps;
+        const auto at=[&](float u,float v) {return u+std::clamp(v-u,-rate*t,rate*t);};
+        const auto response=forward_aim_response_curve({at(current_.x,follow.x),at(current_.y,follow.y)},curve);
+        integral.x+=(response.x-sustaining.x)*horizon/steps;
+        integral.y+=(response.y-sustaining.y)*horizon/steps;
+    }
+    return integral;
+}
+
 void AimDynamicsShaper::adopt(pipeline_contract::Vec2f output) noexcept {
     current_ = output;
 }

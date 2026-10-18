@@ -148,6 +148,10 @@ struct ControllerSamplePayload {
     bool manual_exit_requested = false;
     bool handover_requested = false;
     bool handover_braking = false;
+    float closing_rate_x=0.f, closing_rate_y=0.f;
+    float stopping_reserve_x=0.f, stopping_reserve_y=0.f;
+    float camera_response_scale=0.f, camera_effect_delay_ms=0.f;
+    bool camera_alignment_valid=false;
     float bodylock_error_rate_x = 0.0f;
     float bodylock_error_rate_y = 0.0f;
     float bodylock_position_stick_x = 0.0f;
