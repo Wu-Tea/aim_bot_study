@@ -98,7 +98,7 @@ void simulations(unsigned seed,const std::string& directory) {
         std::ofstream trace;
         if(duration==2000 && scenario<2) {
             trace.open(directory+"/trace-"+std::to_string(seed)+"-"+std::to_string(scenario)+".csv");
-            trace<<"tick,error_x,error_y,output_x,output_y,mode,authority,source_age_ms,manual_exit\n";
+            trace<<"tick,error_x,error_y,output_x,output_y,mode,authority,source_age_ms,manual_exit,source_error_x,source_error_y,target_motion_x,target_motion_y,response,request_x,request_y\n";
         }
         for(int tick=0;tick<duration;++tick) {
             now=10+tick*.001;const int phase=tick%1625;
@@ -173,7 +173,7 @@ void simulations(unsigned seed,const std::string& directory) {
             if(std::fabs(ex*zoom)>2 && phase<1500){if(previous_side*ex<0)++crossings;previous_side=ex;}
             ads+=p.mode==ControlMode::AdsAcquire;body+=p.mode==ControlMode::BodyLockFollow;
             max_delta=std::max(max_delta,std::hypot(out.right_x-previous.right_x,out.right_y-previous.right_y));previous=out;
-            if(trace.is_open())trace<<tick<<','<<ex*zoom<<','<<ey*zoom<<','<<out.right_x<<','<<out.right_y<<','<<int(p.mode)<<','<<p.aim_authority<<','<<p.observation_age_ms<<','<<p.manual_exit_requested<<'\n';
+            if(trace.is_open())trace<<tick<<','<<ex*zoom<<','<<ey*zoom<<','<<out.right_x<<','<<out.right_y<<','<<int(p.mode)<<','<<p.aim_authority<<','<<p.observation_age_ms<<','<<p.manual_exit_requested<<','<<p.error_px.x<<','<<p.error_px.y<<','<<p.bodylock_target_motion_px_per_sec.x<<','<<p.bodylock_target_motion_px_per_sec.y<<','<<p.response_scale<<','<<comp.requested_assist_stick.x<<','<<comp.requested_assist_stick.y<<'\n';
             controller.observe_delivered_output(out,true,now);
             motion.push_back(forward_aim_response_curve({out.right_x,out.right_y},cfg.aim_response_curve));
         }
