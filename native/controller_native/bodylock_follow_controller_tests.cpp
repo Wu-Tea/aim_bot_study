@@ -339,6 +339,83 @@ void test_feedback_distance_delay_noise_sweep(const native_test::TestContext& co
 }  // namespace
 
 void register_bodylock_follow_controller_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "sustaining_motion_uses_existing_budget_once", [] {
+        using namespace controller_native;
+        BodylockFollowControllerConfig config;
+        config.range_position_response = true;
+        config.minimum_position_stick = .5f;
+        config.response_time_x_seconds = config.response_time_y_seconds = .1f;
+        config.response_curve.algorithm = AimResponseCurveAlgorithm::Linear;
+        auto plan = active_plan(0.f, 0.f);
+        plan.aim_authority = .0736f;
+        plan.reliability = .92f;
+        plan.response_scale = 1000.f;
+        plan.bodylock_target_motion_valid = true;
+        plan.bodylock_target_motion_px_per_sec = {60.f, 0.f};
+        const auto counterexample = BodylockFollowController(config).compute(plan);
+        require_true(near(counterexample.x, .06f, 1e-6f),
+            "budget-feasible 60px/s sustaining motion must deliver .06, not .004416");
+        for (auto curve : {AimResponseCurveAlgorithm::Linear, AimResponseCurveAlgorithm::CodDynamicLegacyLut}) {
+            config.response_curve.algorithm = curve;
+            for (float authority : {0.f, .02f, .0736f, .22f, .92f}) {
+                plan.aim_authority = authority;
+                for (int angle = 0; angle < 32; ++angle) {
+                    const float theta = angle * 6.283185307f / 32.f;
+                    const pipeline_contract::Vec2f desired{authority*.8f*std::cos(theta), authority*.8f*std::sin(theta)};
+                    const auto velocity = forward_aim_response_curve(desired, config.response_curve);
+                    plan.bodylock_target_motion_px_per_sec = {velocity.x*1000.f, -velocity.y*1000.f};
+                    // Use demands feasible under BOTH the original authority and force cap.
+                    config.max_force_x = config.max_force_y = 1.f;
+                    const auto output = BodylockFollowController(config).compute(plan);
+                    require_true(near(output.x, desired.x, 2e-5f) && near(output.y, desired.y, 2e-5f),
+                        "feasible centered 2D motion must survive identity gain and curve conversion");
+                    plan.bodylock_target_motion_px_per_sec = {2000.f, -2000.f};
+                    const auto capped = BodylockFollowController(config).compute(plan);
+                    require_true(std::hypot(capped.x,capped.y) <= authority+1e-6f,
+                        "sustaining demand must not raise the existing joint authority budget");
+                }
+            }
+        }
+        config.response_curve.algorithm = AimResponseCurveAlgorithm::Linear;
+        plan.aim_authority = .0736f;
+        plan.bodylock_target_motion_valid = false;
+        plan.velocity_px_per_sec = {60.f, -20.f};
+        const auto fallback = BodylockFollowController(config).compute(plan);
+        require_true(fallback.x == 0.f && fallback.y == 0.f,
+            "unqualified screen motion must not establish centered sustaining work");
+        plan.bodylock_target_motion_valid = true;
+        plan.bodylock_target_motion_px_per_sec = {60.f, 0.f};
+        config.range_position_response = false;
+        require_true(near(BodylockFollowController(config).compute(plan).x, .004416f, 1e-6f),
+            "legacy noncanonical motion policy is outside this change");
+        ResponseModelAimRequest request;
+        request.range_position_response = request.delay_aware_velocity_response = true;
+        request.position_range_px = 150.f;
+        request.response_px_per_stick_second = 1000.f;
+        request.response_curve.algorithm = AimResponseCurveAlgorithm::Linear;
+        request.authority = .0736f;
+        request.error_px = {.1f, -.2f};
+        request.minimum_position_stick = .5f;
+        request.motion_is_sustaining_target_motion = true;
+        const auto stationary = solve_response_model_aim(request);
+        request.relative_velocity_px_per_sec = {20.f, -10.f};
+        const auto moving = solve_response_model_aim(request);
+        require_true(near(moving.position_stick.x, stationary.position_stick.x, 1e-7f) &&
+            near(moving.position_stick.y, stationary.position_stick.y, 1e-7f) &&
+            near(stationary.pre_curve_stick.x, stationary.position_stick.x*request.authority, 1e-7f) &&
+            near(moving.pre_curve_stick.x-stationary.pre_curve_stick.x, .02f, 1e-7f),
+            "position pursuit gain stays unchanged while valid sustaining velocity retains physical units");
+        request.max_force.x = 0.f;
+        const auto disabled = solve_response_model_aim(request);
+        require_true(disabled.stick.x == 0.f && disabled.stick.y > 0.f,
+            "sustaining motion cannot reactivate a disabled axis");
+        request.motion_is_error_rate_lookahead = true;
+        request.max_force.x = 1.f;
+        const auto lookahead = solve_response_model_aim(request);
+        require_true(near(lookahead.pre_curve_stick.x,
+            (lookahead.position_stick.x+lookahead.bounded_motion_stick.x)*request.authority, 1e-7f),
+            "error rate lookahead cannot claim total target motion ownership");
+    });
     registry.add_case("BaseBodyLock", "velocity_feedback_delay_curve_and_geometry_ownership", [] {
         using namespace controller_native;
         for (auto curve : {AimResponseCurveAlgorithm::Linear, AimResponseCurveAlgorithm::CodDynamicLegacyLut}) {
