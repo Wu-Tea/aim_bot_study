@@ -194,9 +194,19 @@ ResponseModelAimOutput solve_response_model_aim(
         }
         if (max_x <= 0.0f) sustaining.x = 0.0f;
         if (max_y <= 0.0f) sustaining.y = 0.0f;
-        pipeline_contract::Vec2f correction{
-            output.unclamped_stick.x - sustaining.x,
-            output.unclamped_stick.y - sustaining.y};
+        // ADS lookahead is a brake on the position-owned pursuit reference.
+        // Establish that reference BEFORE braking. Flooring the residual would
+        // restore almost-cancelled work and rotate its budget onto the other
+        // axis. BodyLock sustaining motion retains its separate ownership.
+        const bool ads_lookahead = request.motion_is_error_rate_lookahead;
+        const auto position_reference = inverse_aim_response_curve({
+            output.position_stick.x * authority,
+            output.position_stick.y * authority}, request.response_curve);
+        pipeline_contract::Vec2f correction = ads_lookahead
+            ? position_reference
+            : pipeline_contract::Vec2f{
+                output.unclamped_stick.x - sustaining.x,
+                output.unclamped_stick.y - sustaining.y};
         float magnitude = std::hypot(correction.x, correction.y);
         const float correction_length = std::hypot(
             max_x > 0.0f ? correction.x / max_x : 0.0f,
@@ -226,6 +236,40 @@ ResponseModelAimOutput solve_response_model_aim(
         output.unclamped_stick = {
             sustaining.x + correction.x * scale,
             sustaining.y + correction.y * scale};
+        if (ads_lookahead) {
+            // Only the pursuit floor may raise the original position gain.
+            // Do not attenuate a saturated position request before applying
+            // lookahead: that would brake distant acquisition prematurely.
+            // Both axes share the unbraked gain, so cancelling one cannot
+            // transfer its floor budget into the other. Curve calibration and
+            // the final physical envelope remain joint two-dimensional solves.
+            const auto reference = forward_aim_response_curve(
+                output.unclamped_stick, request.response_curve);
+            const float original_magnitude = std::hypot(
+                output.position_stick.x, output.position_stick.y) * authority;
+            const float pursuit_gain = original_magnitude > 0.f
+                ? std::max(1.f, std::hypot(reference.x, reference.y) / original_magnitude) : 1.f;
+            output.pre_curve_stick.x *= pursuit_gain;
+            output.pre_curve_stick.y *= pursuit_gain;
+            output.unclamped_stick = inverse_aim_response_curve(
+                output.pre_curve_stick, request.response_curve);
+            // Lookahead may increase demand for a receding point, but it still
+            // obeys the existing range/point upper envelope. This is only a
+            // cap: it must never restore the pursuit floor after braking.
+            const float final_magnitude = std::hypot(output.unclamped_stick.x, output.unclamped_stick.y);
+            const float final_ellipse = std::hypot(
+                max_x > 0.f ? output.unclamped_stick.x / max_x : 0.f,
+                max_y > 0.f ? output.unclamped_stick.y / max_y : 0.f);
+            const float final_cap = final_ellipse > 0.f ? final_magnitude / final_ellipse : 0.f;
+            const float upper = std::min(braking_budget,
+                std::max(final_cap * fraction, std::min(final_cap, request.minimum_position_stick)));
+            if (final_magnitude > upper) {
+                const float upper_scale = upper / final_magnitude;
+                output.unclamped_stick.x *= upper_scale;
+                output.unclamped_stick.y *= upper_scale;
+                range_limited = true;
+            }
+        }
     }
     const float normalized_x = max_x > 0.0f
         ? output.unclamped_stick.x / max_x : 0.0f;

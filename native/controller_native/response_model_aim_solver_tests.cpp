@@ -234,9 +234,94 @@ void test_error_rate_lookahead_cannot_claim_sustaining_ownership() {
         "screen-error lookahead cannot independently drive centered Y");
 }
 
+
+ResponseModelAimRequest ads_floor_request(AimResponseCurveAlgorithm curve) {
+    auto r = base_request();
+    r.error_px = {-10.f, -5.f};
+    r.response_px_per_stick_second = 1500.f;
+    r.arrival_horizon_seconds = r.arrival_horizon_y_seconds = .060f;
+    r.motion_weight = .012f / .060f;
+    r.motion_is_error_rate_lookahead = true;
+    r.range_position_response = true;
+    r.position_range_px = 210.f;
+    r.minimum_position_stick = .5f;
+    r.arrival_radius_px = 2.f;
+    r.response_curve.algorithm = curve;
+    return r;
+}
+
+void test_ads_braking_survives_pursuit_floor() {
+    for (auto curve : {AimResponseCurveAlgorithm::Linear, AimResponseCurveAlgorithm::CodDynamicLegacyLut}) {
+        auto r = ads_floor_request(curve);
+        r.error_px.y = 0.f;
+        float previous = std::fabs(solve_response_model_aim(r).stick.x);
+        for (int n = 1; n <= 10000; ++n) {
+            r.relative_velocity_px_per_sec.x = (10.f / .012f) * n / 10000.f;
+            const auto o = solve_response_model_aim(r);
+            const float magnitude = std::fabs(o.stick.x);
+            require(o.stick.x <= 0.f, "ADS brake must not reverse the source error");
+            require(magnitude <= previous + 2e-6f, "stronger braking increased delivered demand");
+            require(previous - magnitude < .001f, "pursuit floor jumps at brake cancellation");
+            previous = magnitude;
+        }
+        r.relative_velocity_px_per_sec.x = 833.32f;
+        require(std::fabs(solve_response_model_aim(r).stick.x) < .001f,
+                "near-cancelled ADS work was re-amplified by pursuit floor");
+    }
+}
+
+void test_ads_braking_does_not_redistribute_to_other_axis() {
+    for (auto curve : {AimResponseCurveAlgorithm::Linear, AimResponseCurveAlgorithm::CodDynamicLegacyLut}) {
+        auto r = ads_floor_request(curve);
+        const auto baseline = forward_aim_response_curve(solve_response_model_aim(r).stick, r.response_curve);
+        for (float rate : {300.f, 500.f, 700.f, 833.32f, 834.f}) {
+            r.relative_velocity_px_per_sec.x = rate;
+            const auto response = forward_aim_response_curve(solve_response_model_aim(r).stick, r.response_curve);
+            require_near(response.y, baseline.y, 2e-5f,
+                "X braking redistributed pursuit work into unchanged Y camera demand");
+        }
+    }
+}
+
+void test_ads_distant_acquisition_is_not_braked_before_saturation() {
+    for (auto curve : {AimResponseCurveAlgorithm::Linear, AimResponseCurveAlgorithm::CodDynamicLegacyLut}) {
+        auto r = ads_floor_request(curve);
+        r.error_px = {-100.f, 0.f};
+        r.relative_velocity_px_per_sec = {1000.f, 0.f};
+        r.response_px_per_stick_second = 500.f;
+        // Even after the existing 12ms lookahead the uncapped demand is
+        // saturated. Establishing a pursuit reference must not slow this
+        // distant acquisition before the ordinary range cap is enforced.
+        require_near(solve_response_model_aim(r).stick.x, -std::sqrt(100.f/210.f), 1e-5f,
+            "distant saturated acquisition was attenuated before lookahead");
+    }
+}
+
+void test_ads_pursuit_reference_survives_inside_person_box() {
+    auto r = ads_floor_request(AimResponseCurveAlgorithm::Linear);
+    r.error_px = {40.f, 0.f};
+    r.response_px_per_stick_second = 3000.f;
+    // No approach velocity: being inside an admission/person range is not
+    // evidence that the aim point has been reached or needs early braking.
+    for (float radius : {120.f, 210.f, 400.f}) {
+        r.position_range_px = radius;
+        require_near(solve_response_model_aim(r).stick.x, .5f, 1e-6f,
+            "floor removed from unsatisfied stationary point pursuit");
+    }
+    r.error_px = {};
+    require_near(solve_response_model_aim(r).stick.x, 0.f, 1e-6f,
+        "minimum pursuit must not drive an already centered stationary point");
+    r.error_px = {40.f, 0.f};r.authority = 0.f;
+    require_near(solve_response_model_aim(r).stick.x, 0.f, 1e-6f, "floor bypassed revoked authority");
+}
+
 }  // namespace
 
 void register_response_model_aim_solver_tests(native_test::Registry& registry) {
+    registry.add_case("BaseAds", "braking_survives_pursuit_floor", test_ads_braking_survives_pursuit_floor);
+    registry.add_case("BaseAds", "braking_does_not_redistribute_other_axis", test_ads_braking_does_not_redistribute_to_other_axis);
+    registry.add_case("BaseAds", "distant_acquisition_keeps_saturated_pursuit", test_ads_distant_acquisition_is_not_braked_before_saturation);
+    registry.add_case("BaseAds", "pursuit_reference_inside_person_box", test_ads_pursuit_reference_survives_inside_person_box);
     registry.add_case("BaseBodyLock", "sustaining_motion_respects_mouse_point_policy", test_sustaining_motion_respects_mouse_point_policy);
     registry.add_case("BaseBodyLock", "error_rate_cannot_claim_sustaining_ownership", test_error_rate_lookahead_cannot_claim_sustaining_ownership);
     registry.add_case("BaseBodyLock", "solver_radial_direction_and_y_sign", test_radial_direction_and_y_sign);
