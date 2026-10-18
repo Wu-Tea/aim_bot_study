@@ -113,6 +113,9 @@ private:
     bool firing_velocity_observer_active_ = false;
     pipeline_contract::TargetPlan latest_{};
     pipeline_contract::Vec2f velocity_{};
+    // Actual source displacement rate owns stopping. The disturbance-limited
+    // velocity above owns motion classification, not camera braking.
+    pipeline_contract::Vec2f capture_error_rate_{};
     pipeline_contract::Vec2f acceleration_{};
     std::uint64_t source_id_ = 0;
     std::uint64_t generation_ = 0;

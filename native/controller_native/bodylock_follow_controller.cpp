@@ -30,7 +30,7 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
             plan.bodylock_target_motion_px_per_sec);
     result.error_rate_px_per_sec = target_motion_total_valid
         ? plan.bodylock_target_motion_px_per_sec
-        : plan.error_rate_px_per_sec;
+        : config_.range_position_response ? plan.velocity_px_per_sec : plan.error_rate_px_per_sec;
     if (plan.mode != pipeline_contract::ControlMode::BodyLockFollow ||
         plan.lifecycle == pipeline_contract::TargetLifecycle::None) {
         return result;
@@ -49,6 +49,7 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
         ? "bodylock_delay_aware_velocity" : "bodylock_response_model";
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
+    request.position_stopping_reserve_px = plan.position_stopping_reserve_px;
     request.point_tolerance_px = config_.bodylock_point_tolerance_px;
     request.relative_velocity_px_per_sec = result.error_rate_px_per_sec;
     request.response_px_per_stick_second = response;
@@ -68,7 +69,8 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     request.range_position_response = config_.range_position_response;
     request.delay_aware_velocity_response = config_.range_position_response;
     request.feedback_delay_seconds = std::max(0.f, plan.source_capture_age_ms) * .001f +
-        config_.response_effect_delay_seconds;
+        (plan.camera_effect_delay_seconds >= 0.f
+            ? plan.camera_effect_delay_seconds : config_.response_effect_delay_seconds);
     request.position_range_px = plan.position_response_radius_px;
     request.minimum_position_stick = config_.minimum_position_stick;
     request.arrival_radius_px = plan.position_arrival_radius_px;

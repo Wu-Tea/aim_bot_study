@@ -48,6 +48,7 @@ void TargetCoordinator::reset_target_owned_state_for_replacement() noexcept {
     geometry_reducer_.reset();
     desired_point_reducer_.reset();
     velocity_ = {};
+    capture_error_rate_ = {};
     acceleration_ = {};
     source_id_ = 0;
     previous_firing_velocity_innovation_ = {};
@@ -424,6 +425,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         if (cue_continuation_candidate) {
             adopt_candidate_geometry(*candidate, true, false);
             velocity_ = {};
+            capture_error_rate_ = {};
             acceleration_ = {};
             previous_firing_velocity_innovation_ = {};
             firing_velocity_observer_active_ = false;
@@ -432,6 +434,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
             ads_lifecycle_reducer_.clear_unadmitted_target_identity();
             adopt_candidate_geometry(*candidate, false, true);
             velocity_ = {};
+            capture_error_rate_ = {};
             acceleration_ = {};
             previous_firing_velocity_innovation_ = {};
             firing_velocity_observer_active_ = false;
@@ -452,6 +455,9 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
             const auto position_innovation = subtract(
                 observed_aim_px,
                 geometry_reducer_.snapshot().source_position);
+            capture_error_rate_ = {
+                std::clamp(position_innovation.x / observation_dt, -4000.f, 4000.f),
+                std::clamp(position_innovation.y / observation_dt, -4000.f, 4000.f)};
             auto velocity_innovation = position_innovation;
             const bool bodylock_motion_model =
                 ads.task_mode ==
@@ -811,7 +817,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     const float response_scale = std::max(
         0.0f, feedback.aim_response_px_per_stick_second);
     const pipeline_contract::Vec2f residual_error_rate = observed_frames_ >= 2
-        ? screen_velocity
+        ? capture_error_rate_
         : pipeline_contract::Vec2f{
             screen_velocity.x -
                 feedback.previous_delivered_stick.x * response_scale,
@@ -946,7 +952,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         50.0f, feedback.aim_response_px_per_stick_second);
     plan.response_confidence = std::clamp(
         feedback.aim_response_confidence, 0.0f, 1.0f);
-    plan.error_rate_px_per_sec = screen_velocity;
+    plan.error_rate_px_per_sec = capture_error_rate_;
     if (screen_velocity.y < -config_.jump_fall_velocity_px_per_second) {
         plan.motion = pipeline_contract::TargetMotion::Jump;
     } else if (screen_velocity.y > config_.jump_fall_velocity_px_per_second) {
@@ -991,6 +997,7 @@ void TargetCoordinator::reset() noexcept {
     desired_point_reducer_.reset();
     ads_lifecycle_reducer_.reset();
     velocity_ = {};
+    capture_error_rate_ = {};
     acceleration_ = {};
     previous_firing_velocity_innovation_ = {};
     firing_velocity_observer_active_ = false;

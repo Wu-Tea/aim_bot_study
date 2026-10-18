@@ -50,6 +50,7 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         close_weight * (close_horizon - nominal_horizon)) / config_.arrival_speed;
     ResponseModelAimRequest request{};
     request.error_px = plan.error_px;
+    request.position_stopping_reserve_px = plan.position_stopping_reserve_px;
     request.relative_velocity_px_per_sec = plan.error_rate_px_per_sec;
     request.response_px_per_stick_second = response;
     request.arrival_horizon_seconds = horizon;
@@ -61,7 +62,11 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
         request.arrival_horizon_seconds = config_.arrival_horizon_seconds;
         request.arrival_horizon_y_seconds = config_.arrival_horizon_seconds;
     }
-    request.motion_weight = config_.stopping_lookahead_seconds /
+    // Delivered-work prediction already covers capture age + transport.
+    // Only the uncovered part of the original lookahead may brake again.
+    const float covered = config_.range_position_response && plan.camera_effect_delay_seconds >= 0.f
+        ? plan.source_capture_age_ms*.001f+plan.camera_effect_delay_seconds : 0.f;
+    request.motion_weight = std::max(0.f,config_.stopping_lookahead_seconds-covered) /
         request.arrival_horizon_seconds;
     request.motion_is_error_rate_lookahead = true;
     request.max_force = {

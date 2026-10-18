@@ -97,6 +97,13 @@ def main():
                     if saved.get('enabled') is True and abs(saved.get('strength',0)-.42)<1e-6:break
                     time.sleep(.1)
                 else:raise RuntimeError('WebView2 haptics controls did not persist: '+str(saved))
+                # Repository persistence precedes the asynchronous bridge reply.
+                # Wait for React to re-enable navigation before clicking it.
+                deadline=time.monotonic()+5
+                while time.monotonic()<deadline:
+                    if window.evaluate_js('''(() => {const e=Array.from(document.querySelectorAll("button")).find(e=>e.textContent==="首次瞄准");return !!e && !e.matches(':disabled');})()'''):break
+                    time.sleep(.05)
+                else:raise RuntimeError('Save bridge did not re-enable tuning navigation')
                 window.evaluate_js('Array.from(document.querySelectorAll("button")).find(e=>e.textContent==="首次瞄准").click()')
                 time.sleep(.2)
                 window.evaluate_js("document.querySelector('[aria-label=\"当前配置\"]').focus()")

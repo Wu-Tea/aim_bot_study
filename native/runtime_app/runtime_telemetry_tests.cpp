@@ -44,6 +44,11 @@ runtime_app::TelemetryRecord controller_record(std::uint64_t tick) {
     value.controller.ai_correction_x = 0.05f;
     value.controller.requested_assist_x = 0.12f;
     value.controller.shaped_assist_x = 0.10f;
+    value.controller.closing_rate_x = 800.f;
+    value.controller.stopping_reserve_x = 3.5f;
+    value.controller.camera_response_scale = 1400.f;
+    value.controller.camera_effect_delay_ms = 19.f;
+    value.controller.camera_alignment_valid = true;
     value.controller.visual_authority = 0.83f;
     value.controller.enemy_cue_current = true;
     value.controller.enemy_identity_confirmed = true;
@@ -183,6 +188,11 @@ void test_writer_serializes_current_controller_and_deduplicates_source_frames() 
     REQUIRE(text.find("\"assist_control_phase\":\"handover_brake\"") != std::string::npos);
     REQUIRE(text.find("\"requested_assist_x\":0.12") != std::string::npos);
     REQUIRE(text.find("\"shaped_assist_x\":0.1") != std::string::npos);
+    REQUIRE(text.find("\"closing_rate_x\":800") != std::string::npos);
+    REQUIRE(text.find("\"stopping_reserve_x\":3.5") != std::string::npos);
+    REQUIRE(text.find("\"camera_response_scale\":1400") != std::string::npos);
+    REQUIRE(text.find("\"camera_effect_delay_ms\":19") != std::string::npos);
+    REQUIRE(text.find("\"camera_alignment_valid\":true") != std::string::npos);
     REQUIRE(text.find("\"visual_authority\":0.83") != std::string::npos);
     REQUIRE(text.find("\"enemy_cue_current\":true") != std::string::npos);
     REQUIRE(text.find("\"enemy_identity_confirmed\":true") != std::string::npos);

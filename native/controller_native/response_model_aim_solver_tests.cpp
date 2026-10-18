@@ -1,4 +1,10 @@
 #include "response_model_aim_solver.h"
+#include "camera_response_alignment.h"
+#include "aim_dynamics_shaper.h"
+#include "target_coordinator.h"
+#include "ads_acquisition_controller.h"
+#include "incident_fixture_support.h"
+#include "bodylock_target_motion_observer.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -317,7 +323,87 @@ void test_ads_pursuit_reference_survives_inside_person_box() {
 
 }  // namespace
 
+
+namespace {
+void test_camera_alignment_identifies_delay_without_target_motion_leak() {
+    for(int lag:{1,9,19,29}) {
+        CameraResponseAlignment model;model.begin_target(1);
+        const auto command=[](double t) {return pipeline_contract::Vec2f{
+            float(.35*std::sin(83*t)+.12*std::cos(191*t)),float(.23*std::cos(117*t))};};
+        for(int i=0;i<32;++i) {
+            double t=10+i*.005;CameraResponseAlignment::Commands commands{};
+            for(int d=0;d<CameraResponseAlignment::delay_count;++d)commands[d]=command(t-d*.001);
+            const auto u=commands[lag];
+            model.update(t,{float(75+20*(t-10))-1400*u.x,float(-30+10*(t-10))+1400*u.y},commands);
+        }
+        const auto e=model.estimate();require(e.valid,"excited camera must be identifiable");
+        require_near(e.response,1400,1,"target drift contaminated camera gain");
+        require_near(e.delay_seconds,lag*.001f,.0001f,"camera response was paired to the wrong command");
+    }
+    CameraResponseAlignment flat;flat.begin_target(1);CameraResponseAlignment::Commands commands{};
+    for(int i=0;i<32;++i)flat.update(10+i*.005,{300.f,200.f},commands);
+    require(!flat.estimate().valid,"target motion without camera excitation must not identify a camera");
+}
+void test_stopping_reserve_accounts_for_existing_output() {
+    AimDynamicsShaper shaper;shaper.adopt({.5f,0});AimResponseCurveConfig curve;
+    const auto work=shaper.stopping_work({},curve);
+    require_near(work.x,.5f*.5f/(2*48),1e-6f,"shaper stopping work has wrong units");
+    auto r=ads_floor_request(AimResponseCurveAlgorithm::Linear);r.error_px={3,0};r.relative_velocity_px_per_sec={};
+    const auto original=solve_response_model_aim(r).stick;
+    r.position_stopping_reserve_px={work.x*1500,0};
+    require(original.x>0 && solve_response_model_aim(r).stick.x==0,"already committed work must consume the remaining point budget");
+    shaper.adopt({.2f,-.1f});
+    const auto tracking=shaper.stopping_work({.2f,-.1f},curve);
+    require(tracking.x==0 && tracking.y==0,"necessary sustaining output is not excess stopping work");
+}
+void test_firing_does_not_erase_ads_closing_rate() {
+    TargetCoordinatorConfig cfg;cfg.settle_radius_px=2;TargetCoordinator coordinator(cfg);coordinator.begin_ads_epoch(1,10);
+    pipeline_contract::IntentState intent;intent.activation=pipeline_contract::AssistActivation::Engaged;
+    TargetControlFeedback feedback;feedback.firing_recently=true;feedback.aim_response_px_per_stick_second=1500;
+    pipeline_contract::TargetPlan plan;float errors[]={-30,-30,-22,-14,-6};
+    for(int i=0;i<5;++i){
+        pipeline_contract::VisionObservationBatch b;b.frame_id=i+1;b.source_time_seconds=b.publish_time_seconds=10+i*.01;b.frame_width_px=640;b.frame_height_px=512;b.capture_fresh=true;b.selector_identity_protocol=true;b.selector_target_generation=7;b.preferred_source_id=1;b.count=1;
+        auto& p=b.candidates[0];p.source_id=1;p.aim_px={320+errors[i],256};p.has_aim_point=true;p.aim_region_px={p.aim_px.x-20,240,40,80};p.aim_region_source=pipeline_contract::AimRegionSource::VisionGeometry;p.has_aim_region=true;p.body_box_px=p.aim_region_px;p.has_body_box=true;p.box_size_px={40,80};p.confidence=.95f;p.reliability=.9f;p.normalized_size=.15625f;p.body_cue=true;
+        plan=coordinator.update(b,intent,b.source_time_seconds,feedback);
+    }
+    require_near(plan.error_rate_px_per_sec.x,800,1,"firing target-motion policy erased camera closing rate");
+    AdsAcquisitionControllerConfig config;config.range_position_response=true;config.minimum_position_stick=.5f;config.arrival_horizon_seconds=.06f;config.force_headroom=1;
+    require(AdsAcquisitionController(config).compute(plan).x==0,"fresh closing motion must brake before crossing the point");
+}
+}
+
 void register_response_model_aim_solver_tests(native_test::Registry& registry) {
+    registry.add_case("BaseAds","handoff_keeps_scoped_camera_prior", [] {
+        auto cfg=incident_fixture::base_config(40,190);cfg.ai_aim.normalized_assist_parameters=true;
+        cfg.ai_aim.ads_slow_initial_scale=900;cfg.ai_aim.ads_free_initial_scale=1400;
+        cfg.ai_aim.body_slow_initial_scale=1500;cfg.ai_aim.body_free_initial_scale=2000;
+        cfg.ai_aim.aim_response_learning_enabled=false;cfg.ai_aim.ads_completion_fresh_frames=3;
+        double now=10;NativeGamepadController controller(cfg,&now);incident_fixture::TargetSpec spec;
+        spec.observation_id=1;spec.selector_generation=7;spec.has_enemy_cue=true;spec.enemy_identity_confirmed=true;
+        float first=0;bool ads=false,body=false;
+        for(int i=0;i<12;++i) {
+            now=10+i*.01;controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,i+1,now,0,0));
+            controller.build_output(incident_fixture::ads_input());const auto& p=controller.last_target_plan();
+            ads=ads||p.mode==pipeline_contract::ControlMode::AdsAcquire;
+            body=body||p.mode==pipeline_contract::ControlMode::BodyLockFollow;
+            if(!i)first=p.response_scale;
+            require_near(p.response_scale,first,.001f,"ADS completion changed the scoped physical camera prior");
+        }
+        require(ads&&body,"handoff fixture must exercise both phases");
+    });
+    registry.add_case("BaseBodyLock","camera_gain_change_preserves_physical_target_motion", [] {
+        BodylockTargetMotionObserver observer;
+        for(int i=0;i<16;++i) {
+            const float response=i<8?500.f:2000.f;
+            observer.update({1,10+i*.01,.01f,{100,0},{},response,1,true});
+            const auto e=observer.estimate(1,10+i*.01);
+            if(i>=2)require_near(e.target_motion_stick.x*e.response_px_per_stick_second,100,.01f,"mode/response calibration changed physical target speed");
+        }
+    });
+
+    registry.add_case("BaseAds","camera_alignment_keeps_physical_units",test_camera_alignment_identifies_delay_without_target_motion_leak);
+    registry.add_case("BaseAds","stopping_reserve_accounts_for_existing_output",test_stopping_reserve_accounts_for_existing_output);
+    registry.add_case("BaseAds","firing_preserves_closing_rate",test_firing_does_not_erase_ads_closing_rate);
     registry.add_case("BaseAds", "braking_survives_pursuit_floor", test_ads_braking_survives_pursuit_floor);
     registry.add_case("BaseAds", "braking_does_not_redistribute_other_axis", test_ads_braking_does_not_redistribute_to_other_axis);
     registry.add_case("BaseAds", "distant_acquisition_keeps_saturated_pursuit", test_ads_distant_acquisition_is_not_braked_before_saturation);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pipeline_contract/target_plan.h"
+#include "aim_response_curve_plugin.h"
 
 #include <cstdint>
 
@@ -29,6 +30,9 @@ public:
         float dt_seconds) noexcept;
 
     pipeline_contract::Vec2f current() const noexcept;
+    pipeline_contract::Vec2f stopping_work(
+        pipeline_contract::Vec2f sustaining,
+        const AimResponseCurveConfig& curve) const noexcept;
     void adopt(pipeline_contract::Vec2f output) noexcept;
     void reset() noexcept;
 

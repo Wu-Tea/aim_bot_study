@@ -37,6 +37,12 @@ bool BodylockTargetMotionObserver::update(
     }
 
     const float response = observation.response_px_per_stick_second;
+    // Carry physical target velocity across camera calibration / mode changes.
+    // Stored normalized values cannot silently acquire a new px/s meaning.
+    const float transport = response_scale_ / response;
+    for(auto& value : measurements_) {value.x*=transport;value.y*=transport;}
+    filtered_motion_stick_.x*=transport;filtered_motion_stick_.y*=transport;
+    response_scale_=response;
     // Screen Y grows downward while positive XInput Y moves the camera up.
     // Removing the causally aligned camera work therefore uses opposite signs
     // on Y and X:
@@ -93,6 +99,7 @@ BodylockTargetMotionEstimate BodylockTargetMotionObserver::estimate(
     std::uint64_t target_id,
     double now_seconds) const noexcept {
     BodylockTargetMotionEstimate result{};
+    result.response_px_per_stick_second = response_scale_;
     result.accepted_samples = accepted_samples_;
     if (!initialized_ || target_id == 0 || target_id != target_id_ ||
         !std::isfinite(now_seconds) || last_capture_seconds_ <= 0.0 ||
