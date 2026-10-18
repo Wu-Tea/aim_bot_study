@@ -12,15 +12,17 @@ def f32(value):
 
 
 def validate_policy(policy):
-    keys=('size_gain','wide_low_aspect_threshold','region_shrink_x','region_half_height',
+    keys=('size_gain','wide_low_aspect_threshold','body_aim_wide_aspect','body_aim_ordinary_aspect','region_shrink_x','region_half_height',
           'wide_region_half_height','release_hysteresis','ready_hysteresis',
           'pickup_min_height','tracking_min_height','pickup_min_area','tracking_min_area',
           'min_aspect','wide_min_aspect','max_aspect','default_completion_radius',
           'feedback_minimum_px','feedback_multiplier','feedback_calibration','horizon_min','horizon_max',
           'velocity_feedback_minimum_seconds','velocity_feedback_delay_margin','follow_effect_delay_seconds')
-    if not isinstance(policy,dict) or policy.get('schema_version')!=3 or any(
+    if not isinstance(policy,dict) or policy.get('schema_version')!=4 or any(
         type(policy.get(key)) not in (int,float) or not math.isfinite(policy[key]) or policy[key]<0 for key in keys):
         raise ValueError('原生几何预览格式无效。')
+    if not policy['body_aim_wide_aspect']<policy['body_aim_ordinary_aspect']:
+        raise ValueError('原生身体参考区间无效，请构建更新版本。')
     if type(policy.get('release_samples')) is not int or policy['release_samples']<1:
         raise ValueError('原生 L2 采样规则无效。')
     if policy['feedback_calibration']<=0 or not 0<policy['horizon_min']<=policy['horizon_max']:
@@ -178,8 +180,13 @@ def envelope(policy,width,height,frame_height,ordinary_ratio,wide_ratio,base):
         raise ValueError('图示尺寸或半径无效。')
     width,height,frame_height,ordinary_ratio,wide_ratio,base=map(f32,(width,height,frame_height,ordinary_ratio,wide_ratio,base))
     wide=f32(height/width)<f32(policy['wide_low_aspect_threshold'])
-    y=f32(height*(wide_ratio if wide else ordinary_ratio))
-    half=f32(height*f32(policy['wide_region_half_height'] if wide else policy['region_half_height']))
+    low,high=map(f32,(policy['body_aim_wide_aspect'],policy['body_aim_ordinary_aspect']))
+    t=max(0.,min(1.,f32(f32(f32(height/width)-low)/f32(high-low))))
+    ordinary_weight=f32(f32(t*t)*f32(3-f32(2*t)))
+    wide_weight=f32(1-ordinary_weight)
+    y=f32(height*f32(f32(ordinary_weight*ordinary_ratio)+f32(wide_weight*wide_ratio)))
+    half=f32(height*f32(f32(ordinary_weight*f32(policy['region_half_height']))+
+                        f32(wide_weight*f32(policy['wide_region_half_height']))))
     shrink=f32(width*f32(policy['region_shrink_x']))
     size=max(0,min(1,f32(height/frame_height)))
     radius=f32(base*f32(1+f32(f32(policy['size_gain'])*size)))

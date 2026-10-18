@@ -5,6 +5,17 @@ from desktop_app.ads_geometry import admission,envelope,feedback,follow_example,
 
 
 class NativeGeometryParityTests(unittest.TestCase):
+    def test_chest_reference_and_region_are_continuous_at_pose_boundary(self):
+        policy=RuntimeManager(PROJECT_ROOT).ads_geometry_policy()
+        a=envelope(policy,100,64.8,512,.2,.65,150)
+        b=envelope(policy,100,65.2,512,.2,.65,150)
+        self.assertLess(abs(a['aim'][1]-b['aim'][1]),.5)
+        for old,new in zip(a['region'],b['region']):self.assertLess(abs(old-new),.5)
+        for height,ratio in ((30,.65),(100,.2),(200,.2)):
+            self.assertAlmostEqual(envelope(policy,100,height,512,.2,.65,150)['aim'][1],height*ratio,places=4)
+        with self.assertRaises(ValueError):validate_policy(dict(policy,schema_version=3))
+        with self.assertRaises(ValueError):validate_policy(dict(policy,body_aim_ordinary_aspect=policy['body_aim_wide_aspect']))
+
     def test_low_speed_reaches_point_before_stopping(self):
         from desktop_app.ads_geometry import follow_response_example
         policy=RuntimeManager(PROJECT_ROOT).ads_geometry_policy()

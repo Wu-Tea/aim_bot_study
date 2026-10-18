@@ -1,6 +1,7 @@
 #include "vision_native/target_selector.h"
 
 #include "pipeline_contract/target_snapshot.h"
+#include "pipeline_contract/target_acquisition.h"
 #include "test_support/native_test_registry.h"
 
 #include <algorithm>
@@ -1962,6 +1963,29 @@ void test_selection_diagnostics_explain_rejected_boxes() {
 }  // namespace
 
 void register_target_selector_tests(native_test::Registry& registry) {
+    registry.add_case("BaseVisionSelection", "chest_reference_continuous_through_pose_boundary", [] {
+        vision_native::VisionTargetSelector selector(640,512,190,true,.2f,.65f);
+        vision_native::DetectionBatch batch;batch.frame_width=640;batch.frame_height=512;
+        std::uint64_t generation=0;float previous_y=0,previous_top=0,previous_bottom=0;
+        // The fixed left/top and jittering bottom represent one stationary
+        // person's detector geometry, independent of the computed aim point.
+        for(int frame=1;frame<=200;++frame) {
+            vision_native::Detection d;d.x1=270;d.x2=370;d.y1=220;
+            d.y2=220+(frame%2 ? 64.8f:65.2f);d.conf=.92f;d.color_classified=true;
+            batch.detections={d};batch.frame_id=frame;batch.captured_at_ns=1000000000ull+frame*10000000ull;
+            const auto selected=selector.select(batch);
+            if(!selected.has_target){require_true(frame<=2,"geometry jitter interrupted selected target");continue;}
+            if(generation) {
+                require_true(selected.selector_target_generation==generation,"geometry jitter changed identity");
+                require_true(std::fabs(selected.target_y-previous_y)<.5f,"0.4px box jitter jumps chest reference");
+                require_true(std::fabs(selected.aim_region_y1-previous_top)<.5f &&
+                    std::fabs(selected.aim_region_y2-previous_bottom)<.5f,"geometry jitter jumps aim region");
+            }
+            generation=selected.selector_target_generation;previous_y=selected.target_y;
+            previous_top=selected.aim_region_y1;previous_bottom=selected.aim_region_y2;
+        }
+        require_true(generation!=0,"boundary fixture never acquired a target");
+    });
     registry.add_case("BaseVisionSelection", "selection_diagnostics_rejected_boxes", test_selection_diagnostics_explain_rejected_boxes);
     registry.add_case("BaseVisionSelection", "cue_appearance_randomized_current_frame", test_cue_appearance_randomized_current_frame_tracking);
     registry.add_case("BaseVisionSelection", "cue_image_identity_not_nearest_color", test_cue_identity_matches_image_instead_of_nearest_color);

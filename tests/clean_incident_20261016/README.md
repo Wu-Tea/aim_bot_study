@@ -34,7 +34,7 @@ python tests/clean_incident_20261016/prepare_suites.py D:/work/AI/yolo-study-001
 ./runs/clean-incident-fix-20261016/suite-build/Release/fire_checks.exe
 ```
 
-桌面回归用 `gui_checks.py <ProductRoot>` 在私有 Windows 桌面运行 80 项测试和 WebView2 交互检查。`live_gui.py <ProductRoot> <新建输出目录> <模型绝对路径>` 使用独立配置、隐藏窗口、关闭输出与震动，验证真实 runtime 初始化、GUI 保存与热更新回执、IPC、停止按钮和正常退出。它不会修改用户配置。
+桌面回归用 `gui_checks.py <ProductRoot>` 在私有 Windows 桌面运行 81 项测试和 WebView2 交互检查。`live_gui.py <ProductRoot> <新建输出目录> <模型绝对路径>` 使用独立配置、隐藏窗口、关闭输出与震动，验证真实 runtime 初始化、GUI 保存与热更新回执、IPC、停止按钮和正常退出。它不会修改用户配置。
 
 ## 随机仿真的含义
 
@@ -51,3 +51,18 @@ python tests/clean_incident_20261016/prepare_suites.py D:/work/AI/yolo-study-001
 `incident_checks.exe <seed> <目录> [额外延迟毫秒]` 支持测试侧的 0–20 ms 延迟偏移，不改生产时限或参数。本轮比较 0/6/12 ms，捕获、输入和目标节奏保持相同种子；result 时间戳与合成完成时间一致。合成结果按 FIFO 交付，后到期的早帧可能阻塞后帧；这是仿真假设，不代表生产 latest-only mailbox。新增 tracking 指标使用固定的每周期 100–1500 ms 窗口，包含失去目标时的误差，避免只统计辅助有效帧造成偏差。`expired_ticks` 历史列名实际表示无目标 tick，也包括松杆和周期空隙。
 
 `incident_checks.exe --geometry-probe <目录>` 固定框的左上角和宽度，将高度每 100 ms 在 64.8/65.2 px 间切换，经生产 selector/adapter/controller 记录源瞄点和输出。它是隔离几何因果的开环探针：不让输出改变输入画面，不能把该输出振幅当作实际游戏振荡幅度。测试侧 CSV 可复查公式跨越 0.65 时的连续性。
+
+## 0.65 边界修复回归
+
+新增 `continuous_geometry` 检查瞄点和区域同时连续、两端配置参考不变、相等/反向比例、完整高宽比扫描以及缩放平移不变性。原生默认 BaseVisionSelection 另经真实 selector 连续输入 200 帧尺寸抖动，检查目标身份、源点和区域；GUI 检查预览协议 v4 与原生参考一致。原版的独立回归仅 `continuous_geometry` 失败，不能把这个预期失败误报为全部测试通过。
+
+```powershell
+incident_checks.exe 2026101801 <输出目录> 0 boundary trace
+incident_checks.exe 179424673 <输出目录> 0 boundary-neutral
+incident_checks.exe 86028121 <输出目录> 0 boundary-confirmed
+incident_checks.exe 67867967 <输出目录> 0 boundary-neutral-confirmed
+```
+
+上例演示场景名；完整验证让四个种子各运行全部场景，前两个用于开发、后两个独立验证。每个种子/场景有 16 类 × 2/20 秒。`boundary` 保留手动/开火练习，`neutral` 去掉手动和开火，`confirmed` 给检测提供明确敌方颜色证据；不改变生产权限策略。场景胸部真值固定在框顶下方 27.625 px，检测框高独立抖动于 64.6–65.4 px，不用生产混合公式重新定义真值。原有 `mixed` 场景继续检查相邻路径与来源时限，但不用于边界精度结论。
+
+CSV 分别记录初始、手动介入、释放阶段误差与 ADS/BodyLock tick 数。可选 `trace` 为前三个短案例记录状态轨迹。所有场景保留原 1575+50 ms 节奏、合成相机和交付延迟假设。初始没有敌方证据的案例须与 confirmed 分开看：修复后 ADS 正常完成会进入原有弱证据 BodyLock，不能为改善总体误差而提高其权限。详见 [修复报告](../../docs/project/GEOMETRY_CONTINUITY_20261018.md)。

@@ -2,7 +2,7 @@
 
 更新：2026-10-18。当前 DEV 使用 C++ runtime 与 React/WebView2 桌面助手。`启动助手.vbs` 经 Python 宿主打开 GUI；Python 保留配置、曲线、进程管理、IPC 和界面检查，不参与原生控制 tick。旧 Tk 界面已经移除。
 
-DEV 已同步 clean `739bc3d` 的身体框准入和短缺帧身份修复；32 ms 预测与 40 ms live 来源硬时限分别保留。51 组 CTest、桌面闭环、独立种子仿真及跨分支记录比较通过，详见 [本次同步与优化线索](DEV_CLEAN_SYNC_20261018.md)。DEV 继续保留测试、鼠标路径及实验工具；原有配置和所有权说明见 [配置与检查](CONFIGURATION_AND_CHECKS.md)。以下组件表描述完整 DEV，仿真与关闭输出的验证不能代替实机验收。
+DEV 在已同步的 clean `739bc3d` 修复上，修正了高宽比跨 0.65 时的胸部参考跳变：源几何连续混合已有参考，GUI 预览同步升级到 v4。保留胸部语义、逐轴手动权、32 ms 预测与 40 ms live 来源硬时限，没有新延迟或开关。51 组 CTest、81 项 GUI、独立种子 640 个短长场景通过；clean 候选的 449 项原生回归通过，20 份场景 CSV 与 DEV 一致。误差改善并非所有输入条件一致，详见 [修复、比较差异与验证](GEOMETRY_CONTINUITY_20261018.md)。DEV 继续保留测试、鼠标路径及实验工具；原有配置和所有权说明见 [配置与检查](CONFIGURATION_AND_CHECKS.md)。以下组件表描述完整 DEV，仿真与关闭输出的验证不能代替实机验收。
 
 ## 项目 → 业务组成 → 能力
 
@@ -10,7 +10,7 @@ DEV 已同步 clean `739bc3d` 的身体框准入和短缺帧身份修复；32 ms
 
 | 组成/能力 | 用途、入口与输入输出 | 所有者、依赖与调用方 | 验证和未知 |
 | --- | --- | --- | --- |
-| 桌面配置工作室 | [GUI](../../python/desktop_app/gui.py)：独立配置、游戏/模型、曲线、运行反馈 | 保留 dev 的 [workspace](../../python/desktop_app/workspace.py)、[RuntimeManager](../../python/desktop_app/runtime.py) 及 [IPC](../../python/desktop_app/control.py)；Python 仅在 UI/管理层使用，React/WebView2；不参与控制 tick | 80 项桌面检查及真实 WebView2 验证通过；保留 DEV 当前界面 |
+| 桌面配置工作室 | [GUI](../../python/desktop_app/gui.py)：独立配置、游戏/模型、曲线、运行反馈 | 保留 dev 的 [workspace](../../python/desktop_app/workspace.py)、[RuntimeManager](../../python/desktop_app/runtime.py) 及 [IPC](../../python/desktop_app/control.py)；Python 仅在 UI/管理层使用，React/WebView2；不参与控制 tick | 81 项桌面检查及真实 WebView2 验证通过；保留 DEV 当前界面 |
 | 启动/配置 | gamepad_start → [main](../../native/runtime_app/main.cpp)；mouse_start → [mouse main](../../native/runtime_app/mouse_runtime_main.cpp)；TOML/profile/game/environment/CLI → RuntimeConfig | [runtime_config](../../native/controller_native/runtime_config.cpp) 解析/派生/验证；main 施加 CLI 覆盖；Loop 保存生效配置 | BaseContracts；显式无效标量/损坏行拒绝，缺省项默认；支持当前配置子集，非完整 TOML 实现 |
 | 感知 | [VisionEngine](../../native/vision_native/src/vision_engine.cpp)：DXGI → CUDA 预处理 → TensorRT → selector → VisionResult | Engine 拥有捕获/推理/selector；[共享 Adapter](../../native/runtime_app/vision_engine_service_poller.h) 唯一持有 Engine，Service 拥有线程/latest-only mailbox；手柄/鼠标共用 | BaseVisionSelection、BaseRuntimeFreshness；真实引擎/policy 热更已运行；游戏识别效果未测 |
 | 物理手柄输入 | [Loop](../../native/runtime_app/runtime_loop.cpp) 读取 SDL/XInput → PhysicalGamepadState | Loop 拥有 reader/选定设备/重连节流；[IO recovery](../../native/controller_native/io_recovery_policy.cpp) 处理设备边界 | 原生协议/reader 测试；设备插拔未重测 |

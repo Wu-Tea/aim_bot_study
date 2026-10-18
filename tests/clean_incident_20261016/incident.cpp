@@ -80,11 +80,39 @@ void boundaries() {
         check(p.target_id==0 && p.aim_authority==0 && !p.fire_authority,"40ms source deadline extended");
     }
 }
-void simulations(unsigned seed,const std::string& directory,int extra_delay_ms=0) {
+void continuous_geometry() {
+    const auto before=body_aim_geometry(270,220,370,284.8f,.2f,.65f);
+    const auto after=body_aim_geometry(270,220,370,285.2f,.2f,.65f);
+    check(std::abs(after.aim_y-before.aim_y)<.5f,"0.4px box jitter jumps source chest reference");
+    check(std::abs(after.top-before.top)<.5f && std::abs(after.bottom-before.bottom)<.5f,
+        "0.65 aspect boundary jumps source aim region");
+    for(auto ratios:std::array<Vec2f,4>{{{.2f,.65f},{.4f,.65f},{.8f,.25f},{.4f,.4f}}}) {
+        const auto flat=body_aim_geometry(0,0,100,30,ratios.x,ratios.y);
+        const auto upright=body_aim_geometry(0,0,100,100,ratios.x,ratios.y);
+        check(std::abs(flat.aim_y-30*ratios.y)<.001f && std::abs(upright.aim_y-100*ratios.x)<.001f,
+            "configured chest reference endpoints changed");
+        auto previous=body_aim_geometry(0,0,100,29.9f,ratios.x,ratios.y);
+        for(int n=300;n<=1001;++n) {
+            const float height=n*.1f;
+            const auto current=body_aim_geometry(0,0,100,height,ratios.x,ratios.y);
+            const float ratio=current.aim_y/height;
+            check(ratio>=std::min(ratios.x,ratios.y)-1e-6f && ratio<=std::max(ratios.x,ratios.y)+1e-6f,
+                "geometry introduced an anatomical reference outside configured endpoints");
+            check(current.top<=current.aim_y && current.aim_y<=current.bottom && current.top>=0 && current.bottom<=height,
+                "source chest reference outside body/aim region");
+            check(std::abs(current.aim_y-previous.aim_y)<.5f && std::abs(current.top-previous.top)<.5f &&
+                std::abs(current.bottom-previous.bottom)<.5f,"geometry sweep found a relocated discontinuity");
+            const auto moved=body_aim_geometry(17,29,217,29+height*2,ratios.x,ratios.y);
+            check(std::abs(moved.aim_y-(29+current.aim_y*2))<.002f,"geometry depends on box scale/translation");
+            previous=current;
+        }
+    }
+}
+void simulations(unsigned seed,const std::string& directory,int extra_delay_ms=0,bool boundary_scene=false,bool exercise_manual=true,bool trace_enabled=false,bool confirmed_enemy=false) {
     check(extra_delay_ms>=0 && extra_delay_ms<=20,"unsupported synthetic latency offset");
     std::filesystem::create_directories(directory);
     std::ofstream report(directory+"/seed-"+std::to_string(seed)+".csv");
-    report<<"seed,scenario,duration_ms,ticks,selected_frames,assist_ticks,prediction_ticks,identity_only_ticks,expired_ticks,mean_error_px,max_error_px,center_crossings,max_output_delta,extra_delay_ms,tracking_ticks,tracking_mean_error_px\n";
+    report<<"seed,scenario,duration_ms,ticks,selected_frames,assist_ticks,prediction_ticks,identity_only_ticks,expired_ticks,mean_error_px,max_error_px,center_crossings,max_output_delta,extra_delay_ms,tracking_ticks,tracking_mean_error_px,boundary_scene,exercise_manual,pre_manual_error_px,manual_error_px,release_error_px,confirmed_enemy,ads_ticks,bodylock_ticks\n";
     for(int duration:{2000,20000}) for(int scenario=0;scenario<16;++scenario) {
         std::mt19937 rng(seed ^ (scenario*7919u+duration));
         auto cfg=fixture::base_config(40,190);cfg.ai_aim.normalized_assist_parameters=true;
@@ -93,14 +121,21 @@ void simulations(unsigned seed,const std::string& directory,int extra_delay_ms=0
         cfg.ai_aim.bodylock_output_limit_x=cfg.ai_aim.bodylock_output_limit_y=1;
         cfg.ai_aim.body_free_initial_scale=2000;cfg.ai_aim.body_slow_initial_scale=1500;
         cfg.ai_aim.ads_free_initial_scale=1400;cfg.ai_aim.ads_slow_initial_scale=900;
-        cfg.recoil.enabled=scenario%4==3;cfg.recoil.output_amount=.2f;
+        cfg.recoil.enabled=exercise_manual && scenario%4==3;cfg.recoil.output_amount=.2f;
         double now=10;NativeGamepadController controller(cfg,&now);
         vision_native::VisionTargetSelector selector(640,512,190,true,.2f,.65f);
         std::deque<std::pair<int,ControllerVisionSnapshot>> pending;
         std::deque<GamepadOutputState> motion(9);
         float ex=80,ey=-35,previous_x=0,previous_error=80,maximum_delta=0,maximum_error=0;
         double error_sum=0,tracking_error=0;unsigned selected=0,assist=0,predicted=0,identity_only=0,expired=0,crossings=0,tracking_ticks=0;
-        unsigned frame=0;int next_capture=0;
+        unsigned frame=0,ads_ticks=0,bodylock_ticks=0;int next_capture=0;
+        std::array<double,3> stage_error{};std::array<unsigned,3> stage_ticks{};
+        std::ofstream trace;
+        if(trace_enabled && duration==2000 && scenario<3) {
+            std::filesystem::create_directories(directory+"/traces");
+            trace.open(directory+"/traces/case-"+std::to_string(scenario)+".csv");
+            trace<<"tick,ex,ey,manual_x,manual_y,output_x,output_y,target_id,authority,source_y,manual_exit,pass_x,pass_y,mode,ads_active,ads_reason\n";
+        }
         for(int tick=0;tick<duration;++tick) {
             now=10+tick*.001;const int phase=tick%1625;
             if(phase==0){ex=float(int(rng()%181)-90);ey=float(int(rng()%61)-30);}
@@ -112,6 +147,7 @@ void simulations(unsigned seed,const std::string& directory,int extra_delay_ms=0
             PhysicalGamepadState input=fixture::ads_input();input.left_trigger=phase<1500?1.f:0.f;
             input.right_x=(phase>350 && phase<1000)?(scenario%4==0?0:scenario%4==1?.2f:scenario%4==2?-.48f:.78f):.012f;
             input.right_y=(phase>650 && phase<1200)?(scenario%3==0?-.4f:.21f):-.012f;
+            if(!exercise_manual)input.right_x=input.right_y=0;
             input.right_trigger=cfg.recoil.enabled && phase>250 && phase<1100?1.f:0.f;
             if(tick>=next_capture) {
                 next_capture=tick+5+int(rng()%8);++frame;
@@ -119,10 +155,17 @@ void simulations(unsigned seed,const std::string& directory,int extra_delay_ms=0
                 const int drop_duration=std::array<int,4>{{0,22,35,75}}[scenario/4];
                 const bool gap=(phase>=1575)||(phase>=250 && phase<250+drop_duration)||(scenario==15 && phase>=500 && phase<700);
                 if(!gap) {
-                    const float width=100, height=width*(.6f+float(rng()%81)*.01f);
+                    const float width=100, height=boundary_scene ? 64.6f+float(rng()%81)*.01f : width*(.6f+float(rng()%81)*.01f);
                     const auto ratio=wide_low_body_shape(width,height)?.65f:.2f;
-                    vision_native::Detection d;d.x1=320+ex-width*.5f;d.x2=d.x1+width;d.y1=256+ey-height*ratio;d.y2=d.y1+height;
+                    vision_native::Detection d;d.x1=320+ex-width*.5f;d.x2=d.x1+width;
+                    // Boundary scene has a fixed physical chest-to-top offset.
+                    // Detector bottom jitter cannot move ground truth or copy
+                    // the production interpolation back into the synthetic plant.
+                    d.y1=256+ey-(boundary_scene ? 27.625f : height*ratio);d.y2=d.y1+height;
                     d.conf=.92f;d.color_classified=true;d.is_friendly=scenario==14 && phase>=900 && phase<1000;
+                    // Color evidence affects confidence/authority, never the
+                    // physical chest location or the detector-owned aim point.
+                    if(confirmed_enemy)d.color_bonus=.3f;
                     b.detections={d};
                 }
                 auto v=selector.select(b);selected+=v.has_target;
@@ -152,11 +195,19 @@ void simulations(unsigned seed,const std::string& directory,int extra_delay_ms=0
             // Compare the same commanded tracking windows, including lost targets;
             // conditioning on aim_authority would hide the cost of failed selection.
             if(phase>=100 && phase<1500){++tracking_ticks;tracking_error+=error;}
+            if(phase>=100 && phase<1500) {
+                const unsigned stage=phase<=350?0:phase<1200?1:2;
+                stage_error[stage]+=error;++stage_ticks[stage];
+            }
+            ads_ticks+=p.mode==ControlMode::AdsAcquire;bodylock_ticks+=p.mode==ControlMode::BodyLockFollow;
+            if(trace.is_open())trace<<tick<<','<<ex<<','<<ey<<','<<input.right_x<<','<<input.right_y<<','<<out.right_x<<','<<out.right_y<<','<<p.target_id<<','<<p.aim_authority<<','<<p.source_aim_px.y<<','<<p.manual_exit_requested<<','<<components.manual_passthrough_x<<','<<components.manual_passthrough_y<<','<<int(p.mode)<<','<<p.ads_acquisition_active<<','<<int(p.ads_decision_reason)<<'\n';
             crossings+=ex*previous_error<0 && phase!=0;previous_error=ex;
             maximum_delta=std::max(maximum_delta,std::abs(out.right_x-previous_x));previous_x=out.right_x;
             controller.observe_delivered_output(out,true,now);motion.push_back(out);
         }
-        report<<seed<<','<<scenario<<','<<duration<<','<<duration<<','<<selected<<','<<assist<<','<<predicted<<','<<identity_only<<','<<expired<<','<<error_sum/duration<<','<<maximum_error<<','<<crossings<<','<<maximum_delta<<','<<extra_delay_ms<<','<<tracking_ticks<<','<<tracking_error/tracking_ticks<<'\n';
+        report<<seed<<','<<scenario<<','<<duration<<','<<duration<<','<<selected<<','<<assist<<','<<predicted<<','<<identity_only<<','<<expired<<','<<error_sum/duration<<','<<maximum_error<<','<<crossings<<','<<maximum_delta<<','<<extra_delay_ms<<','<<tracking_ticks<<','<<tracking_error/tracking_ticks<<','<<boundary_scene<<','<<exercise_manual;
+        for(unsigned stage=0;stage<3;++stage)report<<','<<stage_error[stage]/stage_ticks[stage];
+        report<<','<<confirmed_enemy<<','<<ads_ticks<<','<<bodylock_ticks<<'\n';
     }
     check(bool(report),"simulation report write failed");
 }
@@ -193,11 +244,14 @@ int main(int argc,char**argv) {
         catch(const std::exception&e){std::cout<<e.what()<<'\n';return 1;}
     }
     int failures=0;
-    for(auto test:std::array<std::pair<const char*,std::function<void()>>,3>{{{"recorded_geometry",geometry},{"recorded_short_gap",short_gap},{"adjacent_boundaries",boundaries}}}) {
+    for(auto test:std::array<std::pair<const char*,std::function<void()>>,4>{{{"recorded_geometry",geometry},{"recorded_short_gap",short_gap},{"adjacent_boundaries",boundaries},{"continuous_geometry",continuous_geometry}}}) {
       try {test.second();std::cout<<"PASS "<<test.first<<'\n';}catch(const std::exception&e){++failures;std::cout<<"FAIL "<<test.first<<": "<<e.what()<<'\n';}
     }
     if(argc>=3) {
-      try {simulations(static_cast<unsigned>(std::stoul(argv[1])),argv[2],argc>=4?std::stoi(argv[3]):0);std::cout<<"PASS randomized seed "<<argv[1]<<" (32 short/long cases, 352000 ticks)\n";}
+      try {const std::string scene=argc>=5?argv[4]:"mixed";
+           simulations(static_cast<unsigned>(std::stoul(argv[1])),argv[2],argc>=4?std::stoi(argv[3]):0,
+               scene.rfind("boundary",0)==0,scene.find("neutral")==std::string::npos,argc>=6&&std::string(argv[5])=="trace",scene.find("confirmed")!=std::string::npos);
+           std::cout<<"PASS randomized seed "<<argv[1]<<" (32 short/long cases, 352000 ticks)\n";}
       catch(const std::exception&e){++failures;std::cout<<"FAIL randomized: "<<e.what()<<'\n';}
     }
     return failures?1:0;

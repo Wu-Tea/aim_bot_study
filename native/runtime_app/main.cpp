@@ -318,8 +318,10 @@ int main(int argc, char** argv) {
             // Pure geometry: no configuration, engine, input scan or output.
             using namespace pipeline_contract;
             std::cout << std::setprecision(9)
-                << "{\"schema_version\":3,\"size_gain\":" << kPickupSizeGain
+                << "{\"schema_version\":4,\"size_gain\":" << kPickupSizeGain
                 << ",\"wide_low_aspect_threshold\":" << kWideLowAspectThreshold
+                << ",\"body_aim_wide_aspect\":" << kBodyAimWideAspect
+                << ",\"body_aim_ordinary_aspect\":" << kBodyAimOrdinaryAspect
                 << ",\"region_shrink_x\":" << kAimRegionShrinkX
                 << ",\"region_half_height\":" << kAimRegionHalfHeightRatio
                 << ",\"wide_region_half_height\":" << kWideLowAimRegionHalfHeightRatio
@@ -351,7 +353,7 @@ int main(int argc, char** argv) {
                 << "},\"references\":[";
             bool first = true;
             for (float normalized : {.03f,.08f,.1f,.24f,.25f,.5f,.9f}) {
-                for (float ratio : {.35f,.8f,1.538f,1.539f,2.4f}) {
+                for (float ratio : {.35f,.8f,.9999f,1.f,1.0001f,1.538f,1.539f,2.4f,3.333f,3.334f}) {
                     const float height = 416 * normalized, width = height * ratio;
                     const auto geometry = body_aim_geometry(0,0,width,height,.4f,.65f);
                     if (!first) std::cout << ',';
