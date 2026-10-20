@@ -1,0 +1,55 @@
+# Controller settings frozen from the incident profile; no device identity or paths.
+[gamepad.ai_aim]
+aim_response_learning_enabled = true
+body_free_initial_scale = 2000.0
+body_slow_initial_scale = 1500.0
+ads_free_initial_scale = 1400.0
+ads_slow_initial_scale = 900.0
+manual_intent_begin = 0.15
+manual_intent_full = 0.3
+
+[gamepad.recoil]
+enabled = true
+hipfire_multiplier = 1.0
+output_amount = 0.2
+
+[gamepad.output_transfer]
+enabled = false
+deadzone = 0.16
+axial = false
+game_exponent = 1.0
+
+[gamepad.auto_fire]
+fire_output = "RB"
+manual_fire_input = "RB"
+ads_press_delay_ms = 0.0
+pulse_period_ms = 100.0
+pulse_width_ms = 30.0
+
+[gamepad.ads]
+activation_trigger = 0.05
+scope_ready_trigger = 0.1
+pickup_base_radius_px = 190.0
+output_limit_x = 1.0
+output_limit_y = 1.0
+response_time_ms = 60.0
+
+[gamepad.bodylock]
+activation_range_px = 120.0
+output_limit_x = 1.0
+output_limit_y = 1.0
+response_time_x_ms = 10.0
+response_time_y_ms = 10.0
+
+[gamepad.assist]
+hipfire_ratio = 0.7
+input_deadzone = 0.01
+minimum_position_stick = 0.5
+arrival_radius_px = 2.0
+
+[gamepad.detection_haptics]
+strength = 0.24
+enabled = false
+
+[gamepad.aim_response_curve]
+algorithm = "cod_dynamic_legacy_lut"

@@ -413,6 +413,10 @@ void register_response_model_aim_solver_tests(native_test::Registry& registry) {
             now=10+i*.005;
             controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,i+1,now,1.5f,-2.f));
             output=controller.build_output(incident_fixture::ads_input());
+            // This fixture holds the observed point fixed rather than moving
+            // a camera plant. Explicitly report its zero delivered work so a
+            // sustaining observer cannot infer motion cancelling the proposal.
+            controller.observe_delivered_output(GamepadOutputState{},true,now);
         }
         const auto request=controller.last_output_components().requested_assist_stick;
         require(request.x>0 && request.x<.03f && request.y>0 && request.y<.03f,

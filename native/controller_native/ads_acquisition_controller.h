@@ -43,6 +43,13 @@ public:
     pipeline_contract::Vec2f compute(
         const pipeline_contract::TargetPlan& plan) const noexcept;
 
+    // Extra carried manual work that fits the remaining position budget.
+    // This is not AI force and does not change the per-axis intent weight.
+    pipeline_contract::Vec2f cooperative_manual_work(
+        const pipeline_contract::TargetPlan& plan,
+        pipeline_contract::Vec2f manual,
+        pipeline_contract::Vec2f ai) const noexcept;
+
 private:
     AdsAcquisitionControllerConfig config_{};
 };

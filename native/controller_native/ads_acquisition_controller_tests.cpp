@@ -1,4 +1,6 @@
 #include "ads_acquisition_controller.h"
+#include "assist_control_state_machine.h"
+#include "incident_fixture_support.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -6,6 +8,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <deque>
 
 namespace {
 
@@ -232,9 +235,137 @@ void test_september_ads_precenter_brake(const native_test::TestContext& context)
                  "24 ms approach must retain the braking contribution before center");
 }
 
+void test_centered_ads_retains_qualified_motion_under_original_budget() {
+    using namespace controller_native;
+    AdsAcquisitionControllerConfig cfg;
+    cfg.range_position_response = true;
+    cfg.arrival_horizon_seconds = .060f;
+    cfg.minimum_position_stick = .5f;
+    cfg.force_headroom = 1.f;
+    cfg.response_curve.algorithm = AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+    AdsAcquisitionController controller(cfg);
+    for (float authority : {.15f, .4f, 1.f}) {
+        auto p = plan_with(0, 0, authority);
+        p.position_response_radius_px = 190;
+        p.position_arrival_radius_px = 2;
+        p.bodylock_target_motion_valid = true;
+        const auto velocity = forward_aim_response_curve({authority*.5f, -authority*.25f}, cfg.response_curve);
+        p.bodylock_target_motion_px_per_sec = {velocity.x*p.response_scale, -velocity.y*p.response_scale};
+        const auto output = controller.compute(p);
+        const auto delivered = forward_aim_response_curve(output, cfg.response_curve);
+        require_true(std::hypot(delivered.x-velocity.x,delivered.y-velocity.y)<1e-5f,
+            "ADS must sustain feasible centered motion without requiring a permanent position error");
+        p.bodylock_target_motion_px_per_sec = {10000,10000};
+        const auto capped = controller.compute(p);
+        require_true(std::hypot(capped.x,capped.y)<=authority+1e-5f,
+            "sustaining motion must spend the original ADS authority envelope");
+        p.bodylock_target_motion_valid = false;
+        require_true(std::hypot(controller.compute(p).x,controller.compute(p).y)==0,
+            "unqualified motion cannot create centered work");
+    }
+}
+
+void test_ads_carried_manual_spends_remaining_work_without_restoring_brake() {
+    using namespace controller_native;
+    AdsAcquisitionControllerConfig cfg;
+    cfg.range_position_response=true;
+    cfg.response_curve.algorithm=AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+    AdsAcquisitionController solver(cfg);
+    AssistControlStateMachineConfig arb_config;
+    arb_config.use_gamepad_intent_for_arbitration=true;
+    auto p=plan_with(20,0);
+    p.position_response_radius_px=190;p.position_arrival_radius_px=2;
+    const auto solve=[&](pipeline_contract::Vec2f manual,pipeline_contract::Vec2f ai,float weight) {
+        AssistControlStateMachine arb(arb_config);
+        AssistControlStateMachineInput in;
+        in.activation=pipeline_contract::AssistActivation::Engaged;
+        in.target_authoritative=in.fresh_observation=true;
+        in.target_id=1;in.mode=p.mode;
+        in.ads_acquisition_state=pipeline_contract::AdsAcquisitionState::AcquiringNominal;
+        in.manual_stick=in.filtered_manual_stick=manual;
+        in.ai_stick=ai;in.manual_axis_activity={weight,weight};
+        in.ads_manual_work=solver.cooperative_manual_work(p,manual,ai);
+        return arb.update(in).stick;
+    };
+    require_true(std::fabs(solve({.3f,0},{.1f,0},1).x-.3f)<1e-5f,
+        "sustained aligned manual must participate before ADS timeout when work is feasible");
+    require_true(std::fabs(solve({.3f,0},{.1f,0},0).x-.1f)<1e-6f,
+        "work evidence must not grant authority to subthreshold manual noise");
+    require_true(std::fabs(solve({.3f,0},{.1f,0},.5f).x-.2f)<1e-5f,
+        "cooperation must consume the existing intent weight exactly once");
+    p.position_stopping_reserve_px={20,0};
+    require_true(solve({.3f,0},{.01f,0},1).x==.01f,
+        "carried manual must not refill work already committed to arrival");
+    p.position_stopping_reserve_px={};p.error_px={.2f,0};
+    const auto bounded=solve({.8f,0},{.001f,0},1);
+    require_true(bounded.x<.03f && bounded.x>=.001f,
+        "small remaining distance must bound manual cooperation, not select the larger output");
+    p.error_px={20,0};
+    require_true(solve({-.3f,0},{.1f,0},1).x==.1f,
+        "opposing carry must not be relabeled as same-direction work");
+    // Real-session 981.291 s: aligned held X was replaced by a smaller ADS X
+    // while Y also needed correction. Keep the joint response curve in play.
+    p.error_px={21.5835f,-62.f};p.response_scale=900;
+    const auto live=solve({.451f,0},{.174f,.4f},1);
+    require_true(live.x>.174f && live.x<=.451f && live.y==.4f,
+        "live-shaped horizontal cooperation must not steal the other axis's proposal");
+    p.observation_gap=true;
+    require_true(solver.cooperative_manual_work(p,{.451f,0},{.174f,.4f}).x==0,
+        "a gap must not authorize new ADS manual suppression or assistance");
+}
+
+void test_physical_camera_fit_distinguishes_known_manual_from_weapon_disturbance() {
+    using namespace controller_native;
+    namespace f=incident_fixture;
+    for(bool firing : {false,true}) {
+        auto cfg=f::base_config(40,190);
+        cfg.ai_aim.normalized_assist_parameters=true;
+        cfg.ai_aim.minimum_position_stick=.5f;cfg.ai_aim.arrival_radius_px=2;
+        cfg.ai_aim.ads_response_time_ms=60;
+        cfg.ai_aim.ads_free_initial_scale=cfg.ai_aim.ads_slow_initial_scale=900;
+        cfg.ai_aim.bodylock_output_limit_x=cfg.ai_aim.bodylock_output_limit_y=1;
+        cfg.ai_aim.ads_output_limit_x=cfg.ai_aim.ads_output_limit_y=1;
+        cfg.ai_aim.bodylock_response_time_x_ms=cfg.ai_aim.bodylock_response_time_y_ms=10;
+        cfg.ai_aim.body_lock_activation_box_px=120;
+        cfg.ai_aim.body_free_initial_scale=2000;cfg.ai_aim.body_slow_initial_scale=1500;
+        cfg.aim_response_curve.algorithm=AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+        cfg.auto_fire.enabled=false;cfg.recoil.enabled=false;
+        cfg.output_transfer.enabled=false;
+        double now=10;NativeGamepadController c(cfg,&now);
+        std::deque<pipeline_contract::Vec2f> plant(22);
+        float x=20,y=-18;bool identified=false;float best_response_error=1e9f;
+        for(int tick=0;tick<1500;++tick) {
+            now=10+tick*.001;
+            if(tick%5==0) {
+                f::TargetSpec spec;spec.observation_id=tick+1;spec.selector_generation=1;
+                spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+                c.submit_vision_snapshot(f::observed_snapshot(spec,tick+1,now,x,y));
+            }
+            auto input=f::ads_input(.392f,0,firing);
+            auto out=c.build_output(input);
+            identified=identified||c.last_output_components().camera_alignment_valid;
+            if(c.last_output_components().camera_alignment_valid)
+                best_response_error=std::min(best_response_error,std::fabs(c.last_target_plan().response_scale-1500));
+            c.observe_delivered_output(out,true,now);
+            auto delivered=plant.front();plant.pop_front();
+            plant.push_back(forward_aim_response_curve({out.right_x,out.right_y},cfg.aim_response_curve));
+            x+=(600-1500*delivered.x)*.001f;y+=1500*delivered.y*.001f;
+        }
+        require_true(firing ? !identified : identified,
+            "physical fit must learn from known delivered manual work but reject weapon-disturbed intervals");
+        if(!firing) require_true(best_response_error<80,
+            "held manual must not freeze the physical camera on an incorrect startup prior");
+        if(!firing) require_true(std::hypot(x,y)<2.f,
+            "feasible fast motion with held cooperation must reach the point despite a wrong startup prior");
+    }
+}
+
 }  // namespace
 
 void register_ads_acquisition_controller_tests(native_test::Registry& registry) {
+    registry.add_case("BaseAds", "centered_qualified_motion", test_centered_ads_retains_qualified_motion_under_original_budget);
+    registry.add_case("BaseAds", "carried_manual_remaining_work", test_ads_carried_manual_spends_remaining_work_without_restoring_brake);
+    registry.add_case("BaseAds", "physical_fit_known_manual", test_physical_camera_fit_distinguishes_known_manual_from_weapon_disturbance);
     registry.add_context_case("BaseAds", "september_ads_precenter_brake", test_september_ads_precenter_brake);
     registry.add_case("BaseAds", "large_reliable_error_gets_strong_output", test_large_reliable_error_gets_strong_output);
     registry.add_case("BaseAds", "predicted_crossing_applies_terminal_brake", test_predicted_crossing_applies_terminal_brake);

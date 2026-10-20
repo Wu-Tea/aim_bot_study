@@ -113,15 +113,19 @@ pipeline_contract::Vec2f AssistControlStateMachine::cooperative_output(
             input.filtered_manual_stick.y < -material) {
             return blend_manual(native_axis);
         }
-        // ADS is the positioning owner after target admission. The target
-        // controller already publishes the desired total T, so blending a
-        // gesture that predates ownership back into T can stop or reverse
-        // the snap. An explicit exit is handled before this solve; absent
-        // that event, both moving and braking axes follow the target.
+        // ADS owns positioning after admission. A carried gesture may supply
+        // physically feasible closing work, but cannot refill the brake or
+        // reverse the snap. Fresh corrections and explicit exit retain their
+        // separate manual authority.
         const bool intentional_correction = vertical
             ? input.manual_correction_y
             : input.manual_correction_x;
         if (input.mode == pipeline_contract::ControlMode::AdsAcquire) {
+            if (config_.use_gamepad_intent_for_arbitration && !intentional_correction &&
+                std::isfinite(desired_axis)) {
+                const float work = vertical ? input.ads_manual_work.y : input.ads_manual_work.x;
+                return std::clamp(desired_axis + work*manual_weight, -1.f, 1.f);
+            }
             const bool manual_safe_phase =
                 input.ads_acquisition_state ==
                     pipeline_contract::AdsAcquisitionState::AcquiringExtended ||
