@@ -8,6 +8,8 @@ add_library(vision_native_core STATIC
     src/preprocess.cu
     src/resize_contract.cpp
     src/target_selector.cpp
+    src/cue_identity.cpp
+    src/target_selector_fusion.cpp
     src/tensorrt_engine.cpp
     src/tensorrt_inspector.cpp
     src/vision_engine.cpp)

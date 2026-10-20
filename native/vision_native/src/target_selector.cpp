@@ -9,6 +9,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 
 namespace vision_native {
@@ -831,6 +832,9 @@ void VisionTargetSelector::reset() {
 }
 
 void VisionTargetSelector::clear_tracking_state() {
+    cue_identity_.reset();
+    last_cue_frame_ns_ = 0;
+    cue_body_reference_.reset();
     last_target_center_.reset();
     selection_.clear();
     active_generation_had_enemy_evidence_ = false;
@@ -855,11 +859,13 @@ void VisionTargetSelector::clear_auto_fire_state() {
 }
 
 bool VisionTargetSelector::wants_color_frame() const {
+    if (cue_identity_enabled_) return true;
     return selection_.has_identity() && last_cue_point_.has_value() && last_target_offset_from_cue_.has_value();
 }
 
 std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_color_region(
     const DetectionBatch& batch) const {
+    if (cue_identity_enabled_) return FrameRegion{0, 0, static_cast<int>(frame_width_), static_cast<int>(frame_height_)};
     IntRect merged{};
     bool has_merged = false;
     const int frame_width = static_cast<int>(frame_width_);
@@ -2199,6 +2205,12 @@ VisionResult VisionTargetSelector::select_with_frame(
     }
     if (result.has_selected_detection &&
         result.selected_detection_index < annotated.detections.size()) {
+        if (cue_identity_enabled_ && selection_.active()) {
+            auto& d=annotated.detections[result.selected_detection_index];
+            const auto& candidate=selection_.active()->candidate;
+            d.has_cue_point=candidate.has_cue; d.cue_x=candidate.cue_x; d.cue_y=candidate.cue_y;
+            d.cue_score=candidate.cue_score; d.color_bonus=candidate.color_bonus;
+        }
         update_selected_cue_template(annotated.detections[result.selected_detection_index],frame);
         update_selected_motion_anchor(
             annotated.detections[result.selected_detection_index], frame);
@@ -2223,6 +2235,12 @@ VisionResult VisionTargetSelector::select_with_frame(
     }
     if (result.has_selected_detection &&
         result.selected_detection_index < annotated.detections.size()) {
+        if (cue_identity_enabled_ && selection_.active()) {
+            auto& d=annotated.detections[result.selected_detection_index];
+            const auto& candidate=selection_.active()->candidate;
+            d.has_cue_point=candidate.has_cue; d.cue_x=candidate.cue_x; d.cue_y=candidate.cue_y;
+            d.cue_score=candidate.cue_score; d.color_bonus=candidate.color_bonus;
+        }
         update_selected_cue_template(annotated.detections[result.selected_detection_index],frame);
         update_selected_motion_anchor(
             annotated.detections[result.selected_detection_index], frame);
@@ -2260,7 +2278,7 @@ VisionResult VisionTargetSelector::select_impl(
         v.class_id=d.class_id; v.color_checked=d.color_classified; v.friendly=d.is_friendly;
         v.has_cue=d.has_cue_point; v.cue_x=d.cue_x; v.cue_y=d.cue_y; v.cue_score=d.cue_score;
     }
-    auto result=select_impl_core(batch,frame,intent);
+    auto result=cue_identity_enabled_ ? select_cue_identity(batch,frame,intent) : select_impl_core(batch,frame,intent);
     diagnostics_.generation_after=selection_.generation();
     if (result.has_selected_detection) {
         diagnostics_.selected_index=static_cast<std::int32_t>(result.selected_detection_index);

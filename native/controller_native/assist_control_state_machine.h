@@ -69,6 +69,9 @@ struct AssistControlStateMachineInput {
     pipeline_contract::Vec2f filtered_manual_stick{};
     // AI-only output is the desired total proposal for the per-axis T-M solve.
     pipeline_contract::Vec2f ai_stick{};
+    // ADS solver-owned feasible contribution from a carried aligned gesture.
+    // Zero without calibrated work evidence; never an additional AI budget.
+    pipeline_contract::Vec2f ads_manual_work{};
     // The solver separately identifies no positioning or sustaining-motion
     // work. A zero after shaping, or cancellation of those two components,
     // is not arrival. Production publishes this evidence on the same tick;

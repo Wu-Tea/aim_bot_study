@@ -73,6 +73,10 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
     request.motion_weight = std::max(0.f,config_.stopping_lookahead_seconds-covered) /
         request.arrival_horizon_seconds;
     request.motion_is_error_rate_lookahead = true;
+    if (config_.range_position_response && plan.bodylock_target_motion_valid &&
+        pipeline_contract::finite(plan.bodylock_target_motion_px_per_sec)) {
+        request.sustaining_velocity_px_per_sec = plan.bodylock_target_motion_px_per_sec;
+    }
     request.max_force = {
         config_.max_force_x * config_.force_headroom,
         config_.max_force_y * config_.force_headroom};
@@ -84,6 +88,59 @@ pipeline_contract::Vec2f AdsAcquisitionController::compute(
     request.minimum_position_stick = config_.minimum_position_stick;
     request.arrival_radius_px = plan.position_arrival_radius_px;
     return solve_response_model_aim(request).stick;
+}
+
+pipeline_contract::Vec2f AdsAcquisitionController::cooperative_manual_work(
+    const pipeline_contract::TargetPlan& plan,
+    pipeline_contract::Vec2f manual,
+    pipeline_contract::Vec2f ai) const noexcept {
+    if (!config_.range_position_response || plan.mode != pipeline_contract::ControlMode::AdsAcquire ||
+        plan.aim_authority <= 0.f || plan.observation_gap || plan.source_capture_age_ms > 32.f ||
+        !pipeline_contract::finite(manual) || !pipeline_contract::finite(ai)) return {};
+    const auto remaining = [](float error, float reserve) {
+        return error*reserve > 0.f
+            ? std::copysign(std::max(0.f,std::fabs(error)-std::fabs(reserve)),error) : error;
+    };
+    const pipeline_contract::Vec2f error{
+        remaining(plan.error_px.x+plan.measurement_error_offset_px.x,plan.position_stopping_reserve_px.x),
+        -remaining(plan.error_px.y+plan.measurement_error_offset_px.y,plan.position_stopping_reserve_px.y)};
+    const float response = std::isfinite(plan.response_scale) && plan.response_scale >= 50.f
+        ? plan.response_scale : config_.fallback_response_px_per_stick_second;
+    const float distance = std::hypot(error.x,error.y);
+    const float taper = distance > 0.f ? distance/std::hypot(distance,plan.position_arrival_radius_px) : 0.f;
+    const auto motion = plan.bodylock_target_motion_valid && pipeline_contract::finite(plan.bodylock_target_motion_px_per_sec)
+        ? plan.bodylock_target_motion_px_per_sec : pipeline_contract::Vec2f{};
+    // Use the solver's existing stopping horizon. Capture age and actuator
+    // work are already in the reserve; no timer or authority extension here.
+    const pipeline_contract::Vec2f limit{
+        (motion.x+error.x*taper/kVelocityFeedbackMinimumSeconds)/response,
+        (-motion.y+error.y*taper/kVelocityFeedbackMinimumSeconds)/response};
+    const auto contribution = [](float m,float a,float e,bool correction) {
+        return !correction && m*e>0.f && m*a>=0.f && std::fabs(m)>std::fabs(a) ? m-a : 0.f;
+    };
+    pipeline_contract::Vec2f delta{
+        contribution(manual.x,ai.x,error.x,plan.manual_correction_x),
+        contribution(manual.y,ai.y,error.y,plan.manual_correction_y)};
+    if (delta.x==0.f && delta.y==0.f) return {};
+    const auto base = forward_aim_response_curve(ai,config_.response_curve);
+    const auto fits_axis = [](float value,float original,float bound,float direction) {
+        // An existing proposal is owned by its solver. Only additional work
+        // must fit; the coupled response curve must not accelerate the other
+        // axis beyond its remaining work either.
+        if (direction==0.f) return std::fabs(value-original)<1e-6f;
+        return (value-original)*direction <= std::max(0.f,(bound-original)*direction)+1e-6f;
+    };
+    const auto fits = [&](float fraction) {
+        const auto v=forward_aim_response_curve({ai.x+delta.x*fraction,ai.y+delta.y*fraction},config_.response_curve);
+        return fits_axis(v.x,base.x,limit.x,error.x) && fits_axis(v.y,base.y,limit.y,error.y);
+    };
+    float fraction=1.f;
+    if (!fits(1.f)) {
+        float lo=0.f,hi=1.f;
+        for(int i=0;i<16;++i) { const float mid=(lo+hi)*.5f; if(fits(mid)) lo=mid; else hi=mid; }
+        fraction=lo;
+    }
+    return {delta.x*fraction,delta.y*fraction};
 }
 
 }  // namespace controller_native

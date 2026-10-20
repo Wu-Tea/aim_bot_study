@@ -331,6 +331,7 @@ void NativeGamepadController::reset() {
     composed_output_pending_ = false;
     pending_auto_fire_active_ = false;
     pending_response_ambiguous_ = false;
+    pending_unmodeled_disturbance_ = false;
     last_pipeline_traces_.clear();
     last_acquisition_trace_ = {};
     acquisition_trace_target_id_ = 0;
@@ -1078,24 +1079,28 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         if (same_motion_target && advance_motion_anchor &&
             std::isfinite(motion_interval) && motion_interval > 0.0) {
             pipeline_contract::Vec2f delivered{}, tracking{};
-            bool ambiguous = false;
+            bool ambiguous = false, disturbed = false;
             if (average_aim_response_command(
                     motion_anchor.capture_seconds-aim_response_effect_delay_seconds_,
                     capture_seconds-aim_response_effect_delay_seconds_,
-                    &delivered, &tracking, &ambiguous)) {
+                    &delivered, &tracking, &ambiguous, &disturbed)) {
                 const bool pixel_pair = has_motion_anchor && motion_anchor.has_motion_anchor;
                 const auto current = pixel_pair ? motion_anchor_error_px : source_error_px;
                 const auto previous = pixel_pair ? motion_anchor.motion_anchor_error_px : motion_anchor.source_error_px;
                 if (canonical_gamepad && config_.ai_aim.aim_response_learning_enabled &&
-                    plan.direct_person_observation && !ambiguous && plan.reliability >= .75f) {
+                    plan.direct_person_observation && !disturbed && plan.reliability >= .75f) {
+                    // This physical fit observes the complete delivered vector.
+                    // Known manual input is excitation, not unknown camera work.
+                    // Weapon disturbance still invalidates every fitted interval;
+                    // the legacy estimators above keep their ambiguity policy.
                     CameraResponseAlignment::Commands commands{};
                     bool complete = true;
                     for(int lag=0;lag<CameraResponseAlignment::delay_count;++lag) {
-                        pipeline_contract::Vec2f unused{};bool uncertain=false;
+                        pipeline_contract::Vec2f unused{};bool uncertain=false, disturbance=false;
                         complete = average_aim_response_command(
                             motion_anchor.capture_seconds-lag*.001,
-                            capture_seconds-lag*.001, &commands[lag], &unused, &uncertain) &&
-                            !uncertain && complete;
+                            capture_seconds-lag*.001, &commands[lag], &unused, &uncertain, &disturbance) &&
+                            !disturbance && complete;
                     }
                     camera_alignment_.begin_target(plan.target_id);
                     if(complete) camera_alignment_.update(capture_seconds,
@@ -1413,6 +1418,10 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     control_input.manual_axis_activity = {
         intent.right_x.activity, intent.right_y.activity};
     control_input.ai_stick = {shaped.x, shaped.y};
+    if (canonical_gamepad && target_authoritative) {
+        control_input.ads_manual_work = ads_controller_.cooperative_manual_work(
+            plan, control_input.manual_stick, shaped);
+    }
     control_input.solver_hold_x = bodylock_diagnostics.position_hold_x;
     control_input.solver_hold_y = bodylock_diagnostics.position_hold_y;
     control_input.manual_correction_x = plan.manual_correction_x;
@@ -1589,12 +1598,13 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
 
     components.before_recoil_stick = {
         pre_recoil_stick.x, pre_recoil_stick.y};
-    pending_response_ambiguous_ =
-        std::hypot(physical.right_x, physical.right_y) >= 0.35f ||
+    pending_unmodeled_disturbance_ =
         fire.should_fire || manual_fire_pressed(physical) ||
         (last_firing_activity_seconds_ >= 0.0 &&
          now - last_firing_activity_seconds_ <=
              kFiringDisturbanceWindowSeconds);
+    pending_response_ambiguous_ = pending_unmodeled_disturbance_ ||
+        std::hypot(physical.right_x, physical.right_y) >= 0.35f;
     const auto recoil_contribution = recoil_.reduce(
         !touch_fire.requested && (fire.should_fire || manual_fire_pressed(physical)),
         last_tick_preparation_.scope.physical_ads_ready,
@@ -1711,14 +1721,15 @@ void NativeGamepadController::observe_delivered_output(
     record_aim_response_command(submitted_at_seconds,
         camera_response,
         {camera_response.x - recoil_response.x, camera_response.y - recoil_response.y},
-        pending_response_ambiguous_);
+        pending_response_ambiguous_, pending_unmodeled_disturbance_);
 }
 
 void NativeGamepadController::record_aim_response_command(
     double at_seconds,
     pipeline_contract::Vec2f stick,
     pipeline_contract::Vec2f tracking_stick,
-    bool manual_ambiguous) noexcept {
+    bool manual_ambiguous,
+    bool unmodeled_disturbance) noexcept {
     if (!std::isfinite(at_seconds) || !pipeline_contract::finite(stick) ||
         !pipeline_contract::finite(tracking_stick)) {
         return;
@@ -1732,7 +1743,7 @@ void NativeGamepadController::record_aim_response_command(
             if (at_seconds ==
                 aim_response_command_history_[latest_index].at_seconds) {
                 aim_response_command_history_[latest_index] = {
-                    at_seconds, stick, tracking_stick, manual_ambiguous};
+                    at_seconds, stick, tracking_stick, manual_ambiguous, unmodeled_disturbance};
             }
             return;
         }
@@ -1750,7 +1761,7 @@ void NativeGamepadController::record_aim_response_command(
             kAimResponseHistoryCapacity;
     }
     aim_response_command_history_[write_index] = {
-        at_seconds, stick, tracking_stick, manual_ambiguous};
+        at_seconds, stick, tracking_stick, manual_ambiguous, unmodeled_disturbance};
 }
 
 bool NativeGamepadController::average_aim_response_command(
@@ -1758,7 +1769,8 @@ bool NativeGamepadController::average_aim_response_command(
     double end_seconds,
     pipeline_contract::Vec2f* average_stick,
     pipeline_contract::Vec2f* average_tracking_stick,
-    bool* manual_ambiguous) const noexcept {
+    bool* manual_ambiguous,
+    bool* unmodeled_disturbance) const noexcept {
     if (average_stick == nullptr || average_tracking_stick == nullptr ||
         manual_ambiguous == nullptr ||
         !std::isfinite(begin_seconds) || !std::isfinite(end_seconds) ||
@@ -1785,6 +1797,7 @@ bool NativeGamepadController::average_aim_response_command(
     pipeline_contract::Vec2f integral{};
     pipeline_contract::Vec2f tracking_integral{};
     bool ambiguous = false;
+    bool disturbed = false;
     double cursor = begin_seconds;
     TimedAimResponseCommand active = aim_response_command_history_[
         (aim_response_history_begin_ + active_offset) %
@@ -1803,6 +1816,7 @@ bool NativeGamepadController::average_aim_response_command(
             tracking_integral.x += active.tracking_stick.x * static_cast<float>(duration);
             tracking_integral.y += active.tracking_stick.y * static_cast<float>(duration);
             ambiguous = ambiguous || active.manual_ambiguous;
+            disturbed = disturbed || active.unmodeled_disturbance;
         }
         cursor = segment_end;
         active = next;
@@ -1814,6 +1828,7 @@ bool NativeGamepadController::average_aim_response_command(
         tracking_integral.x += active.tracking_stick.x * static_cast<float>(tail_duration);
         tracking_integral.y += active.tracking_stick.y * static_cast<float>(tail_duration);
         ambiguous = ambiguous || active.manual_ambiguous;
+        disturbed = disturbed || active.unmodeled_disturbance;
     }
     const float inverse_duration = static_cast<float>(
         1.0 / (end_seconds - begin_seconds));
@@ -1821,6 +1836,7 @@ bool NativeGamepadController::average_aim_response_command(
         integral.x * inverse_duration,
         integral.y * inverse_duration};
     *manual_ambiguous = ambiguous;
+    if (unmodeled_disturbance) *unmodeled_disturbance = disturbed;
     *average_tracking_stick = {
         tracking_integral.x * inverse_duration,
         tracking_integral.y * inverse_duration};

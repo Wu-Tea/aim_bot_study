@@ -289,6 +289,20 @@ ResponseModelAimOutput solve_response_model_aim(
             }
         }
     }
+    if (request.range_position_response && request.motion_is_error_rate_lookahead &&
+        pipeline_contract::finite(request.sustaining_velocity_px_per_sec) &&
+        (request.sustaining_velocity_px_per_sec.x != 0.f ||
+         request.sustaining_velocity_px_per_sec.y != 0.f)) {
+        // Brake only the position-closing work. A centered moving point still
+        // needs camera motion; summing sticks would double-count the curve.
+        auto velocity = forward_aim_response_curve(output.unclamped_stick, request.response_curve);
+        if (max_x > 0.f) velocity.x += request.sustaining_velocity_px_per_sec.x / response;
+        if (max_y > 0.f) velocity.y -= request.sustaining_velocity_px_per_sec.y / response;
+        output.pre_curve_stick = velocity;
+        output.unclamped_stick = inverse_aim_response_curve(velocity, request.response_curve);
+        if (max_x <= 0.f) output.unclamped_stick.x = 0.f;
+        if (max_y <= 0.f) output.unclamped_stick.y = 0.f;
+    }
     const float normalized_x = max_x > 0.0f
         ? output.unclamped_stick.x / max_x : 0.0f;
     const float normalized_y = max_y > 0.0f

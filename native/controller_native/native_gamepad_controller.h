@@ -212,13 +212,15 @@ private:
         double at_seconds,
         pipeline_contract::Vec2f stick,
         pipeline_contract::Vec2f tracking_stick,
-        bool manual_ambiguous) noexcept;
+        bool manual_ambiguous,
+        bool unmodeled_disturbance) noexcept;
     bool average_aim_response_command(
         double begin_seconds,
         double end_seconds,
         pipeline_contract::Vec2f* average_stick,
         pipeline_contract::Vec2f* average_tracking_stick,
-        bool* manual_ambiguous) const noexcept;
+        bool* manual_ambiguous,
+        bool* unmodeled_disturbance = nullptr) const noexcept;
     double now_seconds() const;
 
     struct TimedAimResponseCommand {
@@ -228,6 +230,9 @@ private:
         // removed. Response identification still owns the full final command.
         pipeline_contract::Vec2f tracking_stick{};
         bool manual_ambiguous = false;
+        // Physical camera fitting consumes the measured total command, so
+        // known manual work is not an unknown disturbance. Weapon kick is.
+        bool unmodeled_disturbance = false;
     };
 
     // 128 ms at the 1 kHz controller cadence. This is long enough to cover
@@ -303,6 +308,7 @@ private:
     bool composed_output_pending_ = false;
     bool pending_auto_fire_active_ = false;
     bool pending_response_ambiguous_ = false;
+    bool pending_unmodeled_disturbance_ = false;
     NativeControllerStageTraceBuffer last_pipeline_traces_{};
     NativeControllerAcquisitionTrace last_acquisition_trace_{};
     std::uint64_t acquisition_trace_target_id_ = 0;

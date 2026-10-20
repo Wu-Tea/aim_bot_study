@@ -2,6 +2,7 @@
 
 #include "pipeline_contract/target_snapshot.h"
 #include "vision_native/types.h"
+#include "vision_native/cue_identity.h"
 #include "vision_native/selection_state_machine.h"
 
 #include <cstdint>
@@ -42,6 +43,9 @@ public:
         float target_wide_low_height_ratio = 0.65f);
 
     void reset();
+    // Set before the worker starts. COD dev uses independent person acquisition
+    // plus cue/body association and same-identity cue motion continuation.
+    void set_cue_identity_enabled(bool enabled) { reset(); cue_identity_enabled_ = enabled; }
     // Vision worker only, between frames. Does not create a new identity.
     void set_detection_policy(bool friendly, float height, float wide_height);
     VisionResult select(const DetectionBatch& batch);
@@ -102,6 +106,18 @@ public:
     };
 
 private:
+    VisionResult select_cue_identity(const DetectionBatch& batch, const ColorFrameView* frame,
+        const pipeline_contract::UserAimIntent* intent);
+    bool cue_identity_enabled_ = false;
+    CueDetector cue_detector_;
+    CueIdentity cue_identity_;
+    std::uint64_t last_cue_frame_ns_ = 0;
+    struct CueBodyReference {
+        TargetState target;
+        CueObservation cue;
+        std::uint64_t generation = 0;
+    };
+    std::optional<CueBodyReference> cue_body_reference_;
     bool friendly_filter_enabled_ = true;
     float target_height_ratio_ = 0.40f;
     float target_wide_low_height_ratio_ = 0.65f;

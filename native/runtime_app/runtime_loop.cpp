@@ -375,6 +375,8 @@ RuntimeLoop::RuntimeLoop(
         config_.vision.friendly_filter_enabled,
         config_.vision.target_height_ratio,
         config_.vision.target_wide_low_height_ratio);
+    vision_engine->set_cue_identity_enabled(true);
+    std::cout << "[VisionSelection][CPP] person_or_cue=1 cue_body_reference=1 markers=circle,nemesis\n";
     std::cout << "[VisionGeometry][CPP]"
               << " capture=" << vision_engine->width() << 'x' << vision_engine->height()
               << " tensor=" << vision_engine->tensor_width() << 'x'
