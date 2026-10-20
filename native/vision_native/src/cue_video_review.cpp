@@ -19,7 +19,7 @@ struct Array {
 };
 int main(int argc,char**argv){
     try{
-        if(argc!=8) throw std::runtime_error("model output.jsonl fps pickup-radius target-height-ratio wide-height-ratio friendly(0|1); stdin 640x512 BGRA");
+        if(argc!=8 && argc!=9) throw std::runtime_error("model output.jsonl fps pickup-radius target-height-ratio wide-height-ratio friendly(0|1) [cue-owned]; stdin 640x512 BGRA");
         const double fps=std::stod(argv[3]);
         if(!std::isfinite(fps)||fps<1||fps>1000)throw std::runtime_error("invalid fps");
         _setmode(_fileno(stdin),_O_BINARY);
@@ -27,11 +27,16 @@ int main(int argc,char**argv){
         vision_native::TensorRTEngine engine(argv[1]);
         if(engine.input_width()!=480||engine.input_height()!=384)throw std::runtime_error("Expected 480x384 model");
         vision_native::VisionTargetSelector selector(w,h,std::stof(argv[4]),std::stoi(argv[7])!=0,std::stof(argv[5]),std::stof(argv[6]));
+        if(argc==9) {
+            if(std::string(argv[8])!="cue-owned") throw std::runtime_error("unknown selection policy");
+            selector.set_cue_identity_enabled(true);
+        }
         std::ofstream out(argv[2]);out.exceptions(std::ios::badbit|std::ios::failbit);
         out<<std::setprecision(9)<<std::boolalpha;
         std::vector<uint8_t> pixels(size_t(w)*h*4),color(pixels.size());
         Array input;auto desc=cudaCreateChannelDesc<uchar4>();check(cudaMallocArray(&input.data,&desc,w,h));
         uint64_t frame=0;
+        vision_native::CueDetector independent_detector;
         while(true){
             std::cin.read(reinterpret_cast<char*>(pixels.data()),pixels.size());
             if(std::cin.gcount()==0 && std::cin.eof())break;
@@ -71,6 +76,15 @@ int main(int argc,char**argv){
                     <<",\"motion_anchor\":"<<d.has_motion_anchor<<",\"motion_score\":"<<d.motion_anchor_score;
                 if(i<diag.count)out<<",\"gate\":\""<<diag.boxes[i].gate<<'"';
                 out<<'}';
+            }
+            out<<"],\"independent_cues\":[";
+            if(argc==9) {
+                const auto& cues=independent_detector.detect(pixels.data(),w,h,w*4,vision_native::PixelFormat::BGRA8,0,0);
+                for(size_t i=0;i<cues.size();++i) {
+                    if(i)out<<',';
+                    const auto& cue=cues[i];
+                    out<<"{\"xy\":["<<cue.x<<','<<cue.y<<"],\"color\":"<<cue.color<<",\"score\":"<<cue.score<<'}';
+                }
             }
             out<<"]}\n";
             ++frame;

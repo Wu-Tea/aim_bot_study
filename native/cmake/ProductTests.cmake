@@ -39,6 +39,7 @@ add_executable(cod_native_base_tests
     vision_native/src/build_family_tests.cpp
     vision_native/src/resize_contract_tests.cpp
     vision_native/src/target_selector_tests.cpp
+    vision_native/src/cue_identity_tests.cpp
     vision_native/src/marker_loss_acquisition_incident_tests.cpp
     vision_native/src/visible_selection_contract_tests.cpp
     vision_native/src/visible_selection_pipeline_tests.cpp

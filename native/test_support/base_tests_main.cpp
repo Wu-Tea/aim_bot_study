@@ -33,6 +33,7 @@ void register_target_geometry_tests(native_test::Registry&);
 void register_build_family_tests(native_test::Registry&);
 void register_resize_contract_tests(native_test::Registry&);
 void register_target_selector_tests(native_test::Registry&);
+void register_cue_identity_tests(native_test::Registry&);
 void register_marker_loss_acquisition_incident_tests(native_test::Registry&);
 void register_visible_selection_contract_tests(native_test::Registry&);
 void register_visible_selection_pipeline_tests(native_test::Registry&);
@@ -80,6 +81,7 @@ int main(int argc, char** argv) {
     register_build_family_tests(registry);
     register_resize_contract_tests(registry);
     register_target_selector_tests(registry);
+    register_cue_identity_tests(registry);
     register_marker_loss_acquisition_incident_tests(registry);
     register_visible_selection_contract_tests(registry);
     register_visible_selection_pipeline_tests(registry);

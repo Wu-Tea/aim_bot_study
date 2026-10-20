@@ -42,6 +42,7 @@ public:
     VisionEngine& operator=(const VisionEngine&) = delete;
 
     void set_request(pipeline_contract::VisionRequest request);
+    void set_cue_identity_enabled(bool enabled) { selector_.set_cue_identity_enabled(enabled); }
     void set_detection_policy(bool friendly, float height, float wide_height) {
         selector_.set_detection_policy(friendly, height, wide_height);
     }

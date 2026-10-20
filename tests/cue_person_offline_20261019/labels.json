@@ -1,0 +1,29 @@
+{
+  "method": "Assistant visual inspection of all 46 fixed-interval raw sample frames before inspecting candidate coordinates. Approximate centers, normally +/-2 px. User subsequently confirmed that COD nemesis/skull markers are valid target cues alongside circles; the two previously uncertain frames are included under this confirmed class scope. These are provisional visual reference labels, not independently human-reviewed or complete video ground truth. Allowed detection indices were assigned afterward by inspecting same-frame person boxes. Person association recall is conditional on the supplied person detector.",
+  "cue_scope": "User-confirmed 2026-10-19: enemy circles and COD nemesis/skull symbols both qualify; health bars and diamond pings remain excluded. A skull is not interpreted as a dead target.",
+  "tolerance_px": 6,
+  "default": "Every sample absent from positives was visually checked and has no visible enemy circle or nemesis/skull cue in the central crop. This does not mean no person is present.",
+  "excluded": {},
+  "positives": {
+    "v1-f150": [{"xy":[304,207],"persons":[0,1,2],"note":"Three overlapping detections describe the same visible person."}],
+    "v1-f631": [{"xy":[400,8],"persons":[0]}],
+    "v2-f631": [
+      {"xy":[301,216],"glyph":"circle","persons":[],"note":"Upper circle partly overlapped by second health bar; body correspondence is unresolved, cue-location label only."},
+      {"xy":[316,233],"glyph":"nemesis_skull","persons":[0],"note":"Lower nemesis/skull mark over the visible foreground person; valid cue per user."}
+    ],
+    "v2-f751": [{"xy":[316,240],"persons":[],"note":"No detector person for this marked target."}],
+    "v3-f150": [{"xy":[296,210],"glyph":"nemesis_skull","persons":[0],"note":"User confirms the nemesis/skull symbol is a valid cue, not evidence of target death."}],
+    "v3-f270": [{"xy":[238,216],"persons":[],"note":"No detector person for the marked foreground target; detection 0 is a distant background figure."}],
+    "v3-f630": [{"xy":[318,186],"persons":[0]}],
+    "v3-f750": [{"xy":[317,245],"persons":[0]}],
+    "v5-f30": [{"xy":[310,229],"persons":[0]}],
+    "v6-f150": [{"xy":[299,207],"persons":[0]}],
+    "v6-f871": [{"xy":[345,238],"persons":[],"note":"No detector person for this marked target."}]
+  },
+  "development": {
+    "dev-clip2-f731": [{"xy":[223,112],"persons":[0]}],
+    "dev-clip2-f750": [{"xy":[354,187],"persons":[0]}],
+    "dev-clip3-f765": [{"xy":[373,106],"persons":[0]}],
+    "dev-clip4-f735": [{"xy":[430,116],"persons":[0]}]
+  }
+}

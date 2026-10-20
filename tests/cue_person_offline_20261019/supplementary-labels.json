@@ -1,0 +1,14 @@
+{
+  "scope":"Diagnostic counterexample search, not a random sample; excluded from headline accuracy.",
+  "cases":{
+    "v1-f96":{"correct":false,"note":"候选位于人体附近的橙色轮廓/局部纹理，没有独立头顶小圆点。"},
+    "v2-f225":{"correct":false,"note":"候选位于头部附近的红色命中特效，没有可见小圆点。"},
+    "v3-f1":{"correct":true,"note":"小圆点位于 (345,235)；弱人体框仍能完成关联。"},
+    "v4-f0":{"correct":false,"note":"候选落在近处人物背部的金色枪械/装备纹理上。"},
+    "v5-f4":{"correct":true,"note":"小圆点位于 (348,198)；与可见人体对应。"},
+    "v6-f9":{"correct":true,"note":"小圆点位于 (357,224)；与可见人体对应。"},
+    "v7-f10":{"correct":false,"note":"候选位于远处人物头部/服装纹理，未见独立头顶小圆点。"},
+    "v8-f253":{"correct":false,"note":"候选落在回放中人物头部的红色局部，头顶是紫色文字提示而非敌方圆点。"},
+    "v9-f188":{"correct":false,"note":"人体检测框覆盖卡车/轮胎；候选在车体边缘，属于 person 假框与颜色假候选互相支持。"}
+  }
+}
