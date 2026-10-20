@@ -306,3 +306,38 @@ and machine-local runtime assets out of project context.
 - SyncSet sync-20261019-002：accept_draft；用户授权同步，更新两端交接、本文及相关决策/报告。原clean交接归档archive/clean-handoff-20261019-before-sync.md；保留全部未解决问题。长session-log建议另行归档，无平台记忆/外部消息/秘密。
 
 最终核对：clean HEAD60f0e49；Release内嵌runtime.provenance.build_commit与完整HEAD一致，工作区干净。首个版本检查误用了不存在的git_commit字段，改按实际build_commit字段读取后核对通过；程序无改动。DEV运行程序保持原状态。
+
+## 2026-10-19 — dev ADS持续协作与高速跟随候选
+
+- 用户授权在dev修复，保留原权限/胸部/最低追赶/逐轴手动/32/40ms，不增权、不延迟交接、不取更大输出，暂不合clean，更新上下文。用户补充目标移动和自己左右走位时都有拖住准星的体感。
+- dev基线998275a；生产工作区修复ADS遗漏有效维持速度、carried手动缺少可行工作入口、物理拟合误把已知强手动当未知扰动。原ADS位置/最低追赶/刹车策略保留；未知开火扰动继续禁止标定。未改变个人配置、权限或阶段交接条件。
+- 生产中心恒速反例先红后绿；旧小输出夹具改为显式报告零实际运动，不放宽断言。Base452/452、CTest51/51，dev Release编译通过，未启动设备输出。
+- 实录20261019T124949Z_27452_1两窗32样本：前dev6496f84与修复前998275a都重现横向输出，新26样本接纳可行手动贡献。这是局部仲裁重放，不是完整实机反事实。重构本身对上一轮96同参场景/短轨迹无变化，不能把旧职责问题说成重构新增。
+- 首版补维持速度出现强手动长时摆荡：因manual>=.35阻断物理标定，真实R1524而使用初值900。曾试改ADS速度反馈分支，未解决且破坏刹车测试，已撤回；最终修复已知手动/未知扰动分类，保留原拟合门槛和旧局部估计器规则。
+- 最终独立49980167/104396113，每版本192场景、2/20秒、2,112,000tick，三版本6,336,000tick。24高速项全改善，后段20.9465→.1953px；72普通跟随9.1931→1.1423；静止.1961→.1968；左右走位3.4950→3.4761，改善有限。历史代码独立重建及去设备profile复跑576行一致。
+- 不标记全面验收：开火24项15好/8差/1平，最差104396113 case37长时4.36903→8.01649px，具体BodyLock/压枪根因尚待隔离。固定偏置/反向压力96项54好/40差/2平，最坏case47短时28.418→600.899px；目标变向但固定手动继续，正常早交接后原BodyLock carried保护可带离目标。不能压手动或延迟交接掩盖，用户未接受这些差异。
+- 32/40、胸部、退出/透传、cue无开火、单阶段断言均通过。首轮profile缺tracker时用了50ms默认，引发时效断言；夹具显式固定40ms后复验，未改生产/个人配置。仿真缺真实量化/动画/视觉错框，走位为屏幕外扰、开火为恒定外扰，不等于实机验收。
+- 报告docs/project/ADS_COOPERATION_20261019.md，夹具tests/ads_cooperation_20261019/，产物runs/ads-cooperation-20261019/。修改未提交/推送，clean仍60f0e49且tracked干净，未同步。
+- SyncSet sync-20261019-003：accept_draft；沿用明确更新授权。旧交接归档archive/handoff-20261019-before-ads-cooperation.md；更新handoff、追加本文、创建DEC-2026-10-19-002（实现范围已授权，效果待验收）。无subagent/平台记忆/秘密/外部消息；长session-log保留，建议后续单独归档。
+
+补充核实：runtime_app/live_control_policy.h的live_control_config在main、runtime loop及热更新入口将源时效封顶40ms。上述50ms只涉及直接加载profile、绕过实机策略的首轮离线夹具，不是实机边界放宽；本轮夹具已对齐40ms，实机策略未改。
+
+## 2026-10-20 — person OR cue 与同帧身体参考，dev 待实机反馈
+
+- 用户先要求 cue/person 独立检测离线实验，随后明确 cue 主导索敌、死敌骷髅也有效，并推进 dev 试用。新录像反馈后修正为 OR、新建/关联目标时记录两者位置，明确“持续可靠的 cue 可以继续跟踪”，允许超过原 180 ms 人体几何期限。用户现在去试用并要求同步上下文；尚未接受实机效果。
+- 较早 00-25-46 录像为 dev（193.325 秒），较晚 00-29-16 为 clean（129.775 秒）；问题时间由“两分三十”纠正为“两分后”。上一版没有降低 person 模型/胸部权重；可复现问题是 cue 必需门槛阻断人体，以及人体漏检后参考过期。全部 ADS 手感退步的原因未证明，dev 会话无控制遥测且有此前 ADS 修改。
+- dev 手柄入口改为可信 person 独立取得/维持目标；同帧 person+唯一关联 cue 记录身体、胸部/瞄准区域、cue 与 generation。当前 cue 平移参考，不递归积分，不学习弱框；强人体返回后校正。未配对 cue 不猜胸部；缺 cue/歧义当帧停 cue 输出，50 ms 匹配记忆过期、换目标/reset 清参考。cue aim-only 和下游 32/40 ms、手动退出/逐轴权限/透传保持；个人配置/模型和已有 ADS 算法未改。
+- 同输入原生重放：clean 122.20–122.60 秒 48 帧中 35 帧无人框，旧 person 与上版 cue 均 0 帧有目标，新 OR 47 帧。dev 前 60 秒 7200 帧输出 2426/1317/2518，clean 尾段 2372 帧输出 1281/715/1551（旧 person/上版 cue/新 OR）。新方案仍少覆盖旧方案 186/53 帧，新增 278/323 帧；同人体框的胸部差异为 0。以上是可用输出计数，不是准确率或实机闭环改善。
+- clean 遥测支持人体丢失、短 cue_hold 后停权；UTC 视频映射经框序列校正约 -.89 秒，非精确同步。开火看 final_fire_button（RB），不能以 right trigger 为零当作未开火。此前 ADS 开火走位/固定偏置退步仍保留，未因本轮 Vision 回归通过而关闭。
+- dev 全部 Release 构建完成；最终 CTest 51/51（Vision 58/58，完整链 50/50）；cue 身份随机 168960 tick，同帧参考 4 种子 2/20 秒共 4400 帧，完整链 800 ms cue 延续及退出通过。首轮两项旧 cue 首帧建目标断言改为沿用原 person 多目标确认流程，随后通过；旧 LastTestsFailed.log 不代表最终结果。
+- dev 基线998275a，改动未提交/推送；clean 60f0e49 tracked 干净，未同步。运行日志 person_or_cue=1 cue_body_reference=1；用户重启助手加载新 exe。颜色/枪口误识别、错误关联、参考随姿态/尺度变化失准仍待实机验证。
+- [报告](../docs/project/CUE_PERSON_OR_20261020.md)、[复跑说明](../tests/cue_identity_offline_20261019/README.md)、产物 runs/cue-review-20261020/。旧 cue 工具冻结 cue-owned-before.exe，当前 exe 不可冒充旧基线；旧 cue 必需报告已标记历史。
+- SyncSet sync-20261020-001：accept_draft，用户明确授权；更新 handoff、追加本文、新建 accepted 方案决策 DEC-2026-10-20-001，并仅对旧 DEC-2026-08-11-002 的 dev cue 180 ms 条款标注部分取代。[更新前交接原样归档](archive/handoff-20261020-before-person-cue-or.md)，保留 ADS 未解决证据。无 subagent brief、平台记忆、外部写入或秘密；session-log 历史保留，长日志建议后续独立压缩。下一步等待用户实机反馈。
+
+## 2026-10-20 — 用户接受当前迭代，提交并同步 clean
+
+- 用户明确“没什么问题，允许提交。同步到clean”，同步范围为当前 dev 的 ADS 修复及 person OR cue 身体参考。dev a93dbaa / 642dc26，clean 生产同步 91b116a；没有新增算法/权限/时效修改。未推送远端。
+- clean Release 构建完成；clean 库 Base 462/462、开火 14/14。独立种子49980167/104396113，192个2/20秒场景、2,112,000 tick，不变量通过且所有统计字段与dev verified-validation/after一致。212个共有文件一致，4个产品/测试构建差异保留。产物 runs/clean-incident-fix-20261016/suite-sync-20261020/。
+- 当前 dev 运行未停止，没有自动启动 clean 设备输出。个人配置、模型、历史 output 保留。上下文最终提交后重编译 clean runtime 使内嵌版本对应最终 HEAD。
+- 保留旧 ADS 开火走位/固定偏置压力反例，以及 cue 颜色/错关联/姿态变化风险；用户接受当前迭代不等于这些现象已有修复证据。原 CTest 51/51、Vision 58/58、完整链50/50和像素仿真证据继续有效。
+- SyncSet sync-20261020-002：accept_draft，沿用明确上下文更新授权；归档两边旧handoff，更新当前handoff、两项决策状态和报告状态；无subagent、平台记忆、外部写入或秘密。session-log较长，建议后续独立归档，现保留历史。

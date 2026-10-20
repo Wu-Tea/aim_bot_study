@@ -1,6 +1,7 @@
 # DEC-2026-08-11-002: Native I/R/D/T Single-Owner V1
 
-Status: implemented; live acceptance pending
+Status: partially superseded (cue ceiling in dev fusion, 2026-10-20); historical implementation, live acceptance pending
+Superseded by: [DEC-2026-10-20-001-person-or-cue-body-reference](DEC-2026-10-20-001-person-or-cue-body-reference.md), only the 180 ms cue geometry ceiling in the dev gamepad fusion path. Continuous reliable same-cue evidence may translate a recorded person/cue reference beyond 180 ms; aim-only and downstream 32/40 ms freshness remain. Other historical clauses below are not reauthorized by this update; current AGENTS.md and later decisions take precedence.
 Date: 2026-08-11
 Confirmed by: the user defined D as a hittable upper-chest/head or
 posture-valid point, R as the currently recognisable hittable region, and every
