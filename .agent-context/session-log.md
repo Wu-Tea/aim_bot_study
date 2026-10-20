@@ -341,3 +341,5 @@ and machine-local runtime assets out of project context.
 - 当前 dev 运行未停止，没有自动启动 clean 设备输出。个人配置、模型、历史 output 保留。上下文最终提交后重编译 clean runtime 使内嵌版本对应最终 HEAD。
 - 保留旧 ADS 开火走位/固定偏置压力反例，以及 cue 颜色/错关联/姿态变化风险；用户接受当前迭代不等于这些现象已有修复证据。原 CTest 51/51、Vision 58/58、完整链50/50和像素仿真证据继续有效。
 - SyncSet sync-20261020-002：accept_draft，沿用明确上下文更新授权；归档两边旧handoff，更新当前handoff、两项决策状态和报告状态；无subagent、平台记忆、外部写入或秘密。session-log较长，建议后续独立归档，现保留历史。
+
+同步验证补充：本聊天用户原话“提升很大，允许提交，同步到clean”。clean React构建、桌面81项、隔离WebView2和隐藏真实GUI模型初始化/IPC/热更新Applied/正常停止通过，临时配置关闭输出/震动。clean Base462/462、开火14/14；独立种子两组 cases.csv 和 trace.csv 四份文件与 dev final-validation/after 完全一致。产物 runs/person-cue-sync-20261020/，详细报告 docs/project/PERSON_CUE_CLEAN_SYNC_20261020.md。180个共有native文件相同，另外4个是既有构建职责差异；该计数只含native，与上文更广的共有文件统计口径不同。

@@ -8,7 +8,8 @@
 - clean Release 已编译。clean 库回归 Base 462/462、开火 14/14；两个独立种子 49980167/104396113 的 192 个 2/20 秒场景、2,112,000 tick 全部不变量通过，所有案例统计字段与 dev 已验证结果一致。212 个共有文件一致，4 个分支构建文件保留产品/测试职责差异。
 - 原 dev CTest 51/51（Vision 58/58、完整链 50/50）保持为本轮实现验证证据。同步验证产物 runs/clean-incident-fix-20261016/suite-sync-20261020/。没有新增算法修改，也未重跑实机输出。
 - 启动 clean 根目录的 `启动助手.vbs`，下次启动原生助手加载新程序。当前运行中的 dev 未被停止或覆盖；没有自动切换用户会话。运行标记 person_or_cue=1 cue_body_reference=1。
-- 下一步可继续实机使用；用户接受的是当前迭代，不等于所有场景没有残留问题。个人模型、Profile、配置和历史输出保持。
+- 下一步可继续实机使用；本聊天用户原话“提升很大，允许提交，同步到clean”。用户接受的是当前迭代，不等于所有场景没有残留问题。个人模型、Profile、配置和历史输出保持。
+- clean React 构建、桌面81项、隔离WebView2及隐藏真实GUI模型初始化/IPC/热更新Applied/正常停止全部通过；临时配置关闭输出和震动。独立仿真的 cases.csv 与 trace.csv 均与 dev final-validation/after 一致。完整补充记录见 [同步报告](../docs/project/PERSON_CUE_CLEAN_SYNC_20261020.md)，本轮验证产物另在 runs/person-cue-sync-20261020/。
 
 ## 已确认的方案
 
