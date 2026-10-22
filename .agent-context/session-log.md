@@ -343,3 +343,10 @@ and machine-local runtime assets out of project context.
 - SyncSet sync-20261020-002：accept_draft，沿用明确上下文更新授权；归档两边旧handoff，更新当前handoff、两项决策状态和报告状态；无subagent、平台记忆、外部写入或秘密。session-log较长，建议后续独立归档，现保留历史。
 
 同步验证补充：本聊天用户原话“提升很大，允许提交，同步到clean”。clean React构建、桌面81项、隔离WebView2和隐藏真实GUI模型初始化/IPC/热更新Applied/正常停止通过，临时配置关闭输出/震动。clean Base462/462、开火14/14；独立种子两组 cases.csv 和 trace.csv 四份文件与 dev final-validation/after 完全一致。产物 runs/person-cue-sync-20261020/，详细报告 docs/project/PERSON_CUE_CLEAN_SYNC_20261020.md。180个共有native文件相同，另外4个是既有构建职责差异；该计数只含native，与上文更广的共有文件统计口径不同。
+
+## 2026-10-23 — cue运动参考/弱框修复提交并同步clean
+
+- 用户明确授权提交、push、同步clean；dev实现3e2ab8d与clean生产9aad8f8已推送。包含前五项跟踪修复及本次两项根因修复，13生产文件经临时分支验证后快进合回，测试/轨迹/实验报告留dev，个人资产保持。
+- clean Base473项、开火14项通过（7项初始SDL测试依赖缺失，补齐后所属套件67/67）；独立128个短长场景1,408,000tick通过；两片段665帧Vision、固定录像控制、近似闭环CSV均与dev一致。桌面81项、隔离WebView2、关闭输出的隐藏GUI初始化/IPC/热更新/停止通过。dev原完整CTest51/51。
+- 发布授权不是实机验收；固定录像另一时刻下拉峰值增大、近似闭环第一段平均误差退步及旧ADS压力反例仍保留。[完整同步记录](../docs/project/DOWNPULL_CLEAN_SYNC_20261023.md)。下一步用户重启clean试用，不应为掩盖残留改变手动权限、压枪量或全局增益。
+- SyncSet sync-20261023-001，沿用上下文维护授权，accept_draft；更新两边handoff，原文归档到archive/handoff-20261023-before-motion-sync.md与archive/clean-handoff-20261023-before-motion-sync.md，追加本文。没有新决策、平台记忆、外部应用写入或秘密。长会话日志保留，建议后续独立归档压缩。

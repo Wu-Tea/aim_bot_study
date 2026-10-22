@@ -1,42 +1,33 @@
 # 当前接续
 
-更新：2026-10-20。用户反馈“没什么问题，允许提交。同步到clean”，已接受当前 dev 迭代并授权提交、同步。
+更新：2026-10-23。用户要求“改动提交并push，然后同步到clean”。dev 实现 `3e2ab8d`、clean 同步 `9aad8f8` 均已推送；本交接收尾另行提交，最终 HEAD 以 Git 为准。
 
 ## 当前状态与下一步
 
-- dev 生产提交 a93dbaa（ADS 持续协作/维持速度）、642dc26（person OR cue 与身体参考）；clean 生产同步提交 91b116a。上下文记录另行提交，最终 HEAD 以 git 为准。本轮未推送远端。
-- clean Release 已编译。clean 库回归 Base 462/462、开火 14/14；两个独立种子 49980167/104396113 的 192 个 2/20 秒场景、2,112,000 tick 全部不变量通过，所有案例统计字段与 dev 已验证结果一致。212 个共有文件一致，4 个分支构建文件保留产品/测试职责差异。
-- 原 dev CTest 51/51（Vision 58/58、完整链 50/50）保持为本轮实现验证证据。同步验证产物 runs/clean-incident-fix-20261016/suite-sync-20261020/。没有新增算法修改，也未重跑实机输出。
-- 启动 clean 根目录的 `启动助手.vbs`，下次启动原生助手加载新程序。当前运行中的 dev 未被停止或覆盖；没有自动切换用户会话。运行标记 person_or_cue=1 cue_body_reference=1。
-- 下一步可继续实机使用；本聊天用户原话“提升很大，允许提交，同步到clean”。用户接受的是当前迭代，不等于所有场景没有残留问题。个人模型、Profile、配置和历史输出保持。
-- clean React 构建、桌面81项、隔离WebView2及隐藏真实GUI模型初始化/IPC/热更新Applied/正常停止全部通过；临时配置关闭输出和震动。独立仿真的 cases.csv 与 trace.csv 均与 dev final-validation/after 一致。完整补充记录见 [同步报告](../docs/project/PERSON_CUE_CLEAN_SYNC_20261020.md)，本轮验证产物另在 runs/person-cue-sync-20261020/。
+- 本次交付包括此前五项跟踪修复，以及 cue 独立运动参考、弱框身体参考两项根因修复。clean 从临时分支验证后快进合回 `codex/runtime-clean`，13 个生产文件同步，实验/测试/轨迹留在 dev。
+- clean Release 和 React 资源已构建；入口 `D:/work/AI/yolo-study-001-clean/启动助手.vbs`，重新启动原生助手加载新版本。未停止用户会话，验证仅使用独立配置并关闭输出/震动。
+- 下一步等待实机反馈。用户授权发布，不等于本次下拉现象已实机验收；保持已有手动权限、原始透传、胸部参考、ADS/BodyLock、压枪和个人参数。
 
-## 已确认的方案
+## 本次修复与证据
 
-- person 独立取得/维持目标，不再强制 cue；保留原人体置信度、几何、确认、胸部计算。圆点和 COD 死敌骷髅均为有效 cue 候选，骷髅不是目标死亡证据。
-- 可信 person 与唯一关联 cue 同帧出现时，记录身体框、胸部/瞄准区域、cue 位置和 generation。初次只有 person 可稍后配对；从未配对过人体的 cue 不凭空生成胸部。
-- 用户明确同意：持续可靠的同一 cue 可超过 180 ms 延续身体参考。胸部按当前 cue 相对参考 cue 的位移平移；弱框和 cue 推导结果不更新参考，强人体返回后重新校正。
-- 缺 cue/歧义当帧停止 cue 输出；50 ms cue 匹配记忆不是控制续期。过期、主动换目标或 reset 清除旧参考。cue 仅瞄准；下游 32 ms 控制 / 40 ms 身份、手动退出、逐轴权限和原始透传保持。
-- 本轮未调整模型权重、个人配置/Profile 或已有 ADS 算法。上一版 cue 必需与 180 ms 几何限制已被本轮取代；鼠标/未启用融合的旧路径不变。
+- selector 发布当前已配对 cue 的稳定身份和坐标，用于运动估计和相应响应学习；同一 cue 不因 person/hold 切换重建，cue 更换重建测量对，缺失不发旧坐标。person 仍决定胸部；鼠标适配不消费新增通道。
+- 弱框在同一目标、当前纹理匹配可靠时，用当前纹理位移平移最近强人体身体/胸部参考；强 person 返回立即校正，无可靠纹理保持原弱框路径。弱框不获得新的开火权限。
+- 两项回归均在旧实现下失败。视频 frame182→183 胸部跳变 +29.526→+1px；第二段同一4.718s事件开火Y幅值 .404936→.065486。这不是全片段峰值或实机准确率。
+- 前五项修复：cue 保留已验证身体范围、命中十字排除及强人体反证、运动观察窗口统一限幅、ADS cue 到达需当前同源证据、交叉人体运动预测/歧义处理。详见下方报告。
+- person OR cue 及可靠同一 cue 超过180ms延续身体参考的已确认方案继续保留；未配对cue不猜胸部，缺cue/歧义停旧cue输出，下游32/40ms边界不变。
 
-## 证据与尚待验证
+## 验证和限制
 
-- 录像：较早 `2026-10-20 00-25-46.mp4` 是 dev（193.325 秒），较晚 `00-29-16.mp4` 是 clean（129.775 秒），均在 `E:/迅雷下载/`。用户把问题时间纠正为“两分钟后”；参考图对应 clean 约 121.7–122 秒。
-- clean 122.20–122.60 秒：48 帧中 35 帧无人框；原 person 基础方案与上一版 cue 必需均 0/48 有目标，新方案 47/48（cue 延续）。同人体框被同时选中时，胸部坐标差异为 0。
-- 全片段输出帧：dev 前 60 秒，旧 person / 上版 cue / 新 OR 为 2426/1317/2518（7200 帧）；clean 最后 19.775 秒为 1281/715/1551（2372 帧）。新方案仍漏掉旧方案输出的 186/53 帧，反向新增 278/323 帧。输出覆盖不是准确率或命中率。
-- 确认 cue 必需门槛会损失可信人体输出，不能认定全部 ADS 退步由它造成；dev 对应会话无控制遥测，且存在独立 ADS 工作。颜色纹理/枪口效果误识别、人体与 cue 错关联、遮挡后姿态/尺度改变仍可能出问题。
-- 像素→selector 4 种子、2/20 秒共 4400 帧；cue 身份 168960 tick；完整链验证 800 ms cue 延续、无开火、手动退出；完整 CTest 通过。仿真和压缩视频重放不替代实机验收。
+- dev 最终 CTest 51/51。clean 库 Base 473 项及开火14项通过；首次缺SDL测试依赖的7项，经补齐runner旁DLL后所属套件67/67，其他406项沿用首次通过结果。
+- 新两个独立种子23102301/98102713、128个2/20秒场景、1,408,000 tick通过，覆盖横纵运动、不同视觉节奏、响应曲线、轻手动及几何噪声。
+- 两片段665帧，clean/dev records完全一致（有目标358帧、cue_hold87帧）；固定像素与近似闭环CSV分别一致。180共有native文件相同，4个CMake文件保留产品/测试差异。
+- clean桌面81项、隔离WebView2、真实隐藏GUI模型初始化/IPC/热更新Applied/正常停止通过。产物 `runs/downpull-20261023/`，没有修改个人配置和模型。
+- 尚无同步真实手柄输出证据证明突然下拉唯一成因或全部消除。固定像素第二段另一时刻峰值 .404936→.471552；近似闭环第一段平均Y误差16.646→20.181px（旧clean对新dev，包含前五项差异）。模拟缺少真实重新渲染及变焦/视差，不能据此承诺实机效果。
+- 既有ADS开火走位/固定偏置压力反例、cue错关联和姿态/尺度变化风险仍保留；不要增权、压手动或延迟交接掩盖。
 
-## 已有 ADS 工作继续保留
+## 接续入口
 
-- 本轮 Vision 叠加在 10-19 ADS 持续协作/高速维持修复上，未撤销或重新调参。其高速恒速反例改善，但开火走位及固定偏置压力场景仍有已记录的退步；用户现已接受当前迭代，但没有证据证明这些数值差异已消失。
-- 既有反例：104396113 case37 长时开火走位 4.36903→8.01649 px；case47 短时固定偏置 28.418→600.899 px。BodyLock/压枪、持续手动与交接职责仍待隔离；不能增权、压手动或延迟交接掩盖。
-- 细节保存在 [ADS 报告](../docs/project/ADS_COOPERATION_20261019.md)、[ADS 决策](decisions/DEC-2026-10-19-002-ads-motion-and-cooperation.md) 和 [本次更新前交接归档](archive/handoff-20261020-before-person-cue-or.md)。
-
-## 优先读取与记录边界
-
-- [当前方案及完整对照](../docs/project/CUE_PERSON_OR_20261020.md)、[本轮决策](decisions/DEC-2026-10-20-001-person-or-cue-body-reference.md)、[复跑说明](../tests/cue_identity_offline_20261019/README.md)。实现 `native/vision_native/src/target_selector_fusion.cpp`，产物 `runs/cue-review-20261020/`。
-- 旧 cue 必需工具冻结为 `runs/cue-review-20261020/cue-owned-before.exe`；不要以当前融合 exe 冒充旧 cue 基线。旧报告 `CUE_IDENTITY_DEV_20261019.md` 仅作历史。
-- 需要实机对齐时再读 clean 会话 `20261019T162914Z_43900_1`：UTC 映射需减约 .89 秒，近似对齐；开火看 `final_fire_button`（RB），不能看 right trigger 为零就判定未开火。
-- 用户新反馈、重编译/提交、分支切换或 clean 同步后应刷新此页。历史输出和用户资产不得清理；旧仿真/归档仅在问题相关时读取。
-- SyncSet `sync-20261020-002`，沿用上下文更新授权；方案及当前迭代 accepted，残留问题仍保留。未写平台记忆、外部应用或 subagent brief，未保存秘密。会话历史保留于 `session-log.md`，长日志后续可独立压缩。
+- [本次同步](../docs/project/DOWNPULL_CLEAN_SYNC_20261023.md)、[两项根因修复](../docs/project/DOWNPULL_DEV_FIX_20261023.md)、[录像诊断假设](../docs/project/DOWNPULL_VIDEO_REPLAY_20261023.md)、[前五项修复](../docs/project/VISION_CONTROLLER_FIXES_20261020.md)、[轨迹夹具](../docs/project/TRACKING_TRAJECTORIES_20261020.md)。
+- 用户指定录像 `E:/videoCut/2026-10-22 10-40-12-cut-merged-1792637433471.mp4`，当时运行clean、手柄模式。后续按用户要求直接跑Vision，不再无目的追查日志。旧基线保留 `runs/downpull-20261023/before-fix/` 和原clean记录；本次同步验证在 `sync-video/`，勿覆盖旧基线。
+- 上版交接完整归档 [dev](archive/handoff-20261023-before-motion-sync.md)、[clean](archive/clean-handoff-20261023-before-motion-sync.md)，旧ADS与OR决策仍有效，历史见session-log.md。
+- SyncSet `sync-20261023-001`，沿用用户上下文维护授权，reviewer=accept_draft。两份handoff、dev会话日志及两份旧handoff归档；无新决策、subagent brief、平台记忆或秘密。session-log偏长，保留历史，后续可独立归档压缩。
