@@ -110,6 +110,8 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
     }
 
     snapshot.frame_id = result.frame_id;
+    snapshot.motion_cue_id = result.motion_cue_id;
+    snapshot.motion_cue_px = {result.motion_cue_x,result.motion_cue_y};
     snapshot.selector_identity_protocol = result.selector_identity_protocol;
     snapshot.selector_target_generation = result.selector_target_generation;
     snapshot.selector_target_changed = result.selector_target_changed;
@@ -160,6 +162,12 @@ controller_native::ControllerVisionSnapshot adapt_vision_result(
             height);
         if (result.has_selected_detection &&
             result.selected_detection_index == index && result.has_target) {
+            // The selected body geometry belongs to Vision as do D and R.
+            // A weak detector fragment may carry a currently translated,
+            // previously validated body; do not reintroduce the raw shape.
+            if (result.has_body_box) candidate.body_box_px = {
+                result.body_x1,result.body_y1,result.body_x2-result.body_x1,
+                result.body_y2-result.body_y1};
             candidate.aim_point_px = {result.target_x, result.target_y};
             candidate.has_aim_point =
                 std::isfinite(result.target_x) && std::isfinite(result.target_y);

@@ -79,6 +79,21 @@ VisionResult VisionTargetSelector::select_cue_identity(const DetectionBatch& bat
             const auto& target=*selection_.active();
             const auto& person=evidence.detections[result.selected_detection_index];
             const auto* cue=associated_cue(cues,person);
+            // Current strong body evidence can disprove an old cue pairing.
+            // Do not let an unrelated persistent HUD mark retain that body's
+            // geometry after the independently observed person has moved away.
+            if (cue_body_reference_ && cue_identity_.fresh() &&
+                std::strcmp(target.candidate.source,"observed")==0) {
+                const auto& active_cue=*cue_identity_.active();
+                const auto& reference=*cue_body_reference_;
+                const auto projected=translated(reference.target.candidate.body_box,
+                    active_cue.x-reference.cue.x,active_cue.y-reference.cue.y);
+                if (!boxes_match(projected,target.candidate.body_box)) {
+                    cue_body_reference_.reset();
+                    cue_identity_.reset();
+                    diagnostics_.cue_reason="person_disproves_cue_reference";
+                }
+            }
             // Only a current, strong person/cue pair calibrates geometry. A
             // weak partial box or cue-derived output cannot train its own offset.
             if (cue && std::strcmp(target.candidate.source,"observed")==0) {
@@ -136,6 +151,11 @@ VisionResult VisionTargetSelector::select_cue_identity(const DetectionBatch& bat
     // Keep the existing person acquisition/confirmation and explicit handover
     // lifecycle. No color frame or external cue here: independent current-cue
     // matching above is the sole cue continuation owner in this policy.
+    if (association_ambiguous_) {
+        diagnostics_.outcome="person_association_ambiguous";
+        selection_.mark_missing();
+        return empty_result(boxes_seen);
+    }
     auto result=select_impl_core(evidence,nullptr,intent);
     // clear_tracking_state inside the legacy lifecycle may reset this watermark.
     last_cue_frame_ns_=batch.captured_at_ns;

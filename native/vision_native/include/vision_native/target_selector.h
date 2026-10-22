@@ -118,6 +118,15 @@ private:
         std::uint64_t generation = 0;
     };
     std::optional<CueBodyReference> cue_body_reference_;
+    // The existing texture correspondence can translate trusted anatomy when
+    // the current detector box is weak. Reacquiring a template clears it.
+    struct MotionBodyReference {
+        TargetState target;
+        float x=0,y=0;
+        std::uint64_t generation=0;
+    };
+    std::optional<MotionBodyReference> motion_body_reference_;
+    void apply_motion_body_reference(VisionResult& result,const Detection& detection);
     bool friendly_filter_enabled_ = true;
     float target_height_ratio_ = 0.40f;
     float target_wide_low_height_ratio_ = 0.65f;
@@ -250,6 +259,11 @@ private:
     SelectionStateMachine<TargetState> selection_;
 
     std::optional<std::pair<float, float>> last_target_center_;
+    // Association-only motion evidence; selection_ remains the identity owner.
+    std::pair<float,float> association_center_{}, association_velocity_{};
+    std::uint64_t association_ns_=0, association_generation_=0, selection_frame_ns_=0;
+    bool association_velocity_valid_=false;
+    mutable bool association_ambiguous_=false;
     bool active_generation_had_enemy_evidence_ = false;
     // A short detector miss may hide I, but it must not destroy I and promote
     // a neighbour on the following frame. This is identity-only memory: while

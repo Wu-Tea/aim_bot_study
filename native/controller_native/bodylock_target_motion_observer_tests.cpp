@@ -123,6 +123,24 @@ void test_target_replacement_requires_new_aligned_evidence() {
 }  // namespace
 
 void register_bodylock_target_motion_observer_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "unequal_capture_intervals_cancel_before_saturation", [] {
+        for(float sign:{-1.f,1.f}) {
+            controller_native::BodylockTargetMotionObserver observer;
+            double now=1;
+            for(int i=0;i<800;++i) {
+                const float dt=i%2 ? .017f : .008f;
+                const float dx=(i%2 ? -20.f : 20.f)*sign;
+                now+=dt;
+                observer.update({1,now,dt,{dx/dt,0},{},1400,1,true});
+                if(i>2) require_true(std::abs(observer.estimate(1,now).target_motion_stick.x)<.00001f,
+                    "zero-net displacement must not acquire a directional bias from clipping");
+            }
+            observer.reset();
+            for(int i=1;i<=100;++i) observer.update({1,2.+i*.01,.01f,{28000*sign,0},{},1400,1,true});
+            require_true(std::abs(observer.estimate(1,3.).target_motion_stick.x)<=1.25001f,
+                "integrated motion still obeys the existing demand cap");
+        }
+    });
     registry.add_case("BaseBodyLock", "motion_noise_window_keeps_wall_time_at_220hz", [] {
         for(int hz:{180,220,250}){
             controller_native::BodylockTargetMotionObserver observer;

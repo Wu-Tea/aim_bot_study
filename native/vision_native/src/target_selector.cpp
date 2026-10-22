@@ -832,6 +832,9 @@ void VisionTargetSelector::reset() {
 }
 
 void VisionTargetSelector::clear_tracking_state() {
+    association_ns_=0;
+    association_velocity_valid_=false;
+    association_ambiguous_=false;
     cue_identity_.reset();
     last_cue_frame_ns_ = 0;
     cue_body_reference_.reset();
@@ -1079,6 +1082,7 @@ void VisionTargetSelector::update_selected_cue_template(
 }
 
 void VisionTargetSelector::reset_motion_anchor() {
+    motion_body_reference_.reset();
     motion_template_.fill(0.0f);
     motion_template_box_ = {};
     motion_anchor_x_ = 0.0f;
@@ -1086,6 +1090,34 @@ void VisionTargetSelector::reset_motion_anchor() {
     motion_template_spacing_ = 1;
     motion_anchor_misses_ = 0;
     has_motion_template_ = false;
+}
+
+void VisionTargetSelector::apply_motion_body_reference(VisionResult& result,const Detection& detection) {
+    if (!result.has_target || !selection_.active() || !detection.has_motion_anchor) return;
+    const auto& current=*selection_.active();
+    if (source_equals(current.candidate.source,"observed")) {
+        motion_body_reference_=MotionBodyReference{current,detection.motion_anchor_x,
+            detection.motion_anchor_y,selection_.generation()};
+        return;
+    }
+    if ((!source_equals(current.candidate.source,"associated_weak") &&
+         !source_equals(current.candidate.source,"weak_observed")) ||
+        !motion_body_reference_ || motion_body_reference_->generation!=selection_.generation() ||
+        detection.motion_anchor_score<.45f) return;
+    const auto& reference=*motion_body_reference_;
+    const float dx=detection.motion_anchor_x-reference.x,dy=detection.motion_anchor_y-reference.y;
+    auto held=current;auto& c=held.candidate;const auto& r=reference.target.candidate;
+    c.target_x=r.target_x+dx;c.target_y=r.target_y+dy;
+    c.body_box=shift_rect(r.body_box,dx,dy);
+    c.aim_region=shift_rect(r.aim_region,dx,dy);c.fire_zone=shift_rect(r.fire_zone,dx,dy);
+    // Current weak pixels own translation, never a new body shape. Retain the
+    // weak source/confidence and identity; this does not promote fire authority.
+    selection_.observe(held,false);last_target_center_=std::make_pair(c.target_x,c.target_y);
+    auto corrected=result_from_target(held,result.boxes_seen);
+    corrected.selection_diagnostics=result.selection_diagnostics;
+    corrected.motion_cue_id=result.motion_cue_id;
+    corrected.motion_cue_x=result.motion_cue_x;corrected.motion_cue_y=result.motion_cue_y;
+    result=std::move(corrected);
 }
 
 void VisionTargetSelector::update_selected_motion_anchor(
@@ -1769,6 +1801,14 @@ VisionTargetSelector::select_multi_candidate(
     std::optional<ScoredCandidate> tracked;
     std::optional<ScoredCandidate> best_intent_non_active;
     std::optional<std::pair<float, ScoredCandidate>> active_match;
+    float second_active_distance=std::numeric_limits<float>::max();
+    const bool predict_association=cue_identity_enabled_ && association_velocity_valid_ &&
+        association_generation_==selection_.generation() && selection_frame_ns_>association_ns_ &&
+        selection_frame_ns_-association_ns_<=40'000'000ull;
+    const float prediction_seconds=predict_association ? float(selection_frame_ns_-association_ns_)*1e-9f : 0.f;
+    const std::pair<float,float> predicted_center{
+        association_center_.first+association_velocity_.first*prediction_seconds,
+        association_center_.second+association_velocity_.second*prediction_seconds};
 
     for (const auto& candidate : candidates) {
         const bool matches_active = active_target_matches_candidate(candidate);
@@ -1802,14 +1842,23 @@ VisionTargetSelector::select_multi_candidate(
         }
 
         if (matches_active) {
-            const float active_distance = point_distance(
+            const float active_distance = predict_association ? point_distance(
+                {(candidate.body_box.left+candidate.body_box.right)*.5f,
+                 (candidate.body_box.top+candidate.body_box.bottom)*.5f}, predicted_center) : point_distance(
                 {candidate.target_x, candidate.target_y},
                 {selection_.active()->candidate.target_x, selection_.active()->candidate.target_y});
             if (!active_match.has_value()
                 || active_distance < active_match->first
                 || (std::fabs(active_distance - active_match->first) < 0.001f
                     && scored.score > active_match->second.score)) {
+                if (active_match &&
+                    (candidate.body_box.left!=active_match->second.candidate.body_box.left ||
+                     candidate.body_box.top!=active_match->second.candidate.body_box.top))
+                    second_active_distance=std::min(second_active_distance,active_match->first);
                 active_match = std::make_pair(active_distance, scored);
+            } else if (candidate.body_box.left!=active_match->second.candidate.body_box.left ||
+                       candidate.body_box.top!=active_match->second.candidate.body_box.top) {
+                second_active_distance=std::min(second_active_distance,active_distance);
             }
         }
     }
@@ -1831,6 +1880,11 @@ VisionTargetSelector::select_multi_candidate(
         (!selection_.has_identity() ||
          intent->purpose ==
             pipeline_contract::UserAimIntentPurpose::HandoverTarget);
+    if (predict_association && active_match && !identity_selection_intent &&
+        std::fabs(second_active_distance-active_match->first)<.001f) {
+        association_ambiguous_=true;
+        return {std::nullopt,std::nullopt};
+    }
     if (identity_selection_intent && active_match.has_value() &&
         best_intent_non_active.has_value()) {
         const float locked_crosshair_distance = crosshair_distance(
@@ -2214,6 +2268,7 @@ VisionResult VisionTargetSelector::select_with_frame(
         update_selected_cue_template(annotated.detections[result.selected_detection_index],frame);
         update_selected_motion_anchor(
             annotated.detections[result.selected_detection_index], frame);
+        apply_motion_body_reference(result,annotated.detections[result.selected_detection_index]);
     } else if (!result.has_target) {
         reset_motion_anchor();
     }
@@ -2244,6 +2299,7 @@ VisionResult VisionTargetSelector::select_with_frame(
         update_selected_cue_template(annotated.detections[result.selected_detection_index],frame);
         update_selected_motion_anchor(
             annotated.detections[result.selected_detection_index], frame);
+        apply_motion_body_reference(result,annotated.detections[result.selected_detection_index]);
     } else if (!result.has_target) {
         reset_motion_anchor();
     }
@@ -2260,6 +2316,8 @@ VisionResult VisionTargetSelector::select_impl(
     const DetectionBatch& batch, const ColorFrameView* frame,
     const pipeline_contract::UserAimIntent* intent) {
     diagnostics_ = {};
+    selection_frame_ns_=batch.captured_at_ns;
+    association_ambiguous_=false;
     diagnostics_.generation_before = selection_.generation();
     if (selection_.has_identity()) {
         diagnostics_.previous_target_x=selection_.active()->candidate.target_x;
@@ -2279,7 +2337,34 @@ VisionResult VisionTargetSelector::select_impl(
         v.has_cue=d.has_cue_point; v.cue_x=d.cue_x; v.cue_y=d.cue_y; v.cue_score=d.cue_score;
     }
     auto result=cue_identity_enabled_ ? select_cue_identity(batch,frame,intent) : select_impl_core(batch,frame,intent);
+    if (cue_identity_enabled_ && result.has_selected_detection && selection_.active() &&
+        std::strcmp(selection_.active()->candidate.source,"observed")==0 &&
+        batch.captured_at_ns>association_ns_) {
+        const auto& box=selection_.active()->candidate.body_box;
+        const std::pair<float,float> center{(box.left+box.right)*.5f,(box.top+box.bottom)*.5f};
+        association_velocity_valid_=association_ns_ &&
+            association_generation_==selection_.generation() &&
+            batch.captured_at_ns-association_ns_<=40'000'000ull;
+        if (association_velocity_valid_) {
+            const float seconds=float(batch.captured_at_ns-association_ns_)*1e-9f;
+            association_velocity_={(center.first-association_center_.first)/seconds,
+                                   (center.second-association_center_.second)/seconds};
+        }
+        association_center_=center;
+        association_ns_=batch.captured_at_ns;
+        association_generation_=selection_.generation();
+    } else if (result.has_target) {
+        // Cue translation and weak fragments do not train person motion.
+        association_ns_=0;
+        association_velocity_valid_=false;
+    }
     diagnostics_.generation_after=selection_.generation();
+    if (result.has_target && cue_identity_enabled_ && cue_identity_.fresh() &&
+        cue_body_reference_ && cue_body_reference_->generation==selection_.generation()) {
+        result.motion_cue_id=cue_identity_.id();
+        result.motion_cue_x=cue_identity_.active()->x;
+        result.motion_cue_y=cue_identity_.active()->y;
+    }
     if (result.has_selected_detection) {
         diagnostics_.selected_index=static_cast<std::int32_t>(result.selected_detection_index);
         diagnostics_.outcome="selected_detection";

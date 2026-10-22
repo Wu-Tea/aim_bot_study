@@ -29,7 +29,9 @@ public:
     void update(const std::vector<CueObservation>& cues, std::uint64_t timestamp);
     const std::optional<CueObservation>& active() const { return active_; }
     bool fresh() const { return fresh_; }
+    std::uint64_t id() const { return active_ ? identity_ : 0; }
 private:
+    std::uint64_t identity_ = 0;
     std::optional<CueObservation> active_;
     std::uint64_t last_ns_ = 0;
     float velocity_x_ = 0, velocity_y_ = 0;

@@ -1,0 +1,8 @@
+import fs from 'node:fs';
+const root=process.argv[2]??'runs/vision-controller-study-20261020/followup';
+function csv(name){const lines=fs.readFileSync(`${root}/${name}.csv`,'utf8').trim().split(/\r?\n/),head=lines.shift().split(',');return lines.map(line=>Object.fromEntries(line.split(',').map((v,i)=>[head[i],+v])));}
+const motion=csv('motion'),completion=csv('completion'),crossing=csv('crossing');
+const groups={};for(const r of crossing)(groups[[r.seed,r.fps,r.offset].join('/') ]??=[]).push(r);
+const cross=Object.entries(groups).map(([key,rows])=>{const first=rows.find(r=>r.has_target),swap=rows.find(r=>r.has_target&&r.selected_actor!==first.selected_actor);return {key,firstActor:first.selected_actor,switched:!!swap,firstSwap:swap,sameGeneration:!!swap&&swap.generation===first.generation&&!swap.changed};});
+const summary={motionCases:motion.length,largeBiasCases:motion.filter(r=>Math.abs(r.estimated)>50).length,maxUnclippedDiagnosticBias:Math.max(...motion.map(r=>Math.abs(r.unclipped_diagnostic))),examples:motion.slice(0,4),recordedTriplet:csv('recorded-motion')[0],completion:[0,1].map(cue=>({cue,firstBodylockTick:completion.find(r=>r.cue===cue&&r.mode===2)?.tick,at1592:completion.find(r=>r.cue===cue&&r.tick===1592)})),crossingCases:cross.length,crossingSwitches:cross.filter(r=>r.switched).length,sameGenerationSwitches:cross.filter(r=>r.sameGeneration).length,crossingByOffset:[0,2,8,20].map(offset=>({offset,total:cross.filter(r=>r.key.endsWith('/'+offset)).length,switched:cross.filter(r=>r.key.endsWith('/'+offset)&&r.switched).length})),crossingDetails:cross};
+fs.writeFileSync(`${root}/summary.json`,JSON.stringify(summary,null,2));console.log(JSON.stringify({...summary,crossingDetails:undefined},null,2));

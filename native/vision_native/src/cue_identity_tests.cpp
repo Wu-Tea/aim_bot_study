@@ -248,6 +248,169 @@ void cue_controller_integration() {
 }
 }
 void register_cue_identity_tests(native_test::Registry& registry) {
+    registry.add_case("BaseVisionSelection","motion_cue_identity_survives_person_dropout",[] {
+        auto s=selector();Scene f;f.cue(320,180);f.person(320,180);
+        auto r=f.run(s);const auto id=r.motion_cue_id;
+        require(r.has_target && id,"paired selector must publish a motion cue");
+        for(int i=1;i<=30;++i) {
+            f.clear();f.cue(320+i,180-i/2);
+            if(i%3)f.person(320+i,180-i/2);
+            r=f.run(s);
+            require(r.has_target && r.motion_cue_id==id && std::abs(r.motion_cue_x-(320+i))<.01f,
+                "person availability cannot replace current marker correspondence");
+            r.frame_updated=true;
+            const auto snapshot=runtime_app::adapt_vision_result(r);
+            require(snapshot.motion_cue_id==id && snapshot.motion_cue_px.x==r.motion_cue_x,
+                "adapter must preserve selector marker identity and coordinate");
+        }
+        f.clear();r=f.run(s);require(!r.motion_cue_id,"missing marker cannot publish stale motion evidence");
+        s.reset();f.clear();f.cue(340,180);f.person(340,180);r=f.run(s);
+        require(r.motion_cue_id && r.motion_cue_id!=id,"reset cannot join different marker tracks");
+    });
+    registry.add_case("BaseBodyLock","cue_motion_is_independent_of_person_geometry",[] {
+        namespace f=controller_native::incident_fixture;
+        auto cfg=f::base_config(40,180);
+        cfg.ai_aim.ads_snap_max_ai_force=cfg.ai_aim.ads_snap_max_ai_force_y=0;
+        cfg.ai_aim.body_lock_max_ai_force=cfg.ai_aim.body_lock_max_ai_force_y=0;
+        cfg.ai_aim.aim_response_learning_enabled=false;
+        double now=10;controller_native::NativeGamepadController controller(cfg,&now);
+        f::TargetSpec spec;spec.selector_generation=1;spec.has_enemy_cue=true;
+        for(int i=0;i<80;++i) {
+            now=10+i*.01;spec.observation_id=i+1;
+            auto snapshot=f::observed_snapshot(spec,i+1,now,0,float((i%4)*10));
+            snapshot.motion_cue_id=7;snapshot.motion_cue_px={320,180};
+            controller.submit_vision_snapshot(snapshot);controller.build_output(f::ads_input());
+            const auto&p=controller.last_target_plan();
+            if(i>5)require(p.bodylock_target_motion_valid && std::abs(p.bodylock_target_motion_px_per_sec.y)<.1f,
+                "stationary same cue cannot acquire person box reconstruction velocity");
+            require(std::abs(p.source_aim_px.y-(256+(i%4)*10))<.01f,
+                "cue motion must not move the person-selected chest");
+        }
+        for(int i=0;i<8;++i) {
+            now+=.01;spec.observation_id=81+i;
+            auto snapshot=i%2 ? f::observed_snapshot(spec,81+i,now,0,12) :
+                f::cue_snapshot(spec,81+i,now,0,0);
+            snapshot.motion_cue_id=7;snapshot.motion_cue_px={320,180};
+            controller.submit_vision_snapshot(snapshot);controller.build_output(f::ads_input());
+            const auto&p=controller.last_target_plan();
+            require(p.bodylock_target_motion_valid && std::abs(p.bodylock_target_motion_px_per_sec.y)<.1f,
+                "same cue remains a motion correspondence across person/hold transitions");
+        }
+        now+=.01;spec.observation_id=90;
+        auto replacement=f::observed_snapshot(spec,90,now,0,0);
+        replacement.motion_cue_id=8;replacement.motion_cue_px={340,240};
+        controller.submit_vision_snapshot(replacement);controller.build_output(f::ads_input());
+        require(!controller.last_target_plan().bodylock_target_motion_valid,
+            "different cue id cannot inherit velocity or difference unrelated marker coordinates");
+    });
+    registry.add_case("BaseBodyLock","cue_preserves_validated_body_range",[] {
+        namespace f=controller_native::incident_fixture;
+        auto config=f::base_config(40,180); config.ai_aim.body_lock_activation_box_px=120;
+        double now=10; controller_native::NativeGamepadController controller(config,&now);
+        f::TargetSpec spec; spec.body_height=220; spec.body_width=154;
+        spec.selector_generation=1; spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        float radius=0; std::uint64_t identity=0;
+        for(int tick=0;tick<600;++tick) {
+            now=10+tick*.001;
+            if(tick%8==0) { spec.observation_id=tick/8+1;
+                controller.submit_vision_snapshot(tick>=400 ? f::cue_snapshot(spec,spec.observation_id,now,145,0) :
+                    f::observed_snapshot(spec,spec.observation_id,now,tick<200 ? 0.f : 145.f,0)); }
+            controller.build_output(f::ads_input()); const auto& plan=controller.last_target_plan();
+            if(tick==399) { radius=plan.position_response_radius_px; identity=plan.target_id;
+                require(radius>145 && plan.aim_authority>0,"body-sized range must admit the established target"); }
+            if(tick>=400) require(plan.target_id==identity && plan.aim_authority>0 && !plan.fire_authority &&
+                std::abs(plan.position_response_radius_px-radius)<.001f,
+                "same-identity cue keeps body range and aim-only continuation");
+        }
+    });
+    registry.add_case("BaseAds","cue_arrival_requires_fresh_same_source_evidence",[] {
+        namespace f=controller_native::incident_fixture;
+        auto config=f::base_config(40,180);
+        config.ai_aim.ads_completion_fresh_frames=3;
+        config.ai_aim.ads_completion_radius_px=2;
+        config.recoil.enabled=false;
+        double now=10; controller_native::NativeGamepadController controller(config,&now);
+        f::TargetSpec spec; spec.selector_generation=1; spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        std::uint64_t frame=0;
+        const auto publish=[&](bool cue,float x) {
+            now+=.008; ++frame;
+            spec.observation_id=frame;
+            controller.submit_vision_snapshot(cue ? f::cue_snapshot(spec,frame,now,x,0) : f::observed_snapshot(spec,frame,now,x,0));
+            controller.build_output(f::ads_input());
+            require(!controller.last_target_plan().cue_continuation || !controller.last_target_plan().fire_authority,
+                "cue arrival cannot grant fire authority");
+        };
+        for(int i=0;i<12;++i) publish(false,30); // Admit ADS through its physical onset lifecycle.
+        require(controller.last_target_plan().target_id!=0 &&
+            controller.last_target_plan().mode==pipeline_contract::ControlMode::AdsAcquire,
+            "fixture must establish an admitted person acquisition");
+        publish(true,0);
+        require(!controller.last_target_plan().ads_acquisition_complete_ns,"source switch cannot prove arrival");
+        for(int i=0;i<5;++i) { now+=.001; controller.build_output(f::ads_input()); }
+        require(!controller.last_target_plan().ads_acquisition_complete_ns,"controller ticks cannot manufacture cue arrivals");
+        publish(true,20); publish(true,0);
+        require(!controller.last_target_plan().ads_acquisition_complete_ns,"fast cue pass cannot settle on one center sample");
+        publish(false,6); publish(true,-2);
+        require(!controller.last_target_plan().ads_acquisition_complete_ns,"cross-domain sign change cannot complete ADS");
+        for(int i=0;i<5;++i) publish(true,0);
+        require(controller.last_target_plan().ads_acquisition_complete_ns!=0,"settled fresh cue must hand off to BodyLock");
+    });
+    registry.add_case("BaseVisionSelection","person_motion_reversal_gap_and_ambiguity",[] {
+        auto s=selector(); Scene f;
+        for(int i=0;i<5;++i) { f.clear(); f.person(280+i*2,224,.95f); f.run(s); }
+        f.clear(); f.person(289,224,.95f); f.person(291,224,.95f);
+        require(!f.run(s).has_target,"equally plausible different bodies must not use detection order as identity");
+        f.clear(); f.person(292,224,.95f);
+        auto r=f.run(s); require(r.has_target && r.selector_target_generation==1,"one ambiguous capture does not replace identity");
+        f.clear(); f.person(290,224,.95f); r=f.run(s);
+        require(r.has_target && r.target_x==290,"a single reversing actor is not rejected by prediction");
+        f.clear(); f.run(s);
+        f.clear(); f.person(286,224,.95f); r=f.run(s);
+        require(r.has_target && r.target_x==286 && r.selector_target_generation==1,"short gap preserves actor identity");
+    });
+    registry.add_case("BaseVisionSelection","hit_marker_composition_preserves_individual_cues",[] {
+        Scene f; CueDetector detector;
+        for(bool red:{false,true}) {
+            f.clear();
+            for(int x:{308,332}) for(int y:{244,268}) f.cue(x,y,red);
+            f.cue(320,256,red); f.cue(400,180,red);
+            const auto& cues=detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0);
+            require(cues.size()==2,"four hit-marker tips excluded, center/remote real cues retained");
+            f.clear(); f.cue(308,244,red);
+            require(detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0).size()==1,
+                "an individual cue near the crosshair must remain detectable");
+        }
+    });
+    registry.add_case("BaseVisionSelection","strong_person_disproves_stale_cue_pair",[] {
+        auto s=selector(); Scene f; f.cue(300,180); f.person(300,180); auto r=f.run(s);
+        require(r.has_target,"paired body");
+        for(int i=1;i<=10;++i) { f.clear(); f.cue(300,180); f.person(300-i*12.f,180); r=f.run(s);
+            require(r.has_target && r.has_selected_detection,"independent person stays authoritative"); }
+        f.clear(); f.cue(300,180); r=f.run(s);
+        require(!r.has_target,"a contradicted cue cannot revive old body geometry");
+    });
+    registry.add_case("BaseVisionSelection","person_crossing_motion_and_order",[] {
+        for(unsigned seed:{71020601u,71020613u,71020627u,71020643u})
+        for(int fps:{60,120}) for(float separation:{0.f,2.f,8.f,20.f}) for(bool reorder:{false,true}) {
+            std::mt19937 rng(seed); const float speed=100+rng()%101;
+            auto s=selector();
+            for(int frame=0;frame<fps;++frame) {
+                const float t=frame/float(fps),ax=280+speed*t,bx=400-speed*t;
+                Scene f; f.batch.captured_at_ns=1'000'000'000ull+std::uint64_t(std::llround(t*1e9));
+                f.person(ax,224,.95f); if(frame>=fps/10) f.person(bx,224+separation,.95f);
+                const bool reverse=reorder && frame%2 && f.batch.detections.size()==2;
+                if(reverse) std::reverse(f.batch.detections.begin(),f.batch.detections.end());
+                const auto r=s.select(f.batch);
+                if(frame<2 && !r.has_target) continue; // Existing unmarked-person confirmation.
+                if(!r.has_target || !r.has_selected_detection) throw std::runtime_error(
+                    "continuous actor missing seed="+std::to_string(seed)+" fps="+std::to_string(fps)+
+                    " separation="+std::to_string(separation)+" frame="+std::to_string(frame)+
+                    " reason="+r.selection_diagnostics.outcome);
+                require(std::abs(r.target_x-ax)<.001f && r.selector_target_generation==1,
+                    "crossing and detection order cannot transfer the current identity to B");
+            }
+        }
+    });
     registry.add_case("BaseVisionSelection","cue_owns_person_churn",cue_owns_person_churn);
     registry.add_case("BaseVisionSelection","cue_requires_body_geometry",cue_requires_body_geometry);
     registry.add_case("BaseVisionSelection","cue_loss_and_expiry",cue_loss_and_expiry);

@@ -1,0 +1,524 @@
+{
+  "version": 1,
+  "coordinateSystem": "center 640x512 screen pixels; includes original camera movement; no world-motion ground truth",
+  "productionRevision": "8a7f36a",
+  "slotMs": 1575,
+  "gapMs": 50,
+  "interpolation": "none; missing coordinates blank in CSV; finite differences never cross missing frames or identity changes",
+  "totalFrames": 2645,
+  "trajectories": [
+    {
+      "id": "clean_lateral",
+      "clip": "clean",
+      "start": 58.75,
+      "kind": "recorded_motion",
+      "feature": "lateral",
+      "video": "E:/迅雷下载/2026-10-20 00-29-16.mp4",
+      "videoStartSeconds": 58.75,
+      "videoEndSeconds": 60.316666667,
+      "fps": 120,
+      "firstFrame": 7051,
+      "lastFrame": 7239,
+      "frames": 189,
+      "recordFile": "clean_lateral.records",
+      "csvFile": "clean_lateral.csv",
+      "metrics": {
+        "coverage": 0.9312169312169312,
+        "cueFrames": 45,
+        "generations": [
+          18
+        ],
+        "rangeX": 217.500008,
+        "rangeY": 144.650894,
+        "netX": -213.08335100000002,
+        "netY": 139.21756000000002,
+        "maxJump": 27.790918762268404,
+        "sourceChanges": 28,
+        "gaps": 2
+      }
+    },
+    {
+      "id": "clean_turn",
+      "clip": "clean",
+      "start": 38,
+      "kind": "recorded_motion",
+      "feature": "turn",
+      "video": "E:/迅雷下载/2026-10-20 00-29-16.mp4",
+      "videoStartSeconds": 38,
+      "videoEndSeconds": 39.566666667,
+      "fps": 120,
+      "firstFrame": 4561,
+      "lastFrame": 4749,
+      "frames": 189,
+      "recordFile": "clean_turn.records",
+      "csvFile": "clean_turn.csv",
+      "metrics": {
+        "coverage": 0.9788359788359788,
+        "cueFrames": 2,
+        "generations": [
+          12
+        ],
+        "rangeX": 281.916687,
+        "rangeY": 51.33334400000001,
+        "netX": -125.5,
+        "netY": 48.566666,
+        "maxJump": 31.056150005362237,
+        "sourceChanges": 9,
+        "gaps": 1
+      }
+    },
+    {
+      "id": "clean_vertical",
+      "clip": "clean",
+      "start": 112.75,
+      "kind": "recorded_motion",
+      "feature": "vertical",
+      "video": "E:/迅雷下载/2026-10-20 00-29-16.mp4",
+      "videoStartSeconds": 112.75,
+      "videoEndSeconds": 114.316666667,
+      "fps": 120,
+      "firstFrame": 13531,
+      "lastFrame": 13719,
+      "frames": 189,
+      "recordFile": "clean_vertical.records",
+      "csvFile": "clean_vertical.csv",
+      "metrics": {
+        "coverage": 0.9682539682539683,
+        "cueFrames": 34,
+        "generations": [
+          36
+        ],
+        "rangeX": 90.41665699999999,
+        "rangeY": 115.90001000000001,
+        "netX": 15.25,
+        "netY": -38.40000900000001,
+        "maxJump": 26.551597800433864,
+        "sourceChanges": 34,
+        "gaps": 5
+      }
+    },
+    {
+      "id": "dev_lateral",
+      "clip": "dev",
+      "start": 179.5,
+      "kind": "recorded_motion",
+      "feature": "lateral",
+      "video": "E:/迅雷下载/2026-10-20 00-25-46.mp4",
+      "videoStartSeconds": 179.5,
+      "videoEndSeconds": 181.066666667,
+      "fps": 120,
+      "firstFrame": 21541,
+      "lastFrame": 21729,
+      "frames": 189,
+      "recordFile": "dev_lateral.records",
+      "csvFile": "dev_lateral.csv",
+      "metrics": {
+        "coverage": 0.9259259259259259,
+        "cueFrames": 18,
+        "generations": [
+          95
+        ],
+        "rangeX": 285.833313,
+        "rangeY": 55.5,
+        "netX": 236.166656,
+        "netY": 23.566665,
+        "maxJump": 16.04049507870706,
+        "sourceChanges": 27,
+        "gaps": 7
+      }
+    },
+    {
+      "id": "dev_turn",
+      "clip": "dev",
+      "start": 120.25,
+      "kind": "recorded_motion",
+      "feature": "turn",
+      "video": "E:/迅雷下载/2026-10-20 00-25-46.mp4",
+      "videoStartSeconds": 120.25,
+      "videoEndSeconds": 121.816666667,
+      "fps": 120,
+      "firstFrame": 14431,
+      "lastFrame": 14619,
+      "frames": 189,
+      "recordFile": "dev_turn.records",
+      "csvFile": "dev_turn.csv",
+      "metrics": {
+        "coverage": 0.9788359788359788,
+        "cueFrames": 44,
+        "generations": [
+          58
+        ],
+        "rangeX": 168.5,
+        "rangeY": 69.46667500000001,
+        "netX": 17.916672000000005,
+        "netY": 5.266662999999994,
+        "maxJump": 34.07167457598366,
+        "sourceChanges": 44,
+        "gaps": 4
+      }
+    },
+    {
+      "id": "dev_vertical",
+      "clip": "dev",
+      "start": 35.875,
+      "kind": "recorded_motion",
+      "feature": "vertical",
+      "video": "E:/迅雷下载/2026-10-20 00-25-46.mp4",
+      "videoStartSeconds": 35.875,
+      "videoEndSeconds": 37.441666667,
+      "fps": 120,
+      "firstFrame": 4306,
+      "lastFrame": 4494,
+      "frames": 189,
+      "recordFile": "dev_vertical.records",
+      "csvFile": "dev_vertical.csv",
+      "metrics": {
+        "coverage": 0.9947089947089947,
+        "cueFrames": 30,
+        "generations": [
+          13
+        ],
+        "rangeX": 137.33331299999998,
+        "rangeY": 177.621551,
+        "netX": 65.75,
+        "netY": 11.09954799999997,
+        "maxJump": 20.670026608594387,
+        "sourceChanges": 13,
+        "gaps": 1
+      }
+    },
+    {
+      "id": "clean_long_cue",
+      "clip": "clean",
+      "start": 121.5,
+      "kind": "recorded_evidence",
+      "feature": "person then long cue",
+      "video": "E:/迅雷下载/2026-10-20 00-29-16.mp4",
+      "videoStartSeconds": 121.5,
+      "videoEndSeconds": 123.066666667,
+      "fps": 120,
+      "firstFrame": 14581,
+      "lastFrame": 14769,
+      "frames": 189,
+      "recordFile": "clean_long_cue.records",
+      "csvFile": "clean_long_cue.csv",
+      "metrics": {
+        "coverage": 0.9047619047619048,
+        "cueFrames": 140,
+        "generations": [
+          41
+        ],
+        "rangeX": 83,
+        "rangeY": 54.03332499999999,
+        "netX": 13.25,
+        "netY": 52.03332499999999,
+        "maxJump": 19.924858845171276,
+        "sourceChanges": 22,
+        "gaps": 10
+      }
+    },
+    {
+      "id": "clean_cue_cold_start",
+      "clip": "clean",
+      "start": 122,
+      "kind": "negative_control",
+      "feature": "cue cannot establish a new body reference",
+      "video": "E:/迅雷下载/2026-10-20 00-29-16.mp4",
+      "videoStartSeconds": 122,
+      "videoEndSeconds": 123.566666667,
+      "fps": 120,
+      "firstFrame": 14641,
+      "lastFrame": 14829,
+      "frames": 189,
+      "recordFile": "clean_cue_cold_start.records",
+      "csvFile": "clean_cue_cold_start.csv",
+      "metrics": {
+        "coverage": 0.8783068783068783,
+        "cueFrames": 166,
+        "generations": [
+          41
+        ],
+        "rangeX": 83,
+        "rangeY": 28,
+        "netX": 19.5,
+        "netY": -1.5,
+        "maxJump": 21.02974084481309,
+        "sourceChanges": 26,
+        "gaps": 13
+      }
+    },
+    {
+      "id": "dev_radius_transition",
+      "clip": "dev",
+      "start": 87.5,
+      "kind": "diagnostic_fault",
+      "feature": "person/cue BodyLock radius",
+      "video": "E:/迅雷下载/2026-10-20 00-25-46.mp4",
+      "videoStartSeconds": 87.5,
+      "videoEndSeconds": 89.066666667,
+      "fps": 120,
+      "firstFrame": 10501,
+      "lastFrame": 10689,
+      "frames": 189,
+      "recordFile": "dev_radius_transition.records",
+      "csvFile": "dev_radius_transition.csv",
+      "metrics": {
+        "coverage": 0.5185185185185185,
+        "cueFrames": 7,
+        "generations": [
+          39
+        ],
+        "rangeX": 266.083328,
+        "rangeY": 153.000008,
+        "netX": 207.416672,
+        "netY": 30.066651000000007,
+        "maxJump": 33.60286441329014,
+        "sourceChanges": 7,
+        "gaps": 0
+      }
+    },
+    {
+      "id": "v1_radius_transition",
+      "clip": "v1",
+      "start": 10,
+      "kind": "diagnostic_fault",
+      "feature": "person/cue BodyLock radius",
+      "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Call of Duty  Black Ops 7\\Call of Duty  Black Ops 7 2026.10.12 - 02.48.52.01.mp4",
+      "videoStartSeconds": 10.007158262,
+      "videoEndSeconds": 11.572337757,
+      "fps": 60.057009620373435,
+      "firstFrame": 602,
+      "lastFrame": 696,
+      "frames": 95,
+      "recordFile": "v1_radius_transition.records",
+      "csvFile": "v1_radius_transition.csv",
+      "metrics": {
+        "coverage": 0.7368421052631579,
+        "cueFrames": 3,
+        "generations": [
+          3
+        ],
+        "rangeX": 121.91668699999997,
+        "rangeY": 125.2724608,
+        "netX": -63.833343999999954,
+        "netY": 119.1391298,
+        "maxJump": 40.40001749876265,
+        "sourceChanges": 7,
+        "gaps": 1
+      }
+    },
+    {
+      "id": "dev_hitmarker",
+      "clip": "dev",
+      "start": 189,
+      "kind": "diagnostic_fault",
+      "feature": "HUD association, not a real actor trajectory",
+      "video": "E:/迅雷下载/2026-10-20 00-25-46.mp4",
+      "videoStartSeconds": 189,
+      "videoEndSeconds": 190.566666667,
+      "fps": 120,
+      "firstFrame": 22681,
+      "lastFrame": 22869,
+      "frames": 189,
+      "recordFile": "dev_hitmarker.records",
+      "csvFile": "dev_hitmarker.csv",
+      "metrics": {
+        "coverage": 0.798941798941799,
+        "cueFrames": 26,
+        "generations": [
+          100
+        ],
+        "rangeX": 328.75002,
+        "rangeY": 38.100007000000005,
+        "netX": -53.166687000000024,
+        "netY": -4.0666499999999814,
+        "maxJump": 279.32083541054453,
+        "sourceChanges": 14,
+        "gaps": 3
+      }
+    },
+    {
+      "id": "v3_mixed_cue",
+      "clip": "v3",
+      "start": 3.5,
+      "kind": "recorded_evidence",
+      "feature": "source changes and gaps",
+      "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Call of Duty  Black Ops 7\\Call of Duty  Black Ops 7 2026.10.16 - 16.17.02.02.mp4",
+      "videoStartSeconds": 3.515293027,
+      "videoEndSeconds": 5.064687584,
+      "fps": 60.02344565753539,
+      "firstFrame": 212,
+      "lastFrame": 305,
+      "frames": 94,
+      "recordFile": "v3_mixed_cue.records",
+      "csvFile": "v3_mixed_cue.csv",
+      "metrics": {
+        "coverage": 1,
+        "cueFrames": 31,
+        "generations": [
+          4
+        ],
+        "rangeX": 230.375,
+        "rangeY": 77.941025,
+        "netX": 149.875,
+        "netY": 3.266678000000013,
+        "maxJump": 26.11991577321795,
+        "sourceChanges": 13,
+        "gaps": 0
+      }
+    },
+    {
+      "id": "v2_detection_gap",
+      "clip": "v2",
+      "start": 0.25,
+      "kind": "recorded_evidence",
+      "feature": "detection availability",
+      "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Call of Duty  Black Ops 7\\Call of Duty  Black Ops 7 2026.10.16 - 11.19.53.01.mp4",
+      "videoStartSeconds": 0.266449219,
+      "videoEndSeconds": 1.815185308,
+      "fps": 60.04896554766421,
+      "firstFrame": 17,
+      "lastFrame": 110,
+      "frames": 94,
+      "recordFile": "v2_detection_gap.records",
+      "csvFile": "v2_detection_gap.csv",
+      "metrics": {
+        "coverage": 0.6382978723404256,
+        "cueFrames": 0,
+        "generations": [
+          1
+        ],
+        "rangeX": 188.166656,
+        "rangeY": 256.8111913,
+        "netX": 118.91665599999999,
+        "netY": -205.681175,
+        "maxJump": 91.39145099197151,
+        "sourceChanges": 20,
+        "gaps": 5
+      }
+    },
+    {
+      "id": "v5_short_target",
+      "clip": "v5",
+      "start": 0,
+      "kind": "recorded_evidence",
+      "feature": "short target observation",
+      "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Call of Duty  Black Ops 7\\Call of Duty  Black Ops 7 2026.10.18 - 01.52.44.02.mp4",
+      "videoStartSeconds": 0,
+      "videoEndSeconds": 1.562200649,
+      "fps": 60.17152792701272,
+      "firstFrame": 1,
+      "lastFrame": 95,
+      "frames": 95,
+      "recordFile": "v5_short_target.records",
+      "csvFile": "v5_short_target.csv",
+      "metrics": {
+        "coverage": 0.30526315789473685,
+        "cueFrames": 8,
+        "generations": [
+          1
+        ],
+        "rangeX": 40.833312999999976,
+        "rangeY": 23.633347000000015,
+        "netX": -26.833312999999976,
+        "netY": 13.966659000000021,
+        "maxJump": 13.61194367499489,
+        "sourceChanges": 7,
+        "gaps": 1
+      }
+    },
+    {
+      "id": "v6_large_jump",
+      "clip": "v6",
+      "start": 2.75,
+      "kind": "diagnostic_fault",
+      "feature": "identity/geometry discontinuity, not ground truth",
+      "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Call of Duty  Black Ops 7\\Call of Duty  Black Ops 7 2026.10.18 - 02.21.19.03.mp4",
+      "videoStartSeconds": 2.764358794,
+      "videoEndSeconds": 4.313065829,
+      "fps": 60.05009203657322,
+      "firstFrame": 167,
+      "lastFrame": 260,
+      "frames": 94,
+      "recordFile": "v6_large_jump.records",
+      "csvFile": "v6_large_jump.csv",
+      "metrics": {
+        "coverage": 0.1595744680851064,
+        "cueFrames": 9,
+        "generations": [
+          2
+        ],
+        "rangeX": 265.083343,
+        "rangeY": 203.86666860000003,
+        "netX": 202.41668700000002,
+        "netY": 64.39999400000002,
+        "maxJump": 269.61951708668283,
+        "sourceChanges": 13,
+        "gaps": 6
+      }
+    },
+    {
+      "id": "v9_reacquisition",
+      "clip": "v9",
+      "start": 3.5,
+      "kind": "recorded_evidence",
+      "feature": "loss and reacquisition",
+      "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Call of Duty  Black Ops 7\\Call of Duty  Black Ops 7 2026.10.19 - 22.02.59.04.mp4",
+      "videoStartSeconds": 3.513220333,
+      "videoEndSeconds": 5.061701333,
+      "fps": 60.05885768052692,
+      "firstFrame": 212,
+      "lastFrame": 305,
+      "frames": 94,
+      "recordFile": "v9_reacquisition.records",
+      "csvFile": "v9_reacquisition.csv",
+      "metrics": {
+        "coverage": 0.6808510638297872,
+        "cueFrames": 3,
+        "generations": [
+          2,
+          3,
+          4
+        ],
+        "rangeX": 134.166656,
+        "rangeY": 88.63334600000002,
+        "netX": -32.5,
+        "netY": 11.766678000000013,
+        "maxJump": 28.49843842817672,
+        "sourceChanges": 20,
+        "gaps": 4
+      }
+    },
+    {
+      "id": "dev_cue_jitter",
+      "clip": "dev",
+      "start": 170.5,
+      "kind": "diagnostic_fault",
+      "feature": "unequal capture intervals and reversing cue displacement",
+      "video": "E:/迅雷下载/2026-10-20 00-25-46.mp4",
+      "videoStartSeconds": 170.5,
+      "videoEndSeconds": 172.066666667,
+      "fps": 120,
+      "firstFrame": 20461,
+      "lastFrame": 20649,
+      "frames": 189,
+      "recordFile": "dev_cue_jitter.records",
+      "csvFile": "dev_cue_jitter.csv",
+      "metrics": {
+        "coverage": 0.8465608465608465,
+        "cueFrames": 26,
+        "generations": [
+          93,
+          94
+        ],
+        "rangeX": 178.666672,
+        "rangeY": 112.46667500000004,
+        "netX": 39.91665699999999,
+        "netY": 6.800018000000023,
+        "maxJump": 36.29112826880227,
+        "sourceChanges": 30,
+        "gaps": 9
+      }
+    }
+  ]
+}

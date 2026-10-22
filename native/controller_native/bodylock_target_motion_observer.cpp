@@ -54,13 +54,8 @@ bool BodylockTargetMotionObserver::update(
         observation.average_delivered_stick.y -
             observation.observed_screen_rate_px_per_sec.y / response,
     };
-    const float maximum_motion = std::max(
-        0.0f, config_.maximum_target_motion_stick);
-    measured_motion_stick.x = std::clamp(
-        measured_motion_stick.x, -maximum_motion, maximum_motion);
-    measured_motion_stick.y = std::clamp(
-        measured_motion_stick.y, -maximum_motion, maximum_motion);
-
+    // Keep raw displacement evidence until opposite increments have cancelled.
+    // Saturating derivatives here creates direction bias at unequal cadence.
     measurements_[measurement_write_index_] = measured_motion_stick;
     intervals_[measurement_write_index_] = observation.interval_seconds;
     measurement_write_index_ =
@@ -78,7 +73,10 @@ bool BodylockTargetMotionObserver::update(
         config_.minimum_samples, 1, measurements_.size());
     if (measurement_count_ < minimum_samples) return true;
 
-    const auto robust = robust_measurement();
+    auto robust = robust_measurement();
+    const float maximum_motion = std::max(0.0f, config_.maximum_target_motion_stick);
+    robust.x = std::clamp(robust.x, -maximum_motion, maximum_motion);
+    robust.y = std::clamp(robust.y, -maximum_motion, maximum_motion);
     if (!initialized_) {
         filtered_motion_stick_ = robust;
         initialized_ = true;
@@ -144,16 +142,27 @@ BodylockTargetMotionObserver::robust_measurement() const noexcept {
     // A median of adjacent derivatives destroys their noise cancellation:
     // +epsilon then -epsilon no longer sums to zero. Integrate the aligned
     // displacements first; divide by actual elapsed capture time, not ticks.
-    pipeline_contract::Vec2f displacement{};
+    pipeline_contract::Vec2f displacement{}, peak{};
+    const float maximum_motion=std::max(0.f,config_.maximum_target_motion_stick);
     float elapsed=0.f;
     for (std::size_t age=0; age<measurement_count_ && elapsed<.025f; ++age) {
         const auto i=(measurement_write_index_+measurements_.size()-1-age)%measurements_.size();
         const float interval=std::min(intervals_[i],.025f-elapsed);
-        displacement.x+=measurements_[i].x*interval;
-        displacement.y+=measurements_[i].y*interval;
+        const auto value=measurements_[i];
+        displacement.x+=value.x*interval;
+        displacement.y+=value.y*interval;
+        peak.x=std::max(peak.x,std::abs(value.x));
+        peak.y=std::max(peak.y,std::abs(value.y));
         elapsed+=interval;
     }
-    return {displacement.x/elapsed, displacement.y/elapsed};
+    // Use one saturation scale for all signed increments on an axis. Opposite
+    // motion cancels exactly; saturation can reduce magnitude, never reverse
+    // the integrated direction. Every retained derivative obeys the same
+    // original limit, so an isolated jump cannot inject its full impulse into
+    // sustaining motion. Ordinary unsaturated motion has scale one.
+    const float scale_x=peak.x>maximum_motion ? maximum_motion/peak.x : 1.f;
+    const float scale_y=peak.y>maximum_motion ? maximum_motion/peak.y : 1.f;
+    return {displacement.x/elapsed*scale_x,displacement.y/elapsed*scale_y};
 }
 
 float BodylockTargetMotionObserver::slew_axis(

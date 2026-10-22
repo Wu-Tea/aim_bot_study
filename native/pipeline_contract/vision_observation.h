@@ -50,6 +50,8 @@ struct VisionCandidate {
 };
 
 struct VisionObservationBatch {
+    std::uint64_t motion_cue_id = 0;
+    Vec2f motion_cue_px{};
     std::uint64_t frame_id = 0;
     std::uint64_t preferred_source_id = 0;
     double source_time_seconds = 0.0;

@@ -1617,6 +1617,30 @@ void test_motion_anchor_ignores_box_edge_reconstruction_and_tracks_person() {
         "motion anchor should preserve vertical person translation");
 }
 
+void test_weak_box_cannot_reconstruct_chest_over_tracked_pixels() {
+    vision_native::VisionTargetSelector selector(640,512);
+    auto frame=full_bgra_frame();draw_motion_pattern(frame,320,242);
+    auto batch=single_target_batch(320.f,256.f,.92f);
+    selector.select_with_frame(batch,frame.view);
+    const auto strong=selector.select_with_frame(batch,frame.view);
+    require_true(strong.has_target,"strong geometry established");
+    batch.detections[0].conf=.3f;batch.detections[0].y2+=80.f;
+    const auto weak=selector.select_with_frame(batch,frame.view);
+    require_true(weak.has_target && weak.has_selected_detection,"current weak person retains tracking");
+    require_near(weak.target_y,strong.target_y,1.f,
+        "stationary matched pixels cannot move chest because weak box bottom expanded");
+    auto moved=full_bgra_frame();draw_motion_pattern(moved,325,238);
+    batch.detections[0].x1+=5;batch.detections[0].x2+=5;
+    batch.detections[0].y1-=4;batch.detections[0].y2-=4;
+    const auto tracking=selector.select_with_frame(batch,moved.view);
+    require_near(tracking.target_y,strong.target_y-4,1.f,"weak pixels retain actual vertical motion");
+    require_near(tracking.target_x,strong.target_x+5,1.f,"weak pixels retain actual horizontal motion");
+    batch.detections[0].conf=.92f;
+    const auto returned=selector.select_with_frame(batch,moved.view);
+    require_true(returned.target_y>tracking.target_y+10,
+        "a returning strong body immediately owns new anatomy; weak reference cannot pin it");
+}
+
 void test_selector_generation_survives_frame_local_observation_changes() {
     vision_native::VisionTargetSelector selector(640, 512);
     auto same_target = single_target_batch(260.0f, 256.0f, 0.92f);
@@ -1991,6 +2015,7 @@ void register_target_selector_tests(native_test::Registry& registry) {
     registry.add_case("BaseVisionSelection", "cue_image_identity_not_nearest_color", test_cue_identity_matches_image_instead_of_nearest_color);
     registry.add_case("BaseVisionSelection", "cue_readback_with_unrelated_detection", test_cue_readback_includes_active_search_with_unrelated_detection);
     registry.add_case("BaseVisionSelection", "motion_anchor_person_support", test_motion_anchor_cannot_retain_background_outside_person);
+    registry.add_case("BaseVisionSelection", "weak_box_geometry_uses_current_correspondence", test_weak_box_cannot_reconstruct_chest_over_tracked_pixels);
     registry.add_context_case("BaseVisionSelection", "cue_geometry_identity_and_residual_regressions", [](const native_test::TestContext& context) {
         if (g_cue_geometry_regression_report_path.empty()) {
             g_cue_geometry_regression_report_path = context.artifact_path("cue_geometry_regression.json").string();

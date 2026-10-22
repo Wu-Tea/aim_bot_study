@@ -423,9 +423,22 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         // velocity is learned only from the source point, never from a manual
         // D correction.
         if (cue_continuation_candidate) {
+            // A current cue can prove arrival, but a person/cue domain change
+            // is not a measured motion or a physical center crossing.
+            capture_error_rate_ = {};
+            if (latest_.cue_continuation && !new_target &&
+                has_observation_capture_time_ &&
+                observation_capture_seconds > last_observation_capture_seconds_) {
+                const float capture_dt = static_cast<float>(
+                    observation_capture_seconds-last_observation_capture_seconds_);
+                const auto delta = subtract(observed_aim_px,
+                    geometry_reducer_.snapshot().source_position);
+                capture_error_rate_ = {delta.x/capture_dt, delta.y/capture_dt};
+            } else {
+                settled_frames_ = 0;
+            }
             adopt_candidate_geometry(*candidate, true, false);
             velocity_ = {};
-            capture_error_rate_ = {};
             acceleration_ = {};
             previous_firing_velocity_innovation_ = {};
             firing_velocity_observer_active_ = false;
@@ -816,7 +829,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         : plan.observation_age_ms;
     const float response_scale = std::max(
         0.0f, feedback.aim_response_px_per_stick_second);
-    const pipeline_contract::Vec2f residual_error_rate = observed_frames_ >= 2
+    const pipeline_contract::Vec2f residual_error_rate = (observed_frames_ >= 2 || cue_continuation_candidate)
         ? capture_error_rate_
         : pipeline_contract::Vec2f{
             screen_velocity.x -
@@ -841,11 +854,14 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
             std::clamp(length(screen_velocity) / 120.0f, 0.0f, 1.0f));
     const bool inside_capture_set =
         error_length <= completion_radius &&
+        (!cue_continuation_candidate || length(plan.predicted_terminal_error_px) <= completion_radius) &&
         std::fabs(predicted_radial_error) <= completion_radius &&
         plan.radial_closing_velocity_px_per_sec <=
             config_.handoff_max_closing_velocity_px_per_sec;
-    if (candidate != nullptr && !cue_continuation_candidate) {
-        if (inside_capture_set) {
+    const bool same_capture_domain = latest_.cue_continuation == cue_continuation_candidate;
+    if (candidate != nullptr && accepted_fresh_capture) {
+        if (!same_capture_domain) settled_frames_ = 0;
+        if (inside_capture_set && same_capture_domain) {
             ++settled_frames_;
         } else {
             settled_frames_ = 0;
@@ -864,7 +880,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         previous_error_length <= cross_corridor_radius &&
         current_error_length <= cross_corridor_radius;
     const bool center_cross = previous_target_same && candidate != nullptr &&
-        !cue_continuation_candidate &&
+        same_capture_domain &&
         accepted_fresh_capture && previous_error_length >= 6.0f &&
         current_error_length >= 2.0f && cross_geometry_continuous &&
         radial_error_dot < -std::max(
@@ -891,7 +907,7 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     // the continuation range, while small/far targets retain the conservative
     // base radius.
     const float observed_body_size =
-        lifecycle == pipeline_contract::TargetLifecycle::Observed
+        (lifecycle == pipeline_contract::TargetLifecycle::Observed || cue_continuation_active_)
         ? normalized_size
         : 0.0f;
     const float bodylock_continuation_radius = target_scaled_radius(

@@ -26,7 +26,7 @@ struct Result {
 // pixel displacement and semantic box-point noise. It does not replay Apex.
 Result run(unsigned seed, int axis, int duration, int vision_ms, float noise,
            float speed, float manual, controller_native::AimResponseCurveAlgorithm curve,
-           bool learning=false, int anchor_discontinuity=0) {
+           bool learning=false, int anchor_discontinuity=0, bool cue_reference=false) {
     using namespace controller_native;
     auto config=incident_fixture::base_config(100,180);
     config.ai_aim.aim_response_learning_enabled=learning;
@@ -59,6 +59,14 @@ Result run(unsigned seed, int axis, int duration, int vision_ms, float noise,
             candidate.has_motion_anchor=true;
             candidate.motion_anchor_score=.9f;
             candidate.motion_anchor_px={target.center_x+x,target.center_y+y};
+            if(cue_reference) {
+                snapshot.motion_cue_id=1;
+                snapshot.motion_cue_px={target.center_x+x,target.center_y+y-70};
+                // Weapon/box texture is intentionally inconsistent; the same
+                // current marker still measures the known physical motion.
+                candidate.motion_anchor_px.x+=offset;
+                candidate.motion_anchor_px.y-=offset;
+            }
             if (tick>=150 && frame%7==0) {
                 if (anchor_discontinuity==1) {
                     candidate.motion_anchor_score=.35f;
@@ -175,6 +183,23 @@ void learning_and_correspondence_validation(const native_test::TestContext& cont
 }
 }
 void register_bodylock_motion_anchor_incident_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseBodyLock","cue_rigid_motion_short_long_validation",[](const native_test::TestContext& context) {
+        std::ofstream out(context.artifact_path("cue_rigid_motion.csv"));
+        out<<"seed,case,duration_ms,axis,speed,cadence,motion_error,world_error,identity,finite\n";
+        for(unsigned seed:{23102301u,98102713u})for(int i=0;i<32;++i)for(int duration:{2000,20000}) {
+            std::mt19937 rng(seed+i*31);
+            const float speed=float(int(rng()%201)-100);
+            const int cadence=std::array<int,3>{5,8,16}[rng()%3];
+            const auto r=run(seed+i,i%2,duration,cadence,4.f,speed,
+                std::array<float,3>{0,.03f,-.03f}[rng()%3],
+                i%3?controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut:
+                    controller_native::AimResponseCurveAlgorithm::Linear,true,0,true);
+            out<<seed<<','<<i<<','<<duration<<','<<i%2<<','<<speed<<','<<cadence<<','
+               <<r.maximum_motion_error<<','<<r.maximum_world_error<<','<<r.identity<<','<<r.finite<<'\n';
+            if(!r.identity || !r.finite || r.motion_ticks<duration-450 || r.maximum_motion_error>.002f)
+                throw std::runtime_error("current rigid cue must preserve real target velocity despite noisy anatomy/texture");
+        }
+    });
     registry.add_context_case("BaseBodyLock","bodylock_semantic_point_false_motion",incident);
     registry.add_context_case("BaseBodyLock","motion_anchor_learning_and_domains",learning_and_correspondence_validation);
 }

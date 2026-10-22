@@ -136,6 +136,9 @@ struct DetectionBatch {
 };
 
 struct VisionResult {
+    // Current selector-owned marker correspondence, independent of anatomy.
+    std::uint64_t motion_cue_id = 0;
+    float motion_cue_x = 0, motion_cue_y = 0;
     InferenceTrace inference_trace{};
     pipeline_contract::SelectionDiagnostics selection_diagnostics{};
     bool selector_identity_protocol = false;
