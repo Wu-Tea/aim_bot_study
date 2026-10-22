@@ -286,6 +286,7 @@ private:
     pipeline_contract::Vec2f last_aim_response_source_error_px_{};
     pipeline_contract::Vec2f last_aim_response_motion_anchor_error_px_{};
     bool has_last_aim_response_motion_anchor_ = false;
+    std::uint64_t last_aim_response_motion_cue_id_ = 0;
     bool has_last_aim_response_observation_ = false;
     // Motion and response identification have different measurement durations.
     // One learner's anchor must not decimate the other's fresh observations.
@@ -297,6 +298,7 @@ private:
         bool has_motion_anchor = false;
         bool valid = false;
         bool cue_continuation = false;
+        std::uint64_t cue_id = 0;
     } motion_observation_anchor_{};
     PhysicalGamepadState sampled_physical_{};
     pipeline_contract::IntentState sampled_intent_{};

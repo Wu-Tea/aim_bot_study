@@ -10,6 +10,8 @@
 namespace controller_native {
 
 struct ControllerVisionSnapshot {
+    std::uint64_t motion_cue_id = 0;
+    pipeline_contract::Vec2f motion_cue_px{};
     bool frame_updated = false;
     bool selector_identity_protocol = false;
     NativeControllerVisionState state;

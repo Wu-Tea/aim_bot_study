@@ -67,11 +67,43 @@ const std::vector<CueObservation>& CueDetector::detect(const unsigned char* pixe
         const float score=.4f*aspect+.3f*(coverage/8.f)+.3f*(1-std::min(1.f,centering*5));
         observations_.push_back({cx+origin_x,cy+origin_y,float(std::max(w,h)),score,color});
     }
+    // A hit marker is a screen-centred composition of four tips. Individual
+    // tips can satisfy the compact cue test; reject the composition without
+    // masking legitimate circles or skulls close to the reticle.
+    std::vector<bool> hit_marker(observations_.size(), false);
+    const float center_x=origin_x+width*.5f, center_y=origin_y+height*.5f;
+    for (std::size_t i=0;i<observations_.size();++i) {
+        const auto& a=observations_[i];
+        const float dx=a.x-center_x,dy=a.y-center_y;
+        if (dx>=-4 || dy>=-4 || dx<-32 || dy<-32 || std::abs(dx-dy)>4) continue;
+        std::size_t partners[3]={observations_.size(),observations_.size(),observations_.size()};
+        for (std::size_t j=0;j<observations_.size();++j) {
+            const auto& b=observations_[j];
+            if (b.color!=a.color || b.size/a.size<.6f || b.size/a.size>1.67f) continue;
+            const float expected_x[3]={center_x-dx,center_x+dx,center_x-dx};
+            const float expected_y[3]={center_y+dy,center_y-dy,center_y-dy};
+            for(int k=0;k<3;++k)
+                if(std::hypot(b.x-expected_x[k],b.y-expected_y[k])<=4.f) partners[k]=j;
+        }
+        if (partners[0]<observations_.size() && partners[1]<observations_.size() && partners[2]<observations_.size()) {
+            hit_marker[i]=true;
+            for(auto j:partners) hit_marker[j]=true;
+        }
+    }
+    std::size_t kept=0;
+    for(std::size_t i=0;i<observations_.size();++i)
+        if(!hit_marker[i]) observations_[kept++]=observations_[i];
+    observations_.resize(kept);
     return observations_;
 }
 
 void CueIdentity::reset() { active_.reset(); last_ns_=0; velocity_x_=velocity_y_=0; fresh_=false; }
 void CueIdentity::seed(const CueObservation& cue, std::uint64_t timestamp) {
+    // A confirming body must not erase the correspondence established by
+    // update(), nor reset its velocity every frame. A new pairing is a new id.
+    if (fresh_ && active_ && last_ns_==timestamp &&
+        cue.x==active_->x && cue.y==active_->y && cue.color==active_->color) return;
+    ++identity_;
     active_=cue; last_ns_=timestamp; velocity_x_=velocity_y_=0; fresh_=true;
 }
 void CueIdentity::update(const std::vector<CueObservation>& cues, std::uint64_t timestamp) {

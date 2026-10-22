@@ -364,6 +364,7 @@ void NativeGamepadController::clear_learning() noexcept {
     last_aim_response_source_error_px_ = {};
     last_aim_response_motion_anchor_error_px_ = {};
     has_last_aim_response_motion_anchor_ = false;
+    last_aim_response_motion_cue_id_ = 0;
     has_last_aim_response_observation_ = false;
     motion_observation_anchor_ = {};
     bodylock_target_motion_observer_.reset();
@@ -422,6 +423,8 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
     batch.selector_target_generation = snapshot.selector_target_generation;
     batch.selector_target_changed = snapshot.selector_target_changed;
     batch.selector_enemy_cue_current = snapshot.enemy_cue_current;
+    batch.motion_cue_id = snapshot.motion_cue_id;
+    batch.motion_cue_px = snapshot.motion_cue_px;
     batch.selector_enemy_identity_confirmed = snapshot.enemy_identity_confirmed;
     batch.selector_cue_continuation =
         snapshot.selector_identity_protocol &&
@@ -944,6 +947,22 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             break;
         }
     }
+    // Anatomy and motion have separate owners. A current same-identity marker
+    // is a correspondence even while a person supplies the anatomical point.
+    // Generic color annotations are not sufficient: only the selector's
+    // independently tracked and paired marker may enter this measurement.
+    const std::uint64_t motion_cue_id =
+        !config_.ai_aim.adapter_direct_mouse_manual &&
+        (plan.direct_person_observation || plan.current_cue_observation) &&
+        observations.selector_identity_protocol &&
+        observations.selector_target_generation == plan.selector_target_generation &&
+        pipeline_contract::finite(observations.motion_cue_px)
+            ? observations.motion_cue_id : 0;
+    if (motion_cue_id) {
+        has_motion_anchor = true;
+        motion_anchor_error_px = {observations.motion_cue_px.x-screen_center.x,
+                                  observations.motion_cue_px.y-screen_center.y};
+    }
     if (new_observed_frame) {
         bool advance_response_anchor = true;
         const bool same_response_target =
@@ -987,7 +1006,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                     &average_stick,
                     &average_tracking_stick,
                     &manual_ambiguous);
-            if (command_window_available) {
+            if (command_window_available && motion_cue_id==last_aim_response_motion_cue_id_) {
                 // Corresponding person pixels measure camera/target motion;
                 // a semantic box-derived aim point can shift as box geometry
                 // changes even when those pixels do not. Keep D and geometry
@@ -1053,24 +1072,26 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             last_aim_response_source_error_px_ = source_error_px;
             last_aim_response_motion_anchor_error_px_ = motion_anchor_error_px;
             has_last_aim_response_motion_anchor_ = has_motion_anchor;
+            last_aim_response_motion_cue_id_ = motion_cue_id;
             has_last_aim_response_observation_ = plan.target_id != 0 &&
                 std::isfinite(capture_seconds) &&
                 pipeline_contract::finite(source_error_px);
         }
     }
-    // Motion consumes either current person pixels or current marker pixels.
-    // Response calibration above remains direct-person-only. Never difference
-    // across person/marker transitions: their anatomical offsets may differ.
+    // A persistent marker spans person/hold changes without changing motion
+    // coordinates. Other references still require their own capture pair.
+    // Response calibration above requires a direct person, even with a cue.
     if (plan.direct_person_observation || plan.current_cue_observation) {
         // Use a motion-owned capture pair. Response identification deliberately
         // accumulates longer evidence, but it must not halve motion updates at
         // 220 Hz merely because 1/220 s is shorter than its 5 ms window.
         auto& motion_anchor = motion_observation_anchor_;
-        if (motion_anchor.target_id != plan.target_id)
+        if (motion_anchor.target_id != plan.target_id || motion_anchor.cue_id != motion_cue_id)
             bodylock_target_motion_observer_.begin_target(plan.target_id);
         const bool same_motion_target = motion_anchor.valid &&
             plan.target_id != 0 && motion_anchor.target_id == plan.target_id &&
-            motion_anchor.cue_continuation == plan.cue_continuation;
+            motion_anchor.cue_id == motion_cue_id &&
+            (motion_cue_id || motion_anchor.cue_continuation == plan.cue_continuation);
         const double motion_interval = capture_seconds-motion_anchor.capture_seconds;
         const bool advance_motion_anchor = !same_motion_target ||
             !std::isfinite(motion_interval) || motion_interval <= 0.0 ||
@@ -1130,14 +1151,15 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                 bodylock_target_motion_observer_.update({
                     plan.target_id, capture_seconds, static_cast<float>(motion_interval),
                     measured_rate,
-                    tracking, plan.response_scale, plan.reliability, plan.direct_person_observation, plan.current_cue_observation});
+                    tracking, plan.response_scale, plan.reliability, plan.direct_person_observation,
+                    motion_cue_id!=0 || plan.current_cue_observation});
             }
         }
         if (advance_motion_anchor) {
             motion_anchor = {plan.target_id, capture_seconds, source_error_px,
                 motion_anchor_error_px, has_motion_anchor,
                 plan.target_id != 0 &&
-                std::isfinite(capture_seconds) && pipeline_contract::finite(source_error_px), plan.cue_continuation};
+                std::isfinite(capture_seconds) && pipeline_contract::finite(source_error_px), plan.cue_continuation, motion_cue_id};
         }
     }
     if (plan.target_id == 0 ||
@@ -1194,7 +1216,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         bool cue_motion_eligible = target_motion.valid &&
             target_motion.current_cue_observation &&
             motion_observation_anchor_.valid &&
-            motion_observation_anchor_.cue_continuation;
+            (motion_observation_anchor_.cue_id!=0 || motion_observation_anchor_.cue_continuation);
         if (plan.lifecycle ==
                 pipeline_contract::TargetLifecycle::CueContinuation &&
             !cue_motion_eligible) {
