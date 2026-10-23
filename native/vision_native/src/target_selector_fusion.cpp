@@ -5,11 +5,16 @@
 
 namespace vision_native {
 namespace {
-float association_cost(const CueObservation& cue, const Detection& person) {
+std::optional<CueSearchRegion> association_region(const Detection& person) {
     const float w=person.x2-person.x1,h=person.y2-person.y1;
-    if (person.class_id!=0 || person.is_friendly || w<8 || h<12 ||
-        cue.x<person.x1-.2f*w || cue.x>person.x2+.2f*w ||
-        cue.y<person.y1-std::max(36.f,.6f*h) || cue.y>person.y1+.4f*h) return 1e9f;
+    if(person.class_id!=0 || person.is_friendly || w<8 || h<12)return std::nullopt;
+    return CueSearchRegion{person.x1-.2f*w,person.y1-std::max(36.f,.6f*h),
+        person.x2+.2f*w,person.y1+.4f*h};
+}
+float association_cost(const CueObservation& cue, const Detection& person) {
+    const auto region=association_region(person);
+    if(!region || !region->contains(cue.x,cue.y))return 1e9f;
+    const float w=person.x2-person.x1,h=person.y2-person.y1;
     return .55f*std::abs(cue.x-(person.x1+person.x2)*.5f)/std::max(16.f,.65f*w) +
         .35f*std::abs(cue.y-(person.y1-.08f*h))/std::max(24.f,.45f*h);
 }
@@ -48,8 +53,16 @@ VisionResult VisionTargetSelector::select_cue_identity(const DetectionBatch& bat
         frame->width==static_cast<int>(frame_width_) && frame->height==static_cast<int>(frame_height_) &&
         frame->row_pitch>=frame->width*(frame->format==PixelFormat::BGRA8 ? 4 : 3);
     static const std::vector<CueObservation> none;
+    cue_search_regions_.clear();
+    if(complete_frame) {
+        // Share the actual consumer bounds: no confidence shortcut may exclude
+        // a person that association_cost would otherwise accept this frame.
+        for(const auto& person:batch.detections)
+            if(const auto region=association_region(person))cue_search_regions_.push_back(*region);
+        if(const auto region=cue_identity_.search_region())cue_search_regions_.push_back(*region);
+    }
     const auto& cues=complete_frame ? cue_detector_.detect(frame->data,frame->width,frame->height,
-        frame->row_pitch,frame->format,frame->origin_x,frame->origin_y) : none;
+        frame->row_pitch,frame->format,frame->origin_x,frame->origin_y,&cue_search_regions_) : none;
     cue_identity_.update(cues,batch.captured_at_ns);
     if (!cue_identity_.active()) cue_body_reference_.reset();
 
