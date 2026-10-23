@@ -25,7 +25,7 @@ foreach ($seed in 20261016,730201,982451,416103) {
 
 需要将产品使用的 SDL2.dll 放在测试 exe 旁。`run_env.py` 统一 Windows 环境变量大小写，避免宿主同时提供 Path/PATH 导致 MSBuild 失败；不更改系统环境。
 
-`prepare_suites.py <ProductRoot>` 把 DEV 已跟踪的测试源与产品源组合到 `runs/.../suites`，生成 Base 与压枪/开火测试构建。2026-10-18 同步修复到 DEV 后，原生夹具直接分别检查身份硬时限与 32 ms 预测时限，不再在生成副本中替换断言。50 ms 测试配置的身份过期在原 capture 年龄 51 ms 检查。复制 SDL2 后运行：
+`prepare_suites.py <ProductRoot> [输出目录]` 把 DEV 已跟踪的测试源与产品源组合到指定目录（默认 `runs/.../suites`），生成 Base 与压枪/开火测试构建。发布复验建议使用独立输出目录保留旧产物。2026-10-18 同步修复到 DEV 后，原生夹具直接分别检查身份硬时限与 32 ms 预测时限，不再在生成副本中替换断言。50 ms 测试配置的身份过期在原 capture 年龄 51 ms 检查。复制 SDL2 后运行：
 
 ```powershell
 python tests/clean_incident_20261016/prepare_suites.py D:/work/AI/yolo-study-001-clean

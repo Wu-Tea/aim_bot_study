@@ -5,7 +5,7 @@ import sys
 
 dev = pathlib.Path(__file__).resolve().parents[2]
 product = pathlib.Path(sys.argv[1]).resolve()
-dest = dev / 'runs/clean-incident-fix-20261016/suites'
+dest = dev / (sys.argv[2] if len(sys.argv)>2 else 'runs/clean-incident-fix-20261016/suites')
 source = dest / 'source'
 for root in (dev, product):
     paths = subprocess.check_output(['git', '-C', str(root), 'ls-files', 'native'], text=True).splitlines()

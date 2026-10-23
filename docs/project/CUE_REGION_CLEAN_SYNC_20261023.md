@@ -1,6 +1,6 @@
 # 2026-10-23 cue区域跳搜发布
 
-用户授权“先push然后同步到clean”，并明确以后项目改动先考虑性能、主动报告成本及可选方案。性能规则已加入AGENTS.md。
+用户授权“先push然后同步到clean”，并明确以后项目改动先考虑性能、主动报告成本及可选方案。dev实现1efe8f7先推送；clean生产同步5b7a693随后快进合回codex/runtime-clean并推送。性能规则已加入两边AGENTS.md。dev交接收尾另行提交，最终HEAD以Git为准。
 
 ## 发布范围
 
@@ -19,7 +19,11 @@
 
 ## clean同步状态
 
-dev实现完成验证后先提交并push；clean同步、产品构建与桌面验证结果将在完成后补充到本文。当前阶段不宣称clean已发布。
+- 从clean9aad8f8建立codex/cue-region-sync-20261023，验证后提交5b7a693并快进合回、push。仅四个生产文件及AGENTS.md/当前handoff，共六个文件；180个共有native文件与dev相同，四个CMake文件保留既有产品/测试构建职责差异。
+- clean原生Release及React资源构建成功；dev夹具链接clean库，Base477/477、开火14/14通过，包含两个独立种子128个2/20秒运动场景（1,408,000tick）。首次套件并行构建未完成，单进程重跑构建和全部测试成功，无产品代码绕过。
+- clean区域接口4800构造图20,350必需cue保留、无新增碎片；三段录像39,435帧完整selector输出与同一冻结全图参考、离线候选及已验证dev实现一致。clean复验部分与构建/功能测试并行，clean计时不作为新增性能比较结论；性能数据使用前述dev同帧对照。
+- 桌面81项、隔离WebView2通过；独立配置/隐藏窗口/关闭输出和震动的真实模型初始化、IPC、热更新Applied、正常停止通过。没有停止用户原有会话。
+- 产物同在runs/cue-region-sync-20261023/：clean-build.txt、clean-web-build.txt、clean-base.txt、clean-fire.txt、clean-geometry.txt、clean-gui.txt、clean-live-gui/result.json和clean-videos/。最终提交后重配置并构建原生runtime，刷新内嵌提交号；模型、个人配置、曲线及历史实验保持。
 
 ## 限制
 
