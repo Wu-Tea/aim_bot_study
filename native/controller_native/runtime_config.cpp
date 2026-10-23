@@ -1,3 +1,4 @@
+#include "pipeline_contract/marker_palette.h"
 #include "runtime_config.h"
 #include "bodylock_feedback_geometry.h"
 #include "ads_acquisition_controller.h"
@@ -141,6 +142,10 @@ void apply_runtime_vision_value(
         config.keepwarm_when_idle = parse_bool_value(value);
     } else if (key == "friendly_filter_enabled") {
         config.friendly_filter_enabled = parse_bool_value(value);
+    } else if (key == "enemy_marker_color") {
+        config.enemy_marker_color = parse_string_value(value);
+    } else if (key == "friendly_marker_color") {
+        config.friendly_marker_color = parse_string_value(value);
     } else if (key == "target_height_ratio") {
         config.target_height_ratio = parse_float_value(value);
     } else if (key == "target_wide_low_height_ratio") {
@@ -172,7 +177,7 @@ void apply_runtime_vision_value(
 bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> runtime_keys{"profile"};
     static const std::unordered_set<std::string> vision_keys{
-        "friendly_filter_enabled", "target_height_ratio", "target_wide_low_height_ratio",
+        "friendly_filter_enabled", "enemy_marker_color", "friendly_marker_color", "target_height_ratio", "target_wide_low_height_ratio",
         "crop_width", "capture_width", "crop_height", "capture_height",
         "tensor_width", "tensor_height", "require_isotropic_resize", "capture_fps",
         "dynamic_viewport_enabled", "viewport_precision_width",
@@ -959,6 +964,11 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("runtime.vision.idle_capture_fps", "1..240");
     if (config.vision.aim_release_hold_ms < 0 || config.vision.aim_release_hold_ms > 5000)
         invalid("runtime.vision.aim_release_hold_ms", "0..5000");
+    try {
+        (void)pipeline_contract::MarkerPalette::from_hex(config.vision.enemy_marker_color, config.vision.friendly_marker_color);
+    } catch (const std::invalid_argument& error) {
+        invalid("runtime.vision.*_marker_color", error.what());
+    }
     if (!std::isfinite(config.vision.target_height_ratio) ||
         config.vision.target_height_ratio < 0.01f || config.vision.target_height_ratio > 0.99f)
         invalid("runtime.vision.target_height_ratio", "0.01..0.99");

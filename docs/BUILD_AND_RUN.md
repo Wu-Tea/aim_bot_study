@@ -41,3 +41,11 @@ native/build/Release/cod_native_runtime.exe --config config.native.example.toml 
 性能采集是保留的 GUI 功能，默认关闭；它调用 `tools/long_capture/`，使用本机 `nvidia-smi` 和脚本指定的 PresentMon，记录写到本地 `output/`。已有实验结果不随分支迁移。Fusion 开关使用 `scripts/launch/gamepad_fusion_background_start.ps1`，其捕获排除检查失败时不会强行显示。
 
 行为验证从 DEV 取夹具，并链接当前 clean 构建的生产库；验证数据留在 DEV 或临时目录。实际 GUI 启停与热更新检查应使用临时配置、关闭输出，并验证 `applied` 回执。游戏中的识别效果、手感和设备实际交付仍需实机确认。
+
+## 敌我标识配色
+
+桌面“目标与识别”提供敌人/友军标识颜色HEX输入，默认敌人 `#FF00FF`、友军 `#00FFFF`，须与游戏设置一致。接受六位HEX（可带#），更改后重启助手生效；格式错误、过暗、无彩色或敌我色相范围重叠会在启动前报错。
+
+Profile字段为 `[runtime.vision]` 下的 `enemy_marker_color`、`friendly_marker_color`。旧Profile缺少字段时使用上述新默认值，不会自动重写个人配置。识别允许色相、亮度与压缩变化，不要求像素精确等于HEX。独立cue、人物颜色分类和续跟共用规则，配色在加载时编译，不增加整图扫描或降低检测频率。
+
+同组“自动标记敌人”映射 `gamepad.enemy_mark.enabled`；修改后同样需重启。关闭后不再合成自动标记按键，游戏已有标记与手动标记仍可能干扰识别。颜色切换能减少部分背景干扰，但不能保证所有地图无误判；近身人体框几何突变仍是独立限制。

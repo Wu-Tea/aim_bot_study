@@ -21,6 +21,8 @@ struct VisionRuntimeConfig {
     int tensor_height = 384;
     bool require_isotropic_resize = true;
     bool friendly_filter_enabled = true;
+    std::string enemy_marker_color = "#FF00FF";
+    std::string friendly_marker_color = "#00FFFF";
     float target_height_ratio = 0.40f;
     float target_wide_low_height_ratio = 0.65f;
     bool dynamic_viewport_enabled = false;

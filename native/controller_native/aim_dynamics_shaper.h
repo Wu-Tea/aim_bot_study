@@ -30,6 +30,16 @@ public:
         float dt_seconds) noexcept;
 
     pipeline_contract::Vec2f current() const noexcept;
+    // Arbitration may hand authority back faster than the already-shaped AI
+    // changes. Bound only that additional AI share, leaving raw manual motion
+    // and immediate authority revocation outside the temporal envelope.
+    pipeline_contract::Vec2f shape_ownership(
+        pipeline_contract::Vec2f authorized_output,
+        pipeline_contract::Vec2f manual,
+        pipeline_contract::Vec2f shaped_ai,
+        float dt_seconds,
+        bool active,
+        bool target_changed) noexcept;
     pipeline_contract::Vec2f stopping_work(
         pipeline_contract::Vec2f sustaining,
         const AimResponseCurveConfig& curve) const noexcept;
@@ -43,6 +53,8 @@ private:
     pipeline_contract::ControlMode previous_mode_ =
         pipeline_contract::ControlMode::Manual;
     bool context_initialized_ = false;
+    pipeline_contract::Vec2f ai_share_{};
+    bool ownership_initialized_ = false;
 };
 
 }  // namespace controller_native

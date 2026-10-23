@@ -10,31 +10,9 @@ constexpr int kMaximumCueExtent=18;
 constexpr float kCueMatchDistance=42;
 constexpr float kHitMarkerRadius=32;
 constexpr float kHitMarkerTolerance=4;
-int enemy_color(const unsigned char* p, PixelFormat format) {
-    // Classify the interiors of the existing HSV ranges with integer tests.
-    // Only hue boundary equalities need the original floating calculation:
-    // its rounding is observable (notably at the upper yellow boundary).
-    const int ri=p[format == PixelFormat::BGRA8 ? 2 : 0], gi=p[1];
-    const int bi=p[format == PixelFormat::BGRA8 ? 0 : 2];
-    if (ri>=gi) {
-        const int delta=ri-std::min(gi,bi), gb=gi-bi;
-        if (ri<80 || bi>ri || delta==0 || 255*delta<120*ri) return 0;
-        if (3*std::abs(gb)>delta && (ri<120 || 3*gb<2*delta)) return 0;
-        if (3*std::abs(gb)<delta) return 2;
-        if (ri>=120 && 3*gb>2*delta) return 1;
-    } else {
-        if (gi<120 || bi>=ri || 6*(ri-bi)<5*(gi-bi) || 255*(gi-bi)<120*gi) return 0;
-        if (6*(ri-bi)>5*(gi-bi)) return 1;
-    }
-    const float r = p[format == PixelFormat::BGRA8 ? 2 : 0], g = p[1];
-    const float b = p[format == PixelFormat::BGRA8 ? 0 : 2];
-    const float hi = std::max({r,g,b}), lo = std::min({r,g,b}), delta = hi-lo;
-    if (delta == 0 || hi == 0 || 255*delta/hi < 120) return 0;
-    float hue = 30*(hi == r ? (g-b)/delta : hi == g ? 2+(b-r)/delta : 4+(r-g)/delta);
-    if (hue < 0) hue += 180;
-    if (hue >= 20 && hue <= 35 && hi >= 120) return 1;
-    if ((hue <= 10 || hue >= 170) && hi >= 80) return 2;
-    return 0;
+int enemy_color(const unsigned char* p, PixelFormat format, const pipeline_contract::MarkerColorBand& color) {
+    return color.matches(p[format == PixelFormat::BGRA8 ? 2 : 0], p[1],
+        p[format == PixelFormat::BGRA8 ? 0 : 2]) ? 1 : 0;
 }
 }
 
@@ -52,7 +30,7 @@ const std::vector<CueObservation>& CueDetector::detect(const unsigned char* pixe
     const auto color_at = [&](int x,int y) {
         auto& value=mask_[y*width+x];
         if (value==unknown) value=static_cast<unsigned char>(enemy_color(
-            pixels+std::size_t(y)*pitch+std::size_t(x)*channels,format));
+            pixels+std::size_t(y)*pitch+std::size_t(x)*channels,format,enemy_color_));
         return value;
     };
     // An accepted 8-connected component is at least four rows high. It must
@@ -123,7 +101,7 @@ const std::vector<CueObservation>& CueDetector::detect(const unsigned char* pixe
             }
         }
         const int w=r-l+1,h=b-t+1;
-        // Compact colored markers include circle and COD nemesis skull. These
+        // Compact markers include circles, small diamonds and COD nemesis skulls. These
         // are proposals, not semantic proof; bars and large pings are excluded.
         if (w<kMinimumCueExtent || h<kMinimumCueExtent || w>kMaximumCueExtent || h>kMaximumCueExtent || n<8 || l==0 || t==0 || r==width-1 || b==height-1) continue;
         const float aspect=float(std::min(w,h))/std::max(w,h),fill=float(n)/(w*h);

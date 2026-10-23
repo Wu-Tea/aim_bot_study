@@ -1,5 +1,6 @@
 #pragma once
 #include "vision_native/types.h"
+#include "pipeline_contract/marker_palette.h"
 #include <optional>
 #include <utility>
 #include <vector>
@@ -21,6 +22,7 @@ struct CueSearchRegion {
 // Independent of body detections. Buffers are reused by the Vision worker.
 class CueDetector {
 public:
+    void set_enemy_color(const pipeline_contract::MarkerColorBand& color) { enemy_color_ = color; }
     const std::vector<CueObservation>& detect(const unsigned char* pixels,
         int width, int height, int pitch, PixelFormat format, int origin_x, int origin_y,
         const std::vector<CueSearchRegion>* regions=nullptr);
@@ -28,6 +30,7 @@ public:
     // cues this frame. Restricted search preserves full connected components
     // and the complete hit-marker composition around the real frame centre.
 private:
+    pipeline_contract::MarkerColorBand enemy_color_{};
     struct ColorRun { int left, right, y; };
     std::vector<unsigned char> mask_;
     std::vector<int> component_;
