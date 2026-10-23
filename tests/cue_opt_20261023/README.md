@@ -22,3 +22,18 @@ python tests/cue_opt_20261023/summarize.py runs/cue-opt-20261023/videos
 - 旧下拉诊断脚本使用0.20阈值，本工具按生产0.40；目标帧数不宜跨工具直接比较，本轮前后使用同一输入和阈值。
 
 生产回归另由`ctest --test-dir native/build -C Release --output-on-failure`执行；专项用例`BaseVisionSelection.sparse_cue_seed_rows_preserve_small_markers`验证小标记的种子行相位及相邻大型同色背景。
+
+## 对照已保存的第一版优化
+
+第二轮按同色行段展开、整数直接分类的实验，以本地提交`f4b9cbe`为对照。原实验产物保留，使用单独目录：
+
+```powershell
+python tests/cue_opt_20261023/prepare.py f4b9cbe runs/cue-greedy-20261023/reference
+cmake -S tests/cue_opt_20261023 -B runs/cue-greedy-20261023/build -DBASE=D:/work/AI/yolo-study-001/runs/cue-greedy-20261023/reference
+cmake --build runs/cue-greedy-20261023/build --config Release -- /m:3 /nr:false
+runs/cue-greedy-20261023/build/Release/equivalence.exe
+node tests/cue_opt_20261023/videos.mjs runs/cue-greedy-20261023/videos runs/cue-greedy-20261023/build/Release/replay.exe
+python tests/cue_opt_20261023/summarize.py runs/cue-greedy-20261023/videos
+```
+
+脚本参数为`videos.mjs <输出目录> [replay程序] [片段名]`，片段名可选`downpull`/`dev`/`clean`。`equivalence`新增二维隔点负对照：中心(41,10)的合法5像素cue不与“每4行、每2列”的种子网格相交，故这种无条件扩大跳扫的方案被排除。

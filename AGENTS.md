@@ -1,5 +1,18 @@
 # Workspace AimLab rules
 
+## Performance before changes
+
+User-confirmed on 2026-10-23; apply to all project changes:
+
+- Consider frame rate, latency, per-frame work, allocations and synchronization
+  before choosing an implementation, especially on capture/Vision/control paths.
+- Proactively explain likely added costs and performance tradeoffs to the user;
+  do not wait for the user to notice a regression. Present measurements and
+  alternatives when available so the user can contribute algorithmic ideas.
+- Validate relevant stage timings and behavior on representative existing inputs.
+  Do not equate an offline stage speedup with live-game FPS or acceptance, and
+  do not silently reduce detection frequency, acquisition or tracking quality.
+
 ## Default controller optimization boundaries
 
 User-confirmed on 2026-09-26; apply to controller fixes and optimization:

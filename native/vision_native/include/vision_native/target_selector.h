@@ -110,6 +110,7 @@ private:
         const pipeline_contract::UserAimIntent* intent);
     bool cue_identity_enabled_ = false;
     CueDetector cue_detector_;
+    std::vector<CueSearchRegion> cue_search_regions_;
     CueIdentity cue_identity_;
     std::uint64_t last_cue_frame_ns_ = 0;
     struct CueBodyReference {

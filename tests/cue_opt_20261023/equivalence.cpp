@@ -22,6 +22,18 @@ int main(){try{
  }
  std::cout<<"all 16777216 RGB colors in both formats identical\n";
  CueDetector actual;ReferenceCueDetector reference;
+ {
+  std::vector<unsigned char> image(64*48*4,0);
+  for(int dy=-2;dy<=2;++dy)for(int dx=-2;dx<=2;++dx)if(dx*dx+dy*dy>=1 && dx*dx+dy*dy<=4) {
+   auto* p=&image[((10+dy)*64+41+dx)*4];p[2]=255;p[1]=220;
+  }
+  const auto& cue=actual.detect(image.data(),64,48,256,PixelFormat::BGRA8,0,0);
+  if(cue.size()!=1 || cue[0].size!=5)throw std::runtime_error("small odd-column cue lost");
+  bool hit=false;
+  for(int y=0;y<48;y+=4)for(int x=0;x<64;x+=2)hit|=enemy_color(&image[(y*64+x)*4],PixelFormat::BGRA8)!=0;
+  if(hit)throw std::runtime_error("invalid negative-control fixture");
+  std::cout<<"negative control: 4-row/2-column seed lattice misses a valid 5-pixel cue; excluded\n";
+ }
  unsigned cases=0,accepted=0;
  for(unsigned seed:{23102311u,98102731u}) {
   std::mt19937 rng(seed);

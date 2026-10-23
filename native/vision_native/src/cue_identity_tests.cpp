@@ -15,17 +15,17 @@ void sparse_cue_seed_rows_preserve_small_markers() {
     CueDetector detector;
     // Move a five-pixel marker through every phase of the four-row seed grid,
     // then place it beside a rejected large same-color component.
-    for (int cy=8;cy<20;++cy) for (bool clutter:{false,true}) {
+    for (int cx:{40,41}) for (int cy=8;cy<20;++cy) for (bool clutter:{false,true}) {
         std::vector<unsigned char> pixels(64*48*4,0);
         const auto paint=[&](int x,int y) {
             auto* p=&pixels[(y*64+x)*4];p[2]=255;p[1]=220;
         };
         if (clutter) for(int y=1;y<47;++y)for(int x=1;x<23;++x)paint(x,y);
         for(int dy=-2;dy<=2;++dy)for(int dx=-2;dx<=2;++dx)
-            if(dx*dx+dy*dy>=1 && dx*dx+dy*dy<=4)paint(40+dx,cy+dy);
+            if(dx*dx+dy*dy>=1 && dx*dx+dy*dy<=4)paint(cx+dx,cy+dy);
         const auto& cues=detector.detect(pixels.data(),64,48,64*4,PixelFormat::BGRA8,0,0);
         require(cues.size()==1,"sparse seed rows must preserve every small-marker phase without fragmenting large clutter");
-        require(cues[0].x==40 && cues[0].y==cy && cues[0].size==5,
+        require(cues[0].x==cx && cues[0].y==cy && cues[0].size==5,
             "seed search must reconstruct the complete marker at original resolution");
     }
 }
@@ -266,6 +266,32 @@ void cue_controller_integration() {
 }
 }
 void register_cue_identity_tests(native_test::Registry& registry) {
+    registry.add_case("BaseVisionSelection","cue_regions_preserve_boundaries_and_empty_frame",[] {
+        Scene f;CueDetector detector;f.cue(80,401);f.cue(560,100);
+        std::vector<CueSearchRegion> regions{{80,401,80,401}};
+        const auto& found=detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0,&regions);
+        require(found.size()==1 && found[0].x==80 && found[0].y==401,"tiny lower-frame search region must preserve full marker shape and seed phases");
+        regions.clear();
+        require(detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0,&regions).empty(),"empty regions must clear previous observations");
+        require(detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0).size()==2,"full-frame detector remains available after restricted/empty calls");
+    });
+    registry.add_case("BaseVisionSelection","cue_regions_preserve_hit_marker_composition",[] {
+        Scene f;CueDetector detector;
+        for(int x:{308,332})for(int y:{244,268})f.cue(x,y);
+        f.cue(80,401);
+        const std::vector<CueSearchRegion> regions{{308,244,308,244},{80,401,80,401}};
+        const auto& cues=detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0,&regions);
+        require(cues.size()==1 && cues[0].x==80,"region around a single hit-marker tip must retain all four partners for rejection");
+    });
+    registry.add_case("BaseVisionSelection","cue_regions_follow_active_target_into_lower_frame",[] {
+        auto s=selector();Scene f;f.cue(320,220);f.person(320,220);auto r=f.run(s);
+        require(r.has_target && r.motion_cue_id,"seed cue/body reference");
+        const auto generation=r.selector_target_generation;
+        for(int y=225;y<=420;y+=5){f.clear();f.cue(320,y);r=f.run(s);
+            require(r.has_target && r.enemy_cue_current && r.selector_target_generation==generation,
+                "active cue must remain searched without a person, including the lower capture area");
+        }
+    });
     registry.add_case("BaseVisionSelection","sparse_cue_seed_rows_preserve_small_markers",sparse_cue_seed_rows_preserve_small_markers);
     registry.add_case("BaseVisionSelection","motion_cue_identity_survives_person_dropout",[] {
         auto s=selector();Scene f;f.cue(320,180);f.person(320,180);
