@@ -442,3 +442,11 @@ and machine-local runtime assets out of project context.
 - 两处已知绿色树叶干扰帧120/864，只改真实菱形像素、保留背景：洋红可关联person并续跟，青色正确友军拒绝。全片对照仍有978帧青色范围背景触发友军规则，不能声称换色消除所有背景误判。人体框突变/自动标记形状限制仍未改。
 - 全RGB16777216色与独立浮点参考吻合；自定义颜色/红色跨零点/重启边界/旧身份失效回归通过。Release全构建、CTest51/51、Base483/483（Vision71）、桌面82/82通过。当前Profile只读dump确认默认#FF00FF/#00FFFF，未改用户配置。正常dev EXE已更新，未主动开启输出，未提交push，clean未改。报告docs/project/MARKER_PALETTE_DEV_20261024.md，工具tests/palette_20261023/，产物runs/palette-20261023/。
 - SyncSet014沿用上下文维护授权，reviewer=accept_draft；用户已确认颜色及实施范围，测试结论/局限单独记录，无外部记忆/正式decision/brief/秘密。旧长历史建议独立归档。
+
+## 2026-10-24 — 配色与腰射接管版本发布到 clean
+
+- 用户授权先push再同步clean；dev实现84fc8b8已先推送，clean从5b7a693建立临时分支。同步15个生产文件及clean自己的规则/使用说明/交接，保留构建裁剪；包含新配色模块、HEX配置、自动标记开关及此前保留的两处腰射/ADS修复，Off被动减速未恢复。
+- clean Release/React构建成功；DEV夹具链接clean生产库Base483/483、开火14/14，桌面82/82、隔离WebView2和真实关闭输出的模型初始化/IPC热更新/停止通过。首次7个SDL测试因临时目录缺DLL失败，补齐依赖后完整通过，未改生产代码。
+- 两录像3983帧合成换色对照全部行为字段与dev一致；15文件逐字节一致、180原有共有native文件一致、4处构建职责差异保留。测试/研究留dev，无个人配置/模型/曲线/素材覆盖，没有停止用户会话。
+- 报告docs/project/PALETTE_CLEAN_SYNC_20261024.md，产物runs/palette-clean-sync-20261024/。最终提交/远端状态以Git为准；阶段耗时/合成换色不代表实机验收，已知青色背景友军误判和人体框几何跳变保留。
+- SyncSet015沿用维护及发布授权，reviewer=accept_draft；dev/clean旧交接原文归档dev .agent-context/archive/*palette*20261024.md，交接页精简为当前状态。无新decision/brief/外部记忆/秘密；长会话历史另行压缩。
