@@ -20,9 +20,10 @@ def schema():
     for path, label, kind, default, limits in FIELDS:
         meta = field_presentation(path)
         if path.startswith('runtime.vision.'):
-            group = '目标与识别' if path.endswith(('friendly_filter_enabled', 'target_height_ratio', 'target_wide_low_height_ratio')) else '捕获与模型'
+            group = '目标与识别' if path.endswith(('friendly_filter_enabled', 'enemy_marker_color', 'friendly_marker_color', 'target_height_ratio', 'target_wide_low_height_ratio')) else '捕获与模型'
         elif path.startswith('runtime.input.'): group = '输入设备'
         elif path.startswith('runtime.'): group = '诊断记录'
+        elif path.startswith('gamepad.enemy_mark.'): group = '目标与识别'
         elif path.startswith('gamepad.output_transfer.'): group = '手动输出补偿'
         elif path.startswith(('gamepad.recoil.', 'gamepad.auto_fire.')): group = '开火与压枪'
         elif path.startswith('gamepad.bodylock.'): group = '持续跟随'

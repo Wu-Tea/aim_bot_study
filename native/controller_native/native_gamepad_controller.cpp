@@ -1336,10 +1336,15 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         bodylock_diagnostics = bodylock_controller_.compute_detailed(plan);
         requested = bodylock_diagnostics.stick;
     }
-    shaped = dynamics_shaper_.shape(requested, plan, dt);
+    auto shaping_request = requested;
+    if (canonical_gamepad && !last_tick_preparation_.scope.physical_ads_ready) {
+        shaping_request.x = clamp_unit(shaping_request.x * hipfire_ratio);
+        shaping_request.y = clamp_unit(shaping_request.y * hipfire_ratio);
+    }
+    shaped = dynamics_shaper_.shape(shaping_request, plan, dt);
     // Scale only AI, before arbitration. Physical input and recoil stay owned
     // independently; the physical ADS-ready signal selects full ADS strength.
-    if (!last_tick_preparation_.scope.physical_ads_ready && hipfire_ratio != 1.0f) {
+    if (!canonical_gamepad && !last_tick_preparation_.scope.physical_ads_ready && hipfire_ratio != 1.0f) {
         shaped.x = clamp_unit(shaped.x * hipfire_ratio);
         shaped.y = clamp_unit(shaped.y * hipfire_ratio);
     }
@@ -1452,7 +1457,16 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     const bool carry_allowed = plan.mode == pipeline_contract::ControlMode::BodyLockFollow && plan.ads_acquisition_exists;
     control_input.carried_acquisition_x = carry_allowed && intent.axis_purpose(false) == pipeline_contract::UserAimIntentPurpose::AcquireTarget;
     control_input.carried_acquisition_y = carry_allowed && intent.axis_purpose(true) == pipeline_contract::UserAimIntentPurpose::AcquireTarget;
-    const auto decision = assist_control_state_machine_.update(control_input);
+    auto decision = assist_control_state_machine_.update(control_input);
+    if (canonical_gamepad) {
+        decision.stick = dynamics_shaper_.shape_ownership(
+            decision.stick, control_input.manual_stick, shaped, dt,
+            target_authoritative && !plan.observation_gap &&
+                !decision.handover_requested && !plan.manual_exit_requested,
+            decision.target_changed);
+        decision.manual_passthrough_x = std::fabs(decision.stick.x-physical.right_x) <= 1.e-6f;
+        decision.manual_passthrough_y = std::fabs(decision.stick.y-physical.right_y) <= 1.e-6f;
+    }
     components.mouse_manual_retention = {decision.mouse_x.retention, decision.mouse_y.retention};
     components.mouse_manual_conflict_x = mouse_manual_conflict_name(decision.mouse_x.conflict);
     components.mouse_manual_conflict_y = mouse_manual_conflict_name(decision.mouse_y.conflict);

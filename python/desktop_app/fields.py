@@ -5,7 +5,10 @@ from .parameter_catalog import PARAMETERS, CATALOG_FIELDS, configured_value, val
 # path, label, type, fallback, allowed values/range
 GAME_FIELDS = [
     ('runtime.vision.model_path', '识别模型', str, '', None),
+    ('runtime.vision.enemy_marker_color', '敌人标识颜色', str, '#FF00FF', None),
+    ('runtime.vision.friendly_marker_color', '友军标识颜色', str, '#00FFFF', None),
     ('runtime.vision.friendly_filter_enabled', '判断友方目标', bool, True, None),
+    ('gamepad.enemy_mark.enabled', '自动标记敌人', bool, True, None),
     ('runtime.vision.target_height_ratio', '目标点高度比例', float, .35, (.01, .99)),
     ('runtime.vision.target_wide_low_height_ratio', '宽矮目标瞄点比例', float, .65, (.01, .99)),
     ('gamepad.aim_response_curve.algorithm', '工具响应曲线', str, 'linear', ('linear', 'cod_dynamic_legacy_lut', 'custom_lut')),
@@ -57,6 +60,9 @@ CHOICE_LABELS = {
 # Display semantics shared by labels, entries, units and validation. Native
 # storage keeps normalized fractions; users never enter ambiguous 0..1 values.
 DISPLAY_FIELDS = {
+    'runtime.vision.enemy_marker_color': {'hot_reload':False, 'help':'填写与游戏一致的 HEX，例如 #FF00FF。修改后需重启助手。'},
+    'runtime.vision.friendly_marker_color': {'hot_reload':False, 'help':'填写与游戏一致的 HEX，例如 #00FFFF。敌我颜色需明显区分；修改后需重启助手。'},
+    'gamepad.enemy_mark.enabled': {'hot_reload':False, 'help':'开启后，按左摇杆或开镜时会在确认目标后自动标记敌人。关闭后不再自动发送标记按键；手动标记仍可使用。修改后需重启助手，游戏里已有的标记不会立即消失。'},
     'gamepad.detection_haptics.enabled': {'hot_reload':True, 'help':'通过 USB 连接 DSE 手柄。与瞄准共用锁敌规则和准入门槛；选中目标时按左、中、右震动一次。同一目标不重复，策略切换或重新确认新目标时再次提醒。不开镜也可提醒，仅覆盖捕获区域。'},
     'runtime.vision.target_height_ratio': {'label':'瞄点距顶部','display_scale':100,'unit':'%'},
     'runtime.vision.target_wide_low_height_ratio': {'label':'宽矮目标瞄点距顶部','display_scale':100,'unit':'%'},
@@ -84,6 +90,11 @@ def field_value(field, raw):
         raise ValueError(f'“{label}”应在 {limits[0]*scale:g}～{limits[1]*scale:g}{unit} 之间。')
     if kind is str and limits and value not in limits:
         raise ValueError(f'“{label}”的选项无效。')
+    if field[0].endswith('_marker_color'):
+        import re
+        if not re.fullmatch(r'#?[0-9a-fA-F]{6}', value):
+            raise ValueError(f'“{label}”应为六位 HEX，例如 #FF00FF。')
+        value = '#' + value.lstrip('#').upper()
     if field[0].endswith('_initial_scale') and value != 0 and value < 80:
         raise ValueError(f'“{label}”应为 0（继承）或 80～4000。')
     if field[0].endswith('custom_points') and value:

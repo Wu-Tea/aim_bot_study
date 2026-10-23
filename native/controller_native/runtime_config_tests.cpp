@@ -62,6 +62,20 @@ void test_config_rejects_malformed_lines() {
 }
 
 void test_vision_selection_config() {
+    {
+        TempConfig defaults("cod_palette_defaults.toml", "[runtime.vision]\n");
+        const auto before=controller_native::load_runtime_config(defaults.path());
+        require(before.vision.enemy_marker_color=="#FF00FF" && before.vision.friendly_marker_color=="#00FFFF", "missing fields use new palette");
+        TempConfig custom("cod_palette_custom.toml", "[runtime.vision]\nenemy_marker_color=\"FF0000\"\nfriendly_marker_color=\"#00ff00\"\n");
+        const auto after=controller_native::load_runtime_config(custom.path());
+        require(after.diagnostics.empty() && after.vision.enemy_marker_color=="FF0000", "HEX settings must parse without unknown keys");
+        require(!runtime_app::hot_reload_restrictions(before,after).empty(), "palette changes must require restart");
+        for(const auto* value:{"bad","#GG00FF","#FFFFFF","#000000","#00FFFF","#00E0FF"}) {
+            TempConfig invalid("cod_palette_invalid.toml",std::string("[runtime.vision]\nenemy_marker_color=\"")+value+"\"\n");
+            bool threw=false;try{(void)controller_native::load_runtime_config(invalid.path());}catch(const std::runtime_error&){threw=true;}
+            require(threw,"invalid/dark/achromatic/overlapping palette must fail before startup");
+        }
+    }
     TempConfig file("cod_native_vision_selection.toml",
         "[runtime.vision]\nfriendly_filter_enabled = false\ntarget_height_ratio = 0.35\ntarget_wide_low_height_ratio = 0.6\n");
     const auto config = controller_native::load_runtime_config(file.path());

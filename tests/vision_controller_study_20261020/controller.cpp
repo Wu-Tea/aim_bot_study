@@ -16,6 +16,9 @@ void shift(vision_native::VisionResult& r,float x,float y) {
  r.target_x+=x;r.target_y+=y;r.dx=r.target_x-320;r.dy=r.target_y-256;
  r.body_x1+=x;r.body_x2+=x;r.body_y1+=y;r.body_y2+=y;
  r.aim_region_x1+=x;r.aim_region_x2+=x;r.aim_region_y1+=y;r.aim_region_y2+=y;
+ #ifdef STUDY_MOTION_CUE
+ r.motion_cue_x+=x;r.motion_cue_y+=y;
+ #endif
  for(auto& d:r.detections){d.x1+=x;d.x2+=x;d.y1+=y;d.y2+=y;d.cue_x+=x;d.cue_y+=y;d.motion_anchor_x+=x;d.motion_anchor_y+=y;}
 }
 struct Stats {long ticks=0,target=0,cue=0,ads=0,body=0,exits=0,handoffs=0,violations=0,sign_flips=0;double sum=0,deltas=0,peak=0,motion_peak=0;std::vector<float> errors;};

@@ -582,6 +582,7 @@ int main(int argc, char** argv) {
             config.vision.friendly_filter_enabled,
             config.vision.target_height_ratio,
             config.vision.target_wide_low_height_ratio);
+    vision_engine->set_marker_palette(pipeline_contract::MarkerPalette::from_hex(config.vision.enemy_marker_color, config.vision.friendly_marker_color));
         runtime_app::VisionServiceOptions vision_options{};
         vision_options.capture_fps =
             static_cast<double>(config.vision.capture_fps);

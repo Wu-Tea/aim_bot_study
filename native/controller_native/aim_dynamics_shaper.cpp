@@ -141,6 +141,57 @@ pipeline_contract::Vec2f AimDynamicsShaper::current() const noexcept {
     return current_;
 }
 
+pipeline_contract::Vec2f AimDynamicsShaper::shape_ownership(
+    pipeline_contract::Vec2f authorized_output,
+    pipeline_contract::Vec2f manual,
+    pipeline_contract::Vec2f shaped_ai,
+    float dt_seconds,
+    bool active,
+    bool target_changed) noexcept {
+    if (!active) {
+        ownership_initialized_ = false;
+        ai_share_ = {};
+        return authorized_output;
+    }
+    const pipeline_contract::Vec2f span{shaped_ai.x-manual.x, shaped_ai.y-manual.y};
+    const auto share = [](float output, float native, float distance, float previous) {
+        return std::fabs(distance) > 1.e-6f
+            ? std::clamp((output-native)/distance, 0.f, 1.f) : previous;
+    };
+    // Equal commands carry no ownership evidence. Preserve the share through
+    // a zero crossing instead of inventing a manual takeover and re-ramping
+    // ordinary diagonal tracking on the next tick.
+    const pipeline_contract::Vec2f desired{
+        share(authorized_output.x,manual.x,span.x,ownership_initialized_ && !target_changed ? ai_share_.x : 1.f),
+        share(authorized_output.y,manual.y,span.y,ownership_initialized_ && !target_changed ? ai_share_.y : 1.f)};
+    if (!ownership_initialized_ || target_changed) {
+        // Acquisition already has its ordinary AI ramp. Do not add a second
+        // acquisition delay or inherit the previous target's authority share.
+        ai_share_ = desired;
+        ownership_initialized_ = true;
+        return authorized_output;
+    }
+    // Manual reclaim / revoked AI authority is immediate on each axis.
+    ai_share_.x = std::min(ai_share_.x,desired.x);
+    ai_share_.y = std::min(ai_share_.y,desired.y);
+    if (ai_share_.x == desired.x && ai_share_.y == desired.y)
+        return authorized_output;
+    const pipeline_contract::Vec2f work{
+        (desired.x-ai_share_.x)*span.x,
+        (desired.y-ai_share_.y)*span.y};
+    const float budget = std::min(config_.max_step_per_tick,
+        config_.rise_slew_per_second*std::clamp(dt_seconds,.0001f,.05f));
+    const float length = std::hypot(work.x,work.y);
+    const float fraction = length > budget ? budget/length : 1.f;
+    ai_share_.x += (desired.x-ai_share_.x)*fraction;
+    ai_share_.y += (desired.y-ai_share_.y)*fraction;
+    // Return exact arbitration endpoints; interpolation never grants work
+    // beyond the current authorized segment or filters physical passthrough.
+    return {
+        ai_share_.x >= desired.x ? authorized_output.x : manual.x+span.x*ai_share_.x,
+        ai_share_.y >= desired.y ? authorized_output.y : manual.y+span.y*ai_share_.y};
+}
+
 pipeline_contract::Vec2f AimDynamicsShaper::stopping_work(
     pipeline_contract::Vec2f sustaining,const AimResponseCurveConfig& curve) const noexcept {
     // Integrate the existing decay envelope in camera-response coordinates.
@@ -169,6 +220,8 @@ void AimDynamicsShaper::reset() noexcept {
     previous_target_id_ = 0;
     previous_mode_ = pipeline_contract::ControlMode::Manual;
     context_initialized_ = false;
+    ownership_initialized_ = false;
+    ai_share_ = {};
 }
 
 }  // namespace controller_native

@@ -34,6 +34,11 @@ User-confirmed on 2026-09-26; apply to controller fixes and optimization:
 
 ## Controller intent and motion ownership
 
+User withdrew the passive Off-state enemy slowdown experiment on 2026-10-23.
+Restore normal manual passthrough while assistance is Off. Do not reintroduce
+the experiment without a new request; any renewed exploration must address
+high-speed camera turns and their interaction boundaries, not only slow crossing.
+
 User-confirmed on 2026-10-14; keep this architectural boundary stable:
 
 - Interpret manual onset, reversal, release, correction purpose and authority

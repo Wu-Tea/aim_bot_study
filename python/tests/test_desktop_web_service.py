@@ -117,6 +117,26 @@ class WebServiceTests(unittest.TestCase):
         bad = deepcopy(reopened); bad['values'][enabled] = 'false'
         self.assertFalse(self.service.dispatch('save', bad)['ok'])
 
+    def test_marker_palette_schema_persistence_and_native_validation(self):
+        fields = {f['path']: f for f in self.call('bootstrap')['fields']}
+        enemy = 'runtime.vision.enemy_marker_color'
+        friendly = 'runtime.vision.friendly_marker_color'
+        for path in (enemy, friendly):
+            self.assertEqual(fields[path]['group'], '目标与识别')
+            self.assertFalse(fields[path]['hot_reload'])
+        p = self.call('reload', {'id': self.profile['id']})
+        self.assertEqual(p['values'][enemy], '#FF00FF')
+        self.assertEqual(p['values'][friendly], '#00FFFF')
+        p['values'].update({enemy: 'ff0000', friendly: '#00ff00'})
+        saved = self.call('save', p)['profile']
+        reopened = self.call('reload', {'id': saved['id']})
+        self.assertEqual(reopened['values'][enemy], '#FF0000')
+        self.assertEqual(reopened['values'][friendly], '#00FF00')
+        for value in ('invalid', '#FFFFFF', '#000000', '#00FF00', '#10FF00'):
+            bad = deepcopy(reopened); bad['values'][enemy] = value
+            self.assertFalse(self.service.dispatch('save', bad)['ok'])
+        self.assertEqual(self.call('reload', {'id': saved['id']})['values'][enemy], '#FF0000')
+
     def test_recoil_one_to_fifty_percent_matches_schema_and_persistence(self):
         field=next(f for f in self.call('bootstrap')['fields'] if f['path']=='gamepad.recoil.output_amount')
         self.assertEqual(tuple(field['limits']),(.01,.5))

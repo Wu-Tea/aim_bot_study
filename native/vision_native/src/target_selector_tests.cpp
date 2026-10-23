@@ -178,7 +178,7 @@ ColorFrameFixture color_frame_for_region(
             if (enemy_colored && ((x + (y * 2)) % 5 == 0)) {
                 frame.pixels[offset + 0] = 255;
                 frame.pixels[offset + 1] = 0;
-                frame.pixels[offset + 2] = 0;
+                frame.pixels[offset + 2] = 255;
             } else {
                 frame.pixels[offset + 0] = 12;
                 frame.pixels[offset + 1] = 12;
@@ -253,7 +253,7 @@ void paint_sparse_bgra(
     }
 }
 
-void paint_solid_yellow_bgra(
+void paint_solid_magenta_bgra(
     ColorFrameFixture& frame,
     int center_x,
     int center_y,
@@ -267,8 +267,8 @@ void paint_solid_yellow_bgra(
             const auto offset = static_cast<std::size_t>(
                 (y - frame.view.origin_y) * frame.view.row_pitch +
                 (x - frame.view.origin_x) * 4);
-            frame.pixels[offset + 0] = 0;
-            frame.pixels[offset + 1] = 255;
+            frame.pixels[offset + 0] = 255;
+            frame.pixels[offset + 1] = 0;
             frame.pixels[offset + 2] = 255;
             frame.pixels[offset + 3] = 255;
         }
@@ -701,7 +701,7 @@ void test_partial_color_frame_origin_classifies_candidate_cue() {
         "partial color frame origin should let selector detect enemy cue pixels");
 }
 
-void test_bgra_green_friendly_is_hard_rejected() {
+void test_bgra_cyan_friendly_is_hard_rejected() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto friendly = detection_for_target(320.0f, 256.0f, 0.92f);
     vision_native::DetectionBatch batch;
@@ -709,17 +709,25 @@ void test_bgra_green_friendly_is_hard_rejected() {
     batch.frame_height = 512;
     batch.detections.push_back(friendly);
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(friendly), 0, 255, 0);
+    paint_sparse_bgra(frame, color_region_for(friendly), 0, 255, 255);
 
     const auto first = selector.select_with_frame(batch, frame.view);
     const auto second = selector.select_with_frame(batch, frame.view);
 
     require_true(!first.has_target && !second.has_target,
-                 "green friendly must never enter target selection");
+                 "cyan friendly must never enter target selection");
     require_true(second.detections.front().color_classified,
                  "production BGRA path must classify friendly color");
     require_true(second.detections.front().is_friendly,
-                 "green marker must set the friendly hard-filter flag");
+                 "cyan marker must set the friendly hard-filter flag");
+    auto foliage=full_bgra_frame();
+    paint_sparse_bgra(foliage,color_region_for(friendly),0,255,0);
+    selector.reset();
+    const auto green=selector.select_with_frame(batch,foliage.view);
+    require_true(!green.detections.front().is_friendly,"green foliage no longer counts as a friendly marker");
+    selector.set_marker_palette(pipeline_contract::MarkerPalette::from_hex("FF0000","00FF00"));
+    const auto configured=selector.select_with_frame(batch,foliage.view);
+    require_true(configured.detections.front().is_friendly,"custom palette must reach person classification");
 }
 
 void test_friendly_switch_and_configured_target_point() {
@@ -728,7 +736,7 @@ void test_friendly_switch_and_configured_target_point() {
     batch.frame_width = 640; batch.frame_height = 512;
     batch.detections = {person};
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(person), 0, 255, 0);
+    paint_sparse_bgra(frame, color_region_for(person), 0, 255, 255);
     vision_native::VisionTargetSelector selector(640, 512, 150.0f, false, 0.35f);
     selector.select_with_frame(batch, frame.view);
     const auto selected = selector.select_with_frame(batch, frame.view);
@@ -787,7 +795,7 @@ void test_bright_pixels_and_nonperson_classes_do_not_acquire() {
     }
 }
 
-void test_bgra_green_friendly_cannot_beat_yellow_enemy() {
+void test_bgra_cyan_friendly_cannot_beat_magenta_enemy() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto friendly = detection_for_target(270.0f, 256.0f, 0.95f);
     const auto enemy = detection_for_target(390.0f, 256.0f, 0.44f);
@@ -796,22 +804,22 @@ void test_bgra_green_friendly_cannot_beat_yellow_enemy() {
     batch.frame_height = 512;
     batch.detections = {friendly, enemy};
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(friendly), 0, 255, 0);
-    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+    paint_sparse_bgra(frame, color_region_for(friendly), 0, 255, 255);
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 0, 255);
 
     selector.select_with_frame(batch, frame.view);
     const auto result = selector.select_with_frame(batch, frame.view);
 
-    require_true(result.has_target, "yellow enemy must remain selectable");
+    require_true(result.has_target, "magenta enemy must remain selectable");
     require_true(result.has_selected_detection && result.selected_detection_index == 1,
-                 "green friendly must be removed before yellow enemy ranking");
+                 "cyan friendly must be removed before magenta enemy ranking");
     require_true(result.detections[0].is_friendly,
                  "mixed frame must preserve the friendly classification");
     require_true(result.detections[1].color_bonus > 0.0f,
-                 "yellow marker must contribute enemy cue score");
+                 "magenta marker must contribute enemy cue score");
 }
 
-void test_bgra_yellow_cue_assists_low_confidence_person_pickup() {
+void test_bgra_magenta_cue_assists_low_confidence_person_pickup() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto enemy = detection_for_target(320.0f, 256.0f, 0.44f);
     vision_native::DetectionBatch batch;
@@ -819,32 +827,32 @@ void test_bgra_yellow_cue_assists_low_confidence_person_pickup() {
     batch.frame_height = 512;
     batch.detections.push_back(enemy);
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 0, 255);
 
     const auto first = selector.select_with_frame(batch, frame.view);
     const auto result = selector.select_with_frame(batch, frame.view);
 
     require_true(!first.has_target, "cue-assisted pickup must retain switch confirmation");
-    require_true(result.has_target, "yellow cue must assist a low-confidence person pickup");
+    require_true(result.has_target, "magenta cue must assist a low-confidence person pickup");
     require_true(result.detections.front().has_cue_point,
-                 "yellow cue must expose its associated cue point");
+                 "magenta cue must expose its associated cue point");
 }
 
-void test_yellow_pixels_without_person_never_create_authority() {
+void test_magenta_pixels_without_person_never_create_authority() {
     vision_native::VisionTargetSelector selector(640, 512);
     vision_native::DetectionBatch empty;
     empty.frame_width = 640;
     empty.frame_height = 512;
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, {280, 100, 360, 136}, 255, 255, 0);
+    paint_sparse_bgra(frame, {280, 100, 360, 136}, 255, 0, 255);
 
     const auto result = selector.select_with_frame(empty, frame.view);
 
     require_true(!result.has_target && !result.aim_authority && !result.fire_authority,
-                 "yellow UI pixels without a person detection must remain non-authoritative");
+                 "magenta UI pixels without a person detection must remain non-authoritative");
 }
 
-void test_yellow_cue_hold_is_aim_only() {
+void test_magenta_cue_hold_is_aim_only() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto enemy = detection_for_target(320.0f, 256.0f, 0.82f);
     vision_native::DetectionBatch batch;
@@ -852,10 +860,10 @@ void test_yellow_cue_hold_is_aim_only() {
     batch.frame_height = 512;
     batch.detections.push_back(enemy);
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 0, 255);
     selector.select_with_frame(batch, frame.view);
     const auto locked = selector.select_with_frame(batch, frame.view);
-    require_true(locked.has_target, "fixture must acquire the yellow-associated person");
+    require_true(locked.has_target, "fixture must acquire the magenta-associated person");
 
     vision_native::DetectionBatch empty;
     empty.frame_width = 640;
@@ -863,9 +871,9 @@ void test_yellow_cue_hold_is_aim_only() {
     const auto held = selector.select_with_frame(empty, frame.view);
 
     require_true(held.has_target && held.aim_authority,
-                 "short yellow cue gap should retain bounded aim continuity");
+                 "short magenta cue gap should retain bounded aim continuity");
     require_true(!held.fire_authority && !held.auto_fire,
-                 "yellow cue hold must never grant fire authority");
+                 "magenta cue hold must never grant fire authority");
 }
 
 void test_single_marked_enemy_pickup_does_not_wait_for_a_second_frame() {
@@ -876,7 +884,7 @@ void test_single_marked_enemy_pickup_does_not_wait_for_a_second_frame() {
     batch.frame_height = 512;
     batch.detections.push_back(enemy);
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 0, 255);
 
     const auto first = selector.select_with_frame(batch, frame.view);
 
@@ -911,7 +919,7 @@ void test_multiple_marked_enemies_still_require_confirmation() {
                  "stable multiple-target ranking should still commit after confirmation");
 }
 
-void test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold() {
+void test_magenta_cue_continuation_tracks_visible_marker_for_bounded_ads_hold() {
     constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
     constexpr std::uint64_t kLockTimeNs = 1'000'000'000ull;
     vision_native::VisionTargetSelector selector(640, 512);
@@ -921,7 +929,7 @@ void test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold() {
     observed.frame_height = 512;
     observed.detections.push_back(enemy);
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(enemy), 255, 255, 0);
+    paint_sparse_bgra(frame, color_region_for(enemy), 255, 0, 255);
 
     observed.captured_at_ns = kLockTimeNs - (5ull * kMillisecondNs);
     selector.select_with_frame(observed, frame.view);
@@ -958,7 +966,7 @@ void test_cue_identity_matches_image_instead_of_nearest_color() {
     const auto diamond = [](ColorFrameFixture& frame, int cx, int cy) {
         for (int y = -3; y <= 3; ++y) for (int x = -3; x <= 3; ++x)
             if (std::abs(x) + std::abs(y) <= 3)
-                paint_solid_yellow_bgra(frame, cx + x, cy + y, 0);
+                paint_solid_magenta_bgra(frame, cx + x, cy + y, 0);
     };
     auto initial = full_bgra_frame();
     diamond(initial, 320, 190);
@@ -968,7 +976,7 @@ void test_cue_identity_matches_image_instead_of_nearest_color() {
     diamond(moved, 344, 194);
     // Same-color blood/health/UI-like strip is closer than the actual marker.
     for (int x = 280; x <= 335; ++x)
-        paint_solid_yellow_bgra(moved, x, 180, 1);
+        paint_solid_magenta_bgra(moved, x, 180, 1);
     auto missing = observed;
     missing.detections.clear();
     missing.captured_at_ns += 10'000'000ull;
@@ -982,7 +990,7 @@ void test_cue_identity_matches_image_instead_of_nearest_color() {
                  "image association must preserve aim-only authority and identity");
     auto absent = full_bgra_frame();
     for (int x = 270; x <= 410; ++x)
-        paint_solid_yellow_bgra(absent, x, 180, 1);
+        paint_solid_magenta_bgra(absent, x, 180, 1);
     missing.captured_at_ns += 10'000'000ull;
     require_true(!selector.select_with_frame(missing, absent.view).has_target,
                  "a different same-color shape must not extend missing-person authority");
@@ -994,7 +1002,7 @@ void test_cue_identity_matches_image_instead_of_nearest_color() {
     }
     missing.captured_at_ns += 10'000'000ull;
     require_true(!selector.select_with_frame(missing, inverted.view).has_target,
-                 "red background around an empty hole must not match a yellow marker");
+                 "red background around an empty hole must not match a magenta marker");
     selector.reset();
     require_true(!selector.select_with_frame(missing, moved.view).has_target,
                  "old marker appearance must not acquire a person after reset");
@@ -1008,6 +1016,7 @@ void test_cue_appearance_randomized_current_frame_tracking() {
             int cx = 320, cy = 190;
             const int radius = scenario % 3 == 0 ? 4 : 3;
             const bool red = scenario % 2 == 0;
+            if (red) selector.set_marker_palette(pipeline_contract::MarkerPalette::from_hex("FF0000","00FFFF"));
             const int length = scenario % 4 < 2 ? 20 : 200;
             std::uint64_t generation = 0;
             for (int tick = 0; tick < length; ++tick) {
@@ -1018,7 +1027,8 @@ void test_cue_appearance_randomized_current_frame_tracking() {
                 auto frame = full_bgra_frame();
                 const auto paint = [&](int x, int y, bool is_red) {
                     const auto index = static_cast<std::size_t>((y * 640 + x) * 4);
-                    frame.pixels[index + 1] = is_red ? 0 : 255;
+                    frame.pixels[index + 0] = is_red ? 0 : 255;
+                    frame.pixels[index + 1] = 0;
                     frame.pixels[index + 2] = 255;
                 };
                 for (int y = -radius; y <= radius; ++y) for (int x = -radius; x <= radius; ++x)
@@ -1065,7 +1075,7 @@ void test_cue_readback_includes_active_search_with_unrelated_detection() {
             observed.captured_at_ns = 2'000'000'000ull;
             observed.detections[0] = marked_detection_for_target(320, 256, 320, 190, .82f);
             auto initial = full_bgra_frame();
-            paint_solid_yellow_bgra(initial, 320, 190, 1);
+            paint_solid_magenta_bgra(initial, 320, 190, 1);
             const auto acquired = full.select_with_frame(observed, initial.view);
             require_true(acquired.has_target && cropped.select_with_frame(observed, initial.view).has_target,
                          "readback fixture must acquire the same person");
@@ -1075,10 +1085,10 @@ void test_cue_readback_includes_active_search_with_unrelated_detection() {
                 x = std::clamp(x + step(random), 240, 390);
                 y = std::clamp(y + step(random), 130, 230);
                 auto frame = full_bgra_frame();
-                paint_solid_yellow_bgra(frame, x, y, 1);
+                paint_solid_magenta_bgra(frame, x, y, 1);
                 auto missing = single_target_batch(530.f, 370.f, .82f);
                 missing.captured_at_ns = observed.captured_at_ns + tick * 5'000'000ull;
-                paint_sparse_bgra(frame, color_region_for(missing.detections[0]), 0, 255, 0);
+                paint_sparse_bgra(frame, color_region_for(missing.detections[0]), 0, 255, 255);
                 const auto expected = full.select_with_frame(missing, frame.view);
                 require_true(expected.has_target, "full-frame reference must follow the visible cue");
                 const auto roi = cropped.required_color_region(missing);
@@ -1105,7 +1115,7 @@ void test_cue_readback_includes_active_search_with_unrelated_detection() {
     }
 }
 
-void test_yellow_cue_continuation_uses_current_marker_after_fast_motion() {
+void test_magenta_cue_continuation_uses_current_marker_after_fast_motion() {
     constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
     constexpr std::uint64_t kLockTimeNs = 2'000'000'000ull;
     vision_native::VisionTargetSelector selector(640, 512);
@@ -1121,12 +1131,12 @@ void test_yellow_cue_continuation_uses_current_marker_after_fast_motion() {
     observed.captured_at_ns = kLockTimeNs;
     observed.detections.push_back(enemy);
     auto initial = full_bgra_frame();
-    paint_solid_yellow_bgra(initial, 320, 190, 1);
+    paint_solid_magenta_bgra(initial, 320, 190, 1);
     const auto locked = selector.select_with_frame(observed, initial.view);
     require_true(locked.has_target, "fixture must acquire a marked person");
 
     auto moved_frame = full_bgra_frame();
-    paint_solid_yellow_bgra(moved_frame, 350, 190, 1);
+    paint_solid_magenta_bgra(moved_frame, 350, 190, 1);
     vision_native::DetectionBatch occluded;
     occluded.frame_width = 640;
     occluded.frame_height = 512;
@@ -1147,7 +1157,7 @@ void test_yellow_cue_continuation_uses_current_marker_after_fast_motion() {
                  "horizontal cue motion must preserve R height and vertical placement");
 }
 
-void test_yellow_cue_continuation_selects_nearest_component_not_color_average() {
+void test_magenta_cue_continuation_selects_nearest_component_not_color_average() {
     constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
     constexpr std::uint64_t kLockTimeNs = 2'500'000'000ull;
     vision_native::VisionTargetSelector selector(640, 512);
@@ -1163,13 +1173,13 @@ void test_yellow_cue_continuation_selects_nearest_component_not_color_average() 
     observed.captured_at_ns = kLockTimeNs;
     observed.detections.push_back(enemy);
     auto initial = full_bgra_frame();
-    paint_solid_yellow_bgra(initial, 320, 190, 1);
+    paint_solid_magenta_bgra(initial, 320, 190, 1);
     const auto locked = selector.select_with_frame(observed, initial.view);
     require_true(locked.has_target, "fixture must acquire a marked person");
 
     auto cluttered_frame = full_bgra_frame();
-    paint_solid_yellow_bgra(cluttered_frame, 326, 190, 1);
-    paint_solid_yellow_bgra(cluttered_frame, 334, 190, 2);
+    paint_solid_magenta_bgra(cluttered_frame, 326, 190, 1);
+    paint_solid_magenta_bgra(cluttered_frame, 334, 190, 2);
     vision_native::DetectionBatch occluded;
     occluded.frame_width = 640;
     occluded.frame_height = 512;
@@ -1177,12 +1187,12 @@ void test_yellow_cue_continuation_selects_nearest_component_not_color_average() 
     const auto held = selector.select_with_frame(occluded, cluttered_frame.view);
 
     require_true(held.has_target && held.aim_authority,
-                 "current marker component must survive nearby yellow clutter");
+                 "current marker component must survive nearby magenta clutter");
     require_near(held.target_x, locked.target_x + 6.0f, 1.0f,
-                 "cue tracker must choose the nearest coherent component instead of averaging yellow blobs");
+                 "cue tracker must choose the nearest coherent component instead of averaging magenta blobs");
 }
 
-void test_yellow_cue_continuation_releases_when_marker_evidence_stops() {
+void test_magenta_cue_continuation_releases_when_marker_evidence_stops() {
     constexpr std::uint64_t kMillisecondNs = 1'000'000ull;
     constexpr std::uint64_t kLockTimeNs = 1'500'000'000ull;
     vision_native::VisionTargetSelector selector(640, 512);
@@ -1192,7 +1202,7 @@ void test_yellow_cue_continuation_releases_when_marker_evidence_stops() {
     observed.frame_height = 512;
     observed.detections.push_back(enemy);
     auto marker_frame = full_bgra_frame();
-    paint_sparse_bgra(marker_frame, color_region_for(enemy), 255, 255, 0);
+    paint_sparse_bgra(marker_frame, color_region_for(enemy), 255, 0, 255);
     auto dark_frame = full_bgra_frame();
 
     observed.captured_at_ns = kLockTimeNs - (5ull * kMillisecondNs);
@@ -1810,7 +1820,7 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         occluded.external_cue_y = 210.f;
         occluded.external_cue_score = .95f;
         auto frame = full_bgra_frame();
-        paint_solid_yellow_bgra(frame, 340, 210, 3);
+        paint_solid_magenta_bgra(frame, 340, 210, 3);
         const auto held = selector.select_with_frame(occluded, frame.view);
         metrics.held_after_replacement_y = held.target_y;
         metrics.generation_offset_reset = metrics.generation_changed &&
@@ -1826,7 +1836,7 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         observed.detections[0] = marked_detection_for_target(
             320.0f, 256.0f, 320.0f, 180.0f, 0.92f);
         auto initial = full_bgra_frame();
-        paint_solid_yellow_bgra(initial, 320, 180, 3);
+        paint_solid_magenta_bgra(initial, 320, 180, 3);
         selector.select_with_frame(observed, initial.view);
         const auto locked = selector.select_with_frame(observed, initial.view);
 
@@ -1837,7 +1847,7 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         auto frame = full_bgra_frame();
         // This marker remains inside the bounded search window but would
         // reconstruct a target 40 px away from the observed person point.
-        paint_solid_yellow_bgra(frame, 320, 140, 3);
+        paint_solid_magenta_bgra(frame, 320, 140, 3);
         const auto wrong_hold = selector.select_with_frame(occluded, frame.view);
         metrics.wrong_reconstructed_y = wrong_hold.target_y;
         metrics.reconstructed_residual_rejected = locked.has_target &&
@@ -1882,7 +1892,7 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         empty.frame_height = 512;
         empty.captured_at_ns = 3'000'000'000ull;
         auto frame = full_bgra_frame();
-        paint_solid_yellow_bgra(frame, 320, 180, 3);
+        paint_solid_magenta_bgra(frame, 320, 180, 3);
         const auto cue_only = selector.select_with_frame(empty, frame.view);
         metrics.cue_without_person_rejected =
             !cue_only.has_target && !cue_only.aim_authority &&
@@ -1896,7 +1906,7 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         observed.detections[0] = marked_detection_for_target(
             320.0f, 256.0f, 320.0f, 180.0f, 0.92f);
         auto initial = full_bgra_frame();
-        paint_solid_yellow_bgra(initial, 320, 180, 3);
+        paint_solid_magenta_bgra(initial, 320, 180, 3);
         selector.select_with_frame(observed, initial.view);
         const auto locked = selector.select_with_frame(observed, initial.view);
         vision_native::DetectionBatch empty;
@@ -1904,7 +1914,7 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         empty.frame_height = 512;
         empty.captured_at_ns = 4'005'000'000ull;
         auto frame = full_bgra_frame();
-        paint_solid_yellow_bgra(frame, 320, 180, 3);
+        paint_solid_magenta_bgra(frame, 320, 180, 3);
         const auto held = selector.select_with_frame(empty, frame.view);
         metrics.cue_hold_remained_aim_only = locked.has_target &&
             held.has_target && held.aim_authority &&
@@ -2035,19 +2045,19 @@ void register_target_selector_tests(native_test::Registry& registry) {
     registry.add_case("BaseVisionSelection", "intent_does_not_grant_weak_fire_authority", test_intent_does_not_grant_fire_authority_to_weak_association);
     registry.add_case("BaseVisionSelection", "large_move_requires_fresh_acquisition_intent", test_large_single_target_move_requires_fresh_acquisition_intent);
     registry.add_case("BaseVisionSelection", "partial_color_origin_classifies_cue", test_partial_color_frame_origin_classifies_candidate_cue);
-    registry.add_case("BaseVisionSelection", "green_friendly_is_hard_rejected", test_bgra_green_friendly_is_hard_rejected);
+    registry.add_case("BaseVisionSelection", "cyan_friendly_is_hard_rejected", test_bgra_cyan_friendly_is_hard_rejected);
     registry.add_case("BaseVisionSelection", "friendly_switch_and_target_ratio", test_friendly_switch_and_configured_target_point);
     registry.add_case("BaseVisionSelection", "bright_pixels_and_nonperson_classes_do_not_acquire", test_bright_pixels_and_nonperson_classes_do_not_acquire);
-    registry.add_case("BaseVisionSelection", "friendly_cannot_beat_yellow_enemy", test_bgra_green_friendly_cannot_beat_yellow_enemy);
-    registry.add_case("BaseVisionSelection", "yellow_cue_assists_low_confidence_pickup", test_bgra_yellow_cue_assists_low_confidence_person_pickup);
+    registry.add_case("BaseVisionSelection", "friendly_cannot_beat_magenta_enemy", test_bgra_cyan_friendly_cannot_beat_magenta_enemy);
+    registry.add_case("BaseVisionSelection", "magenta_cue_assists_low_confidence_pickup", test_bgra_magenta_cue_assists_low_confidence_person_pickup);
     registry.add_case("BaseVisionSelection", "single_marked_enemy_has_no_second_frame_delay", test_single_marked_enemy_pickup_does_not_wait_for_a_second_frame);
     registry.add_case("BaseVisionSelection", "multiple_marked_enemies_require_confirmation", test_multiple_marked_enemies_still_require_confirmation);
-    registry.add_case("BaseVisionSelection", "yellow_pixels_without_person_have_no_authority", test_yellow_pixels_without_person_never_create_authority);
-    registry.add_case("BaseVisionSelection", "yellow_cue_hold_is_aim_only", test_yellow_cue_hold_is_aim_only);
-    registry.add_case("BaseVisionSelection", "yellow_cue_tracks_visible_marker", test_yellow_cue_continuation_tracks_visible_marker_for_bounded_ads_hold);
-    registry.add_case("BaseVisionSelection", "yellow_cue_uses_current_fast_marker", test_yellow_cue_continuation_uses_current_marker_after_fast_motion);
-    registry.add_case("BaseVisionSelection", "yellow_cue_selects_nearest_component", test_yellow_cue_continuation_selects_nearest_component_not_color_average);
-    registry.add_case("BaseVisionSelection", "yellow_cue_releases_when_evidence_stops", test_yellow_cue_continuation_releases_when_marker_evidence_stops);
+    registry.add_case("BaseVisionSelection", "magenta_pixels_without_person_have_no_authority", test_magenta_pixels_without_person_never_create_authority);
+    registry.add_case("BaseVisionSelection", "magenta_cue_hold_is_aim_only", test_magenta_cue_hold_is_aim_only);
+    registry.add_case("BaseVisionSelection", "magenta_cue_tracks_visible_marker", test_magenta_cue_continuation_tracks_visible_marker_for_bounded_ads_hold);
+    registry.add_case("BaseVisionSelection", "magenta_cue_uses_current_fast_marker", test_magenta_cue_continuation_uses_current_marker_after_fast_motion);
+    registry.add_case("BaseVisionSelection", "magenta_cue_selects_nearest_component", test_magenta_cue_continuation_selects_nearest_component_not_color_average);
+    registry.add_case("BaseVisionSelection", "magenta_cue_releases_when_evidence_stops", test_magenta_cue_continuation_releases_when_marker_evidence_stops);
     registry.add_case("BaseVisionSelection", "roi_miss_preserves_identity_without_old_coordinates", test_roi_miss_preserves_identity_without_old_coordinate_authority);
     registry.add_case("BaseVisionSelection", "color_region_clamps_edge_candidate", test_required_color_region_clamps_edge_candidate_to_screen);
     registry.add_case("BaseVisionSelection", "external_cue_does_not_request_full_frame", test_external_cue_continuation_does_not_request_full_color_frame);

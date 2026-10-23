@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <random>
 
 namespace {
 
@@ -285,6 +286,48 @@ void test_mouse_moving_target_keeps_speed_at_zero_error() {
 }  // namespace
 
 void register_aim_dynamics_shaper_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "ownership_return_preserves_manual_and_tracking", [] {
+        using V=pipeline_contract::Vec2f;
+        controller_native::AimDynamicsShaper s;
+        const V ai{-.55f,.2f};
+        s.shape_ownership({.4f,.2f},{.4f,0},ai,.001f,true,true);
+        const auto first=s.shape_ownership({-.55f,.2f},{.1f,0},ai,.001f,true,false);
+        require_true(first.x > 0 && std::fabs(first.x-.1f)<=.06401f,
+            "released acquisition must not instantly expose the full opposing AI");
+        require_true(first.y==ai.y,"X handback must not reclassify held Y tracking");
+        for(int i=0;i<20;++i) s.shape_ownership(ai,{0,0},ai,.001f,true,false);
+        const auto tracking=s.shape_ownership({-.58f,.24f},{0,0},{-.58f,.24f},.001f,true,false);
+        require_true(tracking.x==-.58f && tracking.y==.24f,"settled ownership must not filter tracking twice");
+        s.shape_ownership({0,0},{0,0},{0,0},.001f,true,false);
+        const auto crossing=s.shape_ownership({.06f,.06f},{0,0},{.06f,.06f},.001f,true,false);
+        require_true(crossing.x==.06f && crossing.y==.06f,
+            "equal manual/AI commands must not invent ownership loss at a diagonal zero crossing");
+        const auto manual=s.shape_ownership({1,-1},{1,-1},ai,.001f,true,false);
+        require_true(manual.x==1 && manual.y==-1,"strong manual reclaim must be immediate");
+        const auto exit=s.shape_ownership({.012f,-.014f},{.012f,-.014f},ai,.001f,false,false);
+        require_true(exit.x==.012f && exit.y==-.014f,"exit must preserve exact zero-deadzone passthrough");
+        const auto fresh=s.shape_ownership(ai,{0,0},ai,.001f,true,true);
+        require_true(fresh.x==ai.x && fresh.y==ai.y,"new target must not inherit a handback delay");
+    });
+    registry.add_case("BaseBodyLock", "ownership_return_randomized_vector_envelope", [] {
+        for(unsigned seed:{23102311u,98102731u}) {
+            std::mt19937 rng(seed);
+            for(int i=0;i<10000;++i) {
+                const auto value=[&](){return (int(rng()%20001)-10000)/10000.f;};
+                const pipeline_contract::Vec2f manual{value(),value()},ai{value(),value()};
+                controller_native::AimDynamicsShaper s;
+                s.shape_ownership(manual,manual,ai,.001f,true,true);
+                const auto out=s.shape_ownership(ai,manual,ai,.001f,true,false);
+                require_true(std::hypot(out.x-manual.x,out.y-manual.y)<=.06401f,
+                    "AI ownership work must obey a 2D envelope without spending raw manual work");
+                require_true(out.x>=std::min(manual.x,ai.x)-1e-6f && out.x<=std::max(manual.x,ai.x)+1e-6f &&
+                    out.y>=std::min(manual.y,ai.y)-1e-6f && out.y<=std::max(manual.y,ai.y)+1e-6f,
+                    "ownership interpolation must stay inside current authorized segments");
+                const auto regained=s.shape_ownership(manual,manual,ai,.001f,true,false);
+                require_true(regained.x==manual.x && regained.y==manual.y,"AI revocation is immediate");
+            }
+        }
+    });
     registry.add_case("BaseBodyLock", "gap_prediction_never_amplifies_or_reverses", [] {
         for (float dt : {.0005f, .001f, .004f}) {
             controller_native::AimDynamicsShaper shaper;

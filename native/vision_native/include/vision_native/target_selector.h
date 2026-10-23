@@ -43,6 +43,10 @@ public:
         float target_wide_low_height_ratio = 0.65f);
 
     void reset();
+    // Startup only; changing palette invalidates color templates and cue identity.
+    void set_marker_palette(const pipeline_contract::MarkerPalette& palette) {
+        reset(); marker_palette_ = palette; cue_detector_.set_enemy_color(palette.enemy);
+    }
     // Set before the worker starts. COD dev uses independent person acquisition
     // plus cue/body association and same-identity cue motion continuation.
     void set_cue_identity_enabled(bool enabled) { reset(); cue_identity_enabled_ = enabled; }
@@ -128,6 +132,7 @@ private:
     };
     std::optional<MotionBodyReference> motion_body_reference_;
     void apply_motion_body_reference(VisionResult& result,const Detection& detection);
+    pipeline_contract::MarkerPalette marker_palette_{};
     bool friendly_filter_enabled_ = true;
     float target_height_ratio_ = 0.40f;
     float target_wide_low_height_ratio_ = 0.65f;

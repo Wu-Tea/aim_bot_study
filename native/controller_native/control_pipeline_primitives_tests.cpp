@@ -500,6 +500,35 @@ void register_control_pipeline_primitives_tests(
             }
         }
     });
+    registry.add_case("BaseEndToEnd", "canonical_hipfire_to_ads_stays_inside_ai_slew", [] {
+        for(int sign:{-1,1}) {
+            auto config=controller_native::incident_fixture::base_config(40,200);
+            config.ai_aim.normalized_assist_parameters=true;
+            config.ai_aim.hipfire_ratio=.7f;
+            config.ai_aim.aim_response_learning_enabled=false;
+            config.auto_fire.manual_fire_activates_ai_aim=true;
+            double now=10;
+            controller_native::NativeGamepadController controller(config,&now);
+            controller_native::incident_fixture::TargetSpec spec;
+            spec.selector_generation=17;spec.body_height=300;
+            spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+            float previous=0;
+            for(int tick=0;tick<120;++tick) {
+                now=10+tick*.001;spec.observation_id=tick+1;
+                controller.submit_vision_snapshot(controller_native::incident_fixture::observed_snapshot(spec,tick+1,now,sign*100.f,0));
+                auto input=controller_native::incident_fixture::ads_input();
+                input.left_trigger=tick>=100?1.f:0.f;input.rb=true;
+                const auto output=controller.build_output(input);
+                const float current=controller.last_output_components().shaped_assist_stick.x;
+                if(tick==100) {
+                    require_true(std::fabs(previous)>.1f,"scope transition must exercise existing hipfire work");
+                    require_true(std::fabs(current-previous)<=.0641f,"ADS multiplier must not bypass AI slew");
+                    require_true(output.left_trigger==1.f && output.rb,"physical scope/fire must remain immediate");
+                }
+                previous=current;
+            }
+        }
+    });
     registry.add_case("BaseEndToEnd", "hipfire_ai_multiplier_keeps_ads_and_manual", [] {
         for (bool ads : {false, true}) for (int direction : {-1, 1}) {
             const auto run = [=](float multiplier) {

@@ -2,6 +2,7 @@
 #include "test_support/native_test_registry.h"
 #include "controller_native/incident_fixture_support.h"
 #include "runtime_app/vision_controller_adapter.h"
+#include "cue_diamond_video_fixture.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -18,7 +19,7 @@ void sparse_cue_seed_rows_preserve_small_markers() {
     for (int cx:{40,41}) for (int cy=8;cy<20;++cy) for (bool clutter:{false,true}) {
         std::vector<unsigned char> pixels(64*48*4,0);
         const auto paint=[&](int x,int y) {
-            auto* p=&pixels[(y*64+x)*4];p[2]=255;p[1]=220;
+            auto* p=&pixels[(y*64+x)*4];p[2]=255;p[0]=255;
         };
         if (clutter) for(int y=1;y<47;++y)for(int x=1;x<23;++x)paint(x,y);
         for(int dy=-2;dy<=2;++dy)for(int dx=-2;dx<=2;++dx)
@@ -34,11 +35,11 @@ struct Scene {
     DetectionBatch batch;
     Scene() { batch.captured_at_ns=1'000'000'000ull; }
     void clear() { std::fill(pixels.begin(),pixels.end(),0); batch.detections.clear(); batch.captured_at_ns+=10'000'000; }
-    void cue(int cx,int cy,bool red=false) {
+    void cue(int cx,int cy,bool dim=false) {
         for (int y=-5;y<=5;++y) for (int x=-5;x<=5;++x) {
             const int rr=x*x+y*y;
             if (rr<9 || rr>25) continue;
-            auto* p=&pixels[((cy+y)*640+cx+x)*4]; p[2]=255; p[1]=red ? 0 : 220;
+            auto* p=&pixels[((cy+y)*640+cx+x)*4]; p[2]=p[0]=dim ? 160 : 255;
         }
     }
     void person(float x,float y,float conf=.8f) {
@@ -130,15 +131,58 @@ void cue_colors_and_formats() {
     Scene f; f.cue(280,230); f.cue(380,230,true);
     CueDetector detector;
     auto cues=detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0);
-    require(cues.size()==2 && cues[0].color==1 && cues[1].color==2,"yellow/red circle candidates");
+    require(cues.size()==2 && cues[0].color==1 && cues[1].color==1,"bright/dim magenta circle candidates");
     std::vector<unsigned char> rgb(640*512*3);
     for (int i=0;i<640*512;++i) { rgb[i*3]=f.pixels[i*4+2]; rgb[i*3+1]=f.pixels[i*4+1]; rgb[i*3+2]=f.pixels[i*4]; }
     cues=detector.detect(rgb.data(),640,512,1920,PixelFormat::RGB8,10,20);
     require(cues.size()==2 && cues[0].x==290 && cues[0].y==250,"RGB and origin mapping");
     f.clear();
-    for (int y=220;y<225;++y) for (int x=280;x<330;++x) { f.pixels[(y*640+x)*4+1]=220; f.pixels[(y*640+x)*4+2]=255; }
+    for (int y=220;y<225;++y) for (int x=280;x<330;++x) { f.pixels[(y*640+x)*4]=255; f.pixels[(y*640+x)*4+2]=255; }
     require(detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0).empty(),"blood bar excluded");
     require(detector.detect(f.pixels.data(),640,512,100,PixelFormat::BGRA8,0,0).empty(),"invalid pitch rejected");
+}
+void recorded_small_diamond_cue() {
+    // Recorded diamond geometry, explicitly recolored from yellow to magenta.
+    // Preserve saturation/value and all non-marker pixels; not a new live sample.
+    for (const auto& original : cue_diamond_fixture::rgb) for (int phase=0;phase<4;++phase) {
+        std::vector<unsigned char> patch(original, original+24*24*3);
+        for (int i=0;i<24*24;++i) {
+            auto* p=&patch[i*3];
+            const float hi=std::max({p[0],p[1],p[2]}),lo=std::min({p[0],p[1],p[2]}),d=hi-lo;
+            if (d==0 || hi<120 || 255*d<120*hi) continue;
+            float h=30*(hi==p[0] ? (p[1]-p[2])/d : hi==p[1] ? 2+(p[2]-p[0])/d : 4+(p[0]-p[1])/d);
+            if (h<0) h+=180;
+            if(h>=20 && h<=35){p[0]=p[2]=static_cast<unsigned char>(hi);p[1]=static_cast<unsigned char>(lo);}
+        }
+        Scene f; const int left=288,top=212+phase;
+        for(int y=0;y<24;++y)for(int x=0;x<24;++x) {
+            auto* dst=&f.pixels[((top+y)*640+left+x)*4];
+            const auto* src=&patch[(y*24+x)*3];
+            dst[0]=src[2];dst[1]=src[1];dst[2]=src[0];
+        }
+        CueDetector detector;
+        const auto cues=detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0);
+        require(cues.size()==1 && cues[0].color==1,"recolored recorded small diamond must survive shape/color checks");
+        const auto cue=cues[0];
+        std::vector<CueSearchRegion> region{{cue.x, cue.y, cue.x, cue.y}};
+        const auto restricted=detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0,&region);
+        require(restricted.size()==1 && restricted[0].x==cue.x && restricted[0].y==cue.y,
+            "region pruning must retain the complete diamond");
+        const auto rgb=detector.detect(patch.data(),24,24,72,PixelFormat::RGB8,left,top);
+        require(rgb.size()==1 && rgb[0].x==cue.x && rgb[0].y==cue.y,"recorded RGB diamond maps to the same capture position");
+        // Isolate cue/body geometry from the separate friendly-background
+        // heuristic (the recorded first patch also contains green leaves).
+        // Both detector layouts above consume the explicitly recolored RGB pixels.
+        f.person(cue.x,cue.y);
+        auto s=selector();s.set_detection_policy(false,.2f,.65f);
+        const auto paired=f.run(s);
+        require(paired.has_target && paired.detections[0].has_cue_point,
+            "recorded diamond must associate with the direct person");
+        f.batch.detections.clear();f.batch.captured_at_ns+=10'000'000;
+        const auto held=f.run(s);
+        require(held.has_target && held.selector_target_generation==paired.selector_target_generation &&
+            !held.has_selected_detection && !held.fire_authority,"recorded diamond sustains same-identity cue hold without firing");
+    }
 }
 void person_or_cue_independent_acquisition() {
     auto fused=selector();
@@ -266,6 +310,47 @@ void cue_controller_integration() {
 }
 }
 void register_cue_identity_tests(native_test::Registry& registry) {
+    registry.add_case("BaseVisionSelection","configurable_marker_palette_rgb_domain",[] {
+        using pipeline_contract::MarkerPalette;
+        const auto palette=MarkerPalette::from_hex("ff00ff","#00FFFF");
+        // Independent floating HSV oracle over every 8-bit RGB value.
+        for(int r=0;r<256;++r)for(int g=0;g<256;++g)for(int b=0;b<256;++b) {
+            const double hi=std::max({r,g,b}),lo=std::min({r,g,b}),d=hi-lo;
+            double h=0,s=hi==0 ? 0 : 255*d/hi;
+            if(d>0){h=30*(hi==r ? (g-b)/d : hi==g ? 2+(b-r)/d : 4+(r-g)/d);if(h<0)h+=180;}
+            const bool enemy=d>0 && h>=142-1e-10 && h<=158+1e-10 && s>=120-1e-10 && hi>=120;
+            const bool friendly=d>0 && h>=82-1e-10 && h<=98+1e-10 && s>=80-1e-10 && hi>=50;
+            require(palette.enemy.matches(r,g,b)==enemy,"enemy integer band differs from independent HSV oracle");
+            require(palette.friendly.matches(r,g,b)==friendly,"friendly integer band differs from independent HSV oracle");
+        }
+        const auto custom=MarkerPalette::from_hex("FF0000","00FF00");
+        require(custom.enemy.matches(255,0,24) && custom.enemy.matches(255,24,0),"red hue wrap must support both sides");
+        require(custom.friendly.matches(0,255,0) && !custom.enemy.matches(255,0,255),"custom colors replace defaults");
+    });
+    registry.add_case("BaseVisionSelection","palette_rejects_old_colors_and_configures_cue",[] {
+        Scene f;f.cue(300,220);CueDetector detector;
+        require(detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0).size()==1,"magenta default");
+        for(auto color: {std::array<int,3>{255,255,0},{255,0,0},{0,255,0},{0,255,255}}) {
+            for(int i=0;i<640*512;++i)if(f.pixels[i*4+2] || f.pixels[i*4]) {
+                f.pixels[i*4+2]=color[0];f.pixels[i*4+1]=color[1];f.pixels[i*4]=color[2];
+            }
+            require(detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0).empty(),"old enemy colors / friend cyan must not become cues");
+            f.clear();f.cue(300,220);
+        }
+        detector.set_enemy_color(pipeline_contract::MarkerPalette::from_hex("FF0000","00FF00").enemy);
+        for(int i=0;i<640*512;++i)f.pixels[i*4]=0;
+        require(detector.detect(f.pixels.data(),640,512,2560,PixelFormat::BGRA8,0,0).size()==1,"configured red must reach independent detector");
+        auto configured=selector();
+        configured.set_marker_palette(pipeline_contract::MarkerPalette::from_hex("FF0000","00FF00"));
+        f.person(300,220);
+        const auto paired=f.run(configured);
+        require(paired.has_target && paired.motion_cue_id,"configured palette must pair cue with person");
+        f.batch.detections.clear();f.batch.captured_at_ns+=10'000'000;
+        const auto held=f.run(configured);
+        require(held.has_target && !held.has_selected_detection && !held.fire_authority,"configured cue must sustain same body reference");
+        configured.set_marker_palette(pipeline_contract::MarkerPalette{});
+        require(!f.run(configured).has_target,"palette change must invalidate prior color identity/template");
+    });
     registry.add_case("BaseVisionSelection","cue_regions_preserve_boundaries_and_empty_frame",[] {
         Scene f;CueDetector detector;f.cue(80,401);f.cue(560,100);
         std::vector<CueSearchRegion> regions{{80,401,80,401}};
@@ -462,6 +547,7 @@ void register_cue_identity_tests(native_test::Registry& registry) {
     registry.add_case("BaseVisionSelection","cue_frame_and_reset",cue_frame_and_reset);
     registry.add_case("BaseVisionSelection","cue_handover_and_correction",cue_handover_and_correction);
     registry.add_case("BaseVisionSelection","cue_colors_and_formats",cue_colors_and_formats);
+    registry.add_case("BaseVisionSelection","recorded_small_diamond_cue",recorded_small_diamond_cue);
     registry.add_case("BaseVisionSelection","person_or_cue_independent_acquisition",person_or_cue_independent_acquisition);
     registry.add_case("BaseVisionSelection","randomized_cue_body_reference",randomized_cue_body_reference);
     registry.add_case("BaseVisionSelection","randomized_cue_identity",randomized_cue_identity);

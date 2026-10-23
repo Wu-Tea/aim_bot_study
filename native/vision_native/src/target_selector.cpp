@@ -129,7 +129,7 @@ struct ColorClassification {
     float cue_score = 0.0f;
 };
 
-struct YellowCueObservation {
+struct MarkerCueObservation {
     bool found = false;
     float cue_x = 0.0f;
     float cue_y = 0.0f;
@@ -481,48 +481,6 @@ float normalized_patch_correlation(
         numerator / std::sqrt(lhs_energy * rhs_energy));
 }
 
-void rgb_to_opencv_hsv(int r, int g, int b, float& h, float& s, float& v) {
-    const float rf = static_cast<float>(r) / 255.0f;
-    const float gf = static_cast<float>(g) / 255.0f;
-    const float bf = static_cast<float>(b) / 255.0f;
-    const float max_value = std::max(rf, std::max(gf, bf));
-    const float min_value = std::min(rf, std::min(gf, bf));
-    const float delta = max_value - min_value;
-
-    float hue_degrees = 0.0f;
-    if (delta > 0.0f) {
-        if (max_value == rf) {
-            hue_degrees = 60.0f * std::fmod(((gf - bf) / delta), 6.0f);
-        } else if (max_value == gf) {
-            hue_degrees = 60.0f * (((bf - rf) / delta) + 2.0f);
-        } else {
-            hue_degrees = 60.0f * (((rf - gf) / delta) + 4.0f);
-        }
-    }
-    if (hue_degrees < 0.0f) {
-        hue_degrees += 360.0f;
-    }
-
-    h = hue_degrees * 0.5f;
-    s = max_value <= 0.0f ? 0.0f : (delta / max_value) * 255.0f;
-    v = max_value * 255.0f;
-}
-
-bool in_hsv_range(
-    float h,
-    float s,
-    float v,
-    float lower_h,
-    float lower_s,
-    float lower_v,
-    float upper_h,
-    float upper_s,
-    float upper_v) {
-    return lower_h <= h && h <= upper_h
-        && lower_s <= s && s <= upper_s
-        && lower_v <= v && v <= upper_v;
-}
-
 IntentScore score_intent(
     const VisionTargetSelector::Candidate& candidate,
     float screen_center_x,
@@ -581,16 +539,6 @@ IntentScore score_intent(
     };
 }
 
-bool is_friendly_hsv(float h, float s, float v) {
-    return in_hsv_range(h, s, v, 45.0f, 80.0f, 50.0f, 75.0f, 255.0f, 255.0f);
-}
-
-bool is_enemy_hsv(float h, float s, float v) {
-    return in_hsv_range(h, s, v, 20.0f, 120.0f, 120.0f, 35.0f, 255.0f, 255.0f)
-        || in_hsv_range(h, s, v, 0.0f, 120.0f, 80.0f, 10.0f, 255.0f, 255.0f)
-        || in_hsv_range(h, s, v, 170.0f, 120.0f, 80.0f, 180.0f, 255.0f, 255.0f);
-}
-
 constexpr int kCuePatchWidth = 16;
 constexpr int kCuePatchSamples = kCuePatchWidth * kCuePatchWidth;
 constexpr int kCuePatchBefore = (kCuePatchWidth - 1) / 2;
@@ -600,38 +548,38 @@ constexpr float kCueMinimumAppearanceScore = 0.75f;
 constexpr float kCueDistancePreference = 0.10f;
 
 std::int8_t cue_color_sample(
-    const VisionTargetSelector::ColorFrameView& frame, int x, int y) {
+    const VisionTargetSelector::ColorFrameView& frame, int x, int y,
+    const pipeline_contract::MarkerColorBand& color) {
     int r = 0, g = 0, b = 0;
     read_rgb(frame, x, y, r, g, b);
-    float hue = 0.0f, saturation = 0.0f, value = 0.0f;
-    rgb_to_opencv_hsv(r, g, b, hue, saturation, value);
-    if (!is_enemy_hsv(hue, saturation, value)) return 0;
-    return hue >= 20.0f && hue <= 35.0f ? 1 : -1;
+    return color.matches(r, g, b) ? 1 : 0;
 }
 
 bool sample_cue_patch(
     const VisionTargetSelector::ColorFrameView& frame,
     float center_x, float center_y,
-    std::array<std::int8_t, kCuePatchSamples>& patch) {
+    std::array<std::int8_t, kCuePatchSamples>& patch,
+    const pipeline_contract::MarkerColorBand& color) {
     const int left = static_cast<int>(std::lround(center_x)) - kCuePatchBefore;
     const int top = static_cast<int>(std::lround(center_y)) - kCuePatchBefore;
     if (!frame_covers({left, top, left + kCuePatchWidth, top + kCuePatchWidth}, frame))
         return false;
     for (int y = 0; y < kCuePatchWidth; ++y) {
         for (int x = 0; x < kCuePatchWidth; ++x) {
-            patch[y * kCuePatchWidth + x] = cue_color_sample(frame, left + x, top + y);
+            patch[y * kCuePatchWidth + x] = cue_color_sample(frame, left + x, top + y, color);
         }
     }
     return true;
 }
 
-YellowCueObservation match_cue_patch(
+MarkerCueObservation match_cue_patch(
     const IntRect& bounds,
     const VisionTargetSelector::ColorFrameView& frame,
     float expected_x, float expected_y,
     const std::array<std::int8_t, kCuePatchSamples>& reference,
-    pipeline_contract::SelectionDiagnostics* diagnostics) {
-    YellowCueObservation result;
+    pipeline_contract::SelectionDiagnostics* diagnostics,
+    const pipeline_contract::MarkerColorBand& color) {
+    MarkerCueObservation result;
     const IntRect support{
         std::max(0, bounds.left - kCuePatchBefore),
         std::max(0, bounds.top - kCuePatchBefore),
@@ -650,7 +598,7 @@ YellowCueObservation match_cue_patch(
     // sparse template comparisons avoid rescanning every 16x16 patch in HSV.
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            const auto value = cue_color_sample(frame, support.left + x, support.top + y);
+            const auto value = cue_color_sample(frame, support.left + x, support.top + y, color);
             mask[y * width + x] = value;
             const int index = (y + 1) * stride + x + 1;
             sums[index] = value + sums[index - 1] + sums[index - stride] - sums[index - stride - 1];
@@ -722,7 +670,7 @@ YellowCueObservation match_cue_patch(
 ColorClassification classify_color(
     const VisionTargetSelector::Rect& box,
     const VisionTargetSelector::ColorFrameView& frame,
-    bool friendly_filter_enabled) {
+    bool friendly_filter_enabled, const pipeline_contract::MarkerPalette& palette) {
     if (frame.data == nullptr || frame.width <= 0 || frame.height <= 0 || frame.row_pitch <= 0) {
         return {};
     }
@@ -748,14 +696,10 @@ ColorClassification classify_color(
             int b = 0;
             read_rgb(frame, x, y, r, g, b);
 
-            float h = 0.0f;
-            float s = 0.0f;
-            float v = 0.0f;
-            rgb_to_opencv_hsv(r, g, b, h, s, v);
-            if (is_friendly_hsv(h, s, v)) {
+            if (palette.friendly.matches(r, g, b)) {
                 ++friendly_count;
             }
-            if (is_enemy_hsv(h, s, v)) {
+            if (palette.enemy.matches(r, g, b)) {
                 ++cue_pixels;
                 cue_sum_x += static_cast<float>(x);
                 cue_sum_y += static_cast<float>(y);
@@ -1046,7 +990,7 @@ DetectionBatch VisionTargetSelector::annotate_colors(
     const ColorFrameView& frame) const {
     DetectionBatch annotated = apply_detection_policy(batch);
     for (auto& detection : annotated.detections) {
-        const ColorClassification classification = classify_color(to_rect(detection), frame, friendly_filter_enabled_);
+        const ColorClassification classification = classify_color(to_rect(detection), frame, friendly_filter_enabled_, marker_palette_);
         detection.color_bonus = classification.color_bonus;
         detection.is_friendly = classification.is_friendly;
         detection.color_classified = true;
@@ -1078,7 +1022,7 @@ void VisionTargetSelector::update_selected_cue_template(
     // Only a directly observed person may establish the reference.
     if (!detection.has_cue_point) return;
     has_cue_template_ = sample_cue_patch(
-        frame, detection.cue_x, detection.cue_y, cue_template_);
+        frame, detection.cue_x, detection.cue_y, cue_template_, marker_palette_.enemy);
 }
 
 void VisionTargetSelector::reset_motion_anchor() {
@@ -1307,7 +1251,7 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     }
     // The production cod_combined_single_cls model has exactly one semantic
     // target class at index 0. Unknown/multi-class outputs must fail closed;
-    // a green friendly marker is an independent hard rejection.
+    // a cyan friendly marker is an independent hard rejection.
     if (detection.class_id != 0 || detection.is_friendly) {
         return reject(detection.is_friendly ? "friendly_color" : "wrong_class");
     }
@@ -2041,8 +1985,8 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::try_cue_h
 
     if (!has_cue_template_) { diagnostics_.cue_reason="no_template"; return std::nullopt; }
     diagnostics_.cue_reason="no_appearance_match";
-    const YellowCueObservation cue = match_cue_patch(
-        *bounds, frame, last_cue_point_->first, last_cue_point_->second, cue_template_, &diagnostics_);
+    const MarkerCueObservation cue = match_cue_patch(
+        *bounds, frame, last_cue_point_->first, last_cue_point_->second, cue_template_, &diagnostics_, marker_palette_.enemy);
 
     if (!cue.found) {
         return std::nullopt;
