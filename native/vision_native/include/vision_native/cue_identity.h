@@ -1,6 +1,7 @@
 #pragma once
 #include "vision_native/types.h"
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace vision_native {
@@ -17,6 +18,7 @@ public:
 private:
     std::vector<unsigned char> mask_;
     std::vector<int> component_;
+    std::vector<std::pair<int, CueObservation>> ordered_observations_;
     std::vector<CueObservation> observations_;
 };
 

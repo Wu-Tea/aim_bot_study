@@ -11,6 +11,24 @@
 namespace {
 using namespace vision_native;
 void require(bool ok,const char* message) { if (!ok) throw std::runtime_error(message); }
+void sparse_cue_seed_rows_preserve_small_markers() {
+    CueDetector detector;
+    // Move a five-pixel marker through every phase of the four-row seed grid,
+    // then place it beside a rejected large same-color component.
+    for (int cy=8;cy<20;++cy) for (bool clutter:{false,true}) {
+        std::vector<unsigned char> pixels(64*48*4,0);
+        const auto paint=[&](int x,int y) {
+            auto* p=&pixels[(y*64+x)*4];p[2]=255;p[1]=220;
+        };
+        if (clutter) for(int y=1;y<47;++y)for(int x=1;x<23;++x)paint(x,y);
+        for(int dy=-2;dy<=2;++dy)for(int dx=-2;dx<=2;++dx)
+            if(dx*dx+dy*dy>=1 && dx*dx+dy*dy<=4)paint(40+dx,cy+dy);
+        const auto& cues=detector.detect(pixels.data(),64,48,64*4,PixelFormat::BGRA8,0,0);
+        require(cues.size()==1,"sparse seed rows must preserve every small-marker phase without fragmenting large clutter");
+        require(cues[0].x==40 && cues[0].y==cy && cues[0].size==5,
+            "seed search must reconstruct the complete marker at original resolution");
+    }
+}
 struct Scene {
     std::vector<unsigned char> pixels=std::vector<unsigned char>(640*512*4,0);
     DetectionBatch batch;
@@ -248,6 +266,7 @@ void cue_controller_integration() {
 }
 }
 void register_cue_identity_tests(native_test::Registry& registry) {
+    registry.add_case("BaseVisionSelection","sparse_cue_seed_rows_preserve_small_markers",sparse_cue_seed_rows_preserve_small_markers);
     registry.add_case("BaseVisionSelection","motion_cue_identity_survives_person_dropout",[] {
         auto s=selector();Scene f;f.cue(320,180);f.person(320,180);
         auto r=f.run(s);const auto id=r.motion_cue_id;

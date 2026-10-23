@@ -350,3 +350,9 @@ and machine-local runtime assets out of project context.
 - clean Base473项、开火14项通过（7项初始SDL测试依赖缺失，补齐后所属套件67/67）；独立128个短长场景1,408,000tick通过；两片段665帧Vision、固定录像控制、近似闭环CSV均与dev一致。桌面81项、隔离WebView2、关闭输出的隐藏GUI初始化/IPC/热更新/停止通过。dev原完整CTest51/51。
 - 发布授权不是实机验收；固定录像另一时刻下拉峰值增大、近似闭环第一段平均误差退步及旧ADS压力反例仍保留。[完整同步记录](../docs/project/DOWNPULL_CLEAN_SYNC_20261023.md)。下一步用户重启clean试用，不应为掩盖残留改变手动权限、压枪量或全局增益。
 - SyncSet sync-20261023-001，沿用上下文维护授权，accept_draft；更新两边handoff，原文归档到archive/handoff-20261023-before-motion-sync.md与archive/clean-handoff-20261023-before-motion-sync.md，追加本文。没有新决策、平台记忆、外部应用写入或秘密。长会话日志保留，建议后续独立归档压缩。
+
+## 2026-10-23 — cue检测等价提速，仅dev
+
+- 用户要求保持频率/跟踪效果，探索减少像素搜索，并用三段视频验证。实现必要颜色条件整数预筛选及每4行种子、全分辨率连通区域展开，按最早像素恢复原候选顺序。未修改selector/controller规则，未提交/push，clean9aad8f8保持。
+- 39,435帧、116,885个cue及最终selector输出全部一致；cue平均耗时降低76.5%–78.8%（约4.1→0.9ms）。全色域两格式、4800随机/构造图9095cue等价；专项小标记相位回归及最终CTest51/51通过，dev Release已构建。报告docs/project/CUE_DETECTION_OPTIMIZATION_20261023.md，产物runs/cue-opt-20261023/。
+- 阶段提速不等于实机FPS已恢复，也不解决既有识别/下拉问题；等待用户重启dev试用。SyncSet sync-20261023-002已审阅并沿用授权，归档优化前handoff、更新当前handoff和本文，无新增决策/外部记忆/秘密。

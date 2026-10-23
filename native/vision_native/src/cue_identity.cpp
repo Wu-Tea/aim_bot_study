@@ -5,7 +5,20 @@
 
 namespace vision_native {
 namespace {
+constexpr int kMinimumCueExtent=4;
 int enemy_color(const unsigned char* p, PixelFormat format) {
+    // Necessary integer conditions for the existing HSV ranges. Most scenery
+    // exits before float divisions; retain the original calculation for the
+    // surviving colors, including its exact boundary rounding.
+    const int ri=p[format == PixelFormat::BGRA8 ? 2 : 0], gi=p[1];
+    const int bi=p[format == PixelFormat::BGRA8 ? 0 : 2];
+    if (ri>=gi) {
+        const int delta=ri-std::min(gi,bi), gb=gi-bi;
+        if (ri<80 || bi>ri || delta==0 || 255*delta<120*ri) return 0;
+        if (3*std::abs(gb)>delta && (ri<120 || 3*gb<2*delta)) return 0;
+    } else {
+        if (gi<120 || bi>=ri || 6*(ri-bi)<5*(gi-bi) || 255*(gi-bi)<120*gi) return 0;
+    }
     const float r = p[format == PixelFormat::BGRA8 ? 2 : 0], g = p[1];
     const float b = p[format == PixelFormat::BGRA8 ? 0 : 2];
     const float hi = std::max({r,g,b}), lo = std::min({r,g,b}), delta = hi-lo;
@@ -21,32 +34,44 @@ int enemy_color(const unsigned char* p, PixelFormat format) {
 const std::vector<CueObservation>& CueDetector::detect(const unsigned char* pixels,
     int width, int height, int pitch, PixelFormat format, int origin_x, int origin_y) {
     observations_.clear();
+    ordered_observations_.clear();
     const int channels = format == PixelFormat::BGRA8 ? 4 : 3;
     if (!pixels || width <= 0 || height <= 0 || pitch < std::int64_t(width)*channels ||
         std::int64_t(width)*height > std::numeric_limits<int>::max()) return observations_;
-    mask_.resize(std::size_t(width)*height);
-    for (int y=0; y<height; ++y)
-        for (int x=0; x<width; ++x)
-            mask_[y*width+x] = static_cast<unsigned char>(enemy_color(pixels+std::size_t(y)*pitch+x*channels,format));
-    for (int start=0; start<width*height; ++start) {
-        const int color = mask_[start];
+    constexpr unsigned char unknown=255;
+    mask_.assign(std::size_t(width)*height,unknown);
+    const auto color_at = [&](int x,int y) {
+        auto& value=mask_[y*width+x];
+        if (value==unknown) value=static_cast<unsigned char>(enemy_color(
+            pixels+std::size_t(y)*pitch+std::size_t(x)*channels,format));
+        return value;
+    };
+    // An accepted 8-connected component is at least four rows high. It must
+    // intersect one of these seed rows: no accepted circle/skull can lie
+    // wholly between them. Expand every seed at full resolution and consume
+    // the complete component, even after it grows too large to be a cue.
+    for (int seed_y=0; seed_y<height; seed_y+=kMinimumCueExtent) for (int seed_x=0; seed_x<width; ++seed_x) {
+        const int start=seed_y*width+seed_x;
+        const int color = color_at(seed_x,seed_y);
         if (!color) continue;
         component_.clear(); component_.push_back(start); mask_[start]=0;
         int l=width,t=height,r=0,b=0;
+        int first_pixel=start;
         double sx=0,sy=0;
         for (std::size_t j=0; j<component_.size(); ++j) {
             const int pos=component_[j],x=pos%width,y=pos/width;
+            first_pixel=std::min(first_pixel,pos);
             l=std::min(l,x); r=std::max(r,x); t=std::min(t,y); b=std::max(b,y); sx+=x; sy+=y;
             for (int yy=std::max(0,y-1); yy<=std::min(height-1,y+1); ++yy)
                 for (int xx=std::max(0,x-1); xx<=std::min(width-1,x+1); ++xx) {
                     const int next=yy*width+xx;
-                    if (mask_[next]==color) { mask_[next]=0; component_.push_back(next); }
+                    if (color_at(xx,yy)==color) { mask_[next]=0; component_.push_back(next); }
                 }
         }
         const int w=r-l+1,h=b-t+1,n=static_cast<int>(component_.size());
         // Compact colored markers include circle and COD nemesis skull. These
         // are proposals, not semantic proof; bars and large pings are excluded.
-        if (w<4 || h<4 || w>18 || h>18 || n<8 || l==0 || t==0 || r==width-1 || b==height-1) continue;
+        if (w<kMinimumCueExtent || h<kMinimumCueExtent || w>18 || h>18 || n<8 || l==0 || t==0 || r==width-1 || b==height-1) continue;
         const float aspect=float(std::min(w,h))/std::max(w,h),fill=float(n)/(w*h);
         if (aspect<.65f || fill<.22f || fill>.94f) continue;
         const float cx=(l+r)*.5f,cy=(t+b)*.5f,rx=w*.5f,ry=h*.5f;
@@ -65,8 +90,13 @@ const std::vector<CueObservation>& CueDetector::detect(const unsigned char* pixe
         const float centering=std::hypot(float(sx/n)-cx,float(sy/n)-cy)/std::max(w,h);
         if (centering>.16f) continue;
         const float score=.4f*aspect+.3f*(coverage/8.f)+.3f*(1-std::min(1.f,centering*5));
-        observations_.push_back({cx+origin_x,cy+origin_y,float(std::max(w,h)),score,color});
+        ordered_observations_.push_back({first_pixel,{cx+origin_x,cy+origin_y,float(std::max(w,h)),score,color}});
     }
+    // Sparse seed discovery can visit neighbouring components in a different
+    // order. Restore the original raster order before association/tie handling.
+    std::sort(ordered_observations_.begin(),ordered_observations_.end(),
+        [](const auto& a,const auto& b){return a.first<b.first;});
+    for (const auto& entry:ordered_observations_) observations_.push_back(entry.second);
     // A hit marker is a screen-centred composition of four tips. Individual
     // tips can satisfy the compact cue test; reject the composition without
     // masking legitimate circles or skulls close to the reticle.
