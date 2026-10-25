@@ -14,6 +14,7 @@ import {
   Square,
   Save,
   LoaderCircle,
+  CircleCheck,
 } from "lucide-react";
 import { IconButton, Menu } from "./controls";
 import { Field, Group } from "./fields";
@@ -481,7 +482,7 @@ function App() {
             safely("正在生成配置草稿…", async () =>
               setModal({
                 kind: "raw",
-                title: "完整配置 · 当前草稿",
+                title: "完整配置（当前草稿）",
                 text: await rpc("raw", proposal()),
               }),
             ),
@@ -518,7 +519,6 @@ function App() {
             </div>
             <span>手柄助手</span>
           </div>
-          <div className="navlabel">工作空间</div>
           <nav className="nav" aria-label="主导航">
             {[
               [SlidersHorizontal, "tuning"],
@@ -533,6 +533,7 @@ function App() {
                 disabled={!!busy}
                 aria-current={page === id ? "page" : undefined}
                 title={titles[id]}
+                aria-label={titles[id]}
                 onClick={() => setPage(id)}
               >
                 <Icon />
@@ -540,23 +541,11 @@ function App() {
               </button>
             ))}
           </nav>
-          <div className="sidebottom">
-            <span className={"dot " + (active ? "" : "off")} />
-            <span>{phases[status.phase]}</span>
-            <p>
-              关闭窗口后
-              <br />
-              运行中的程序继续工作
-            </p>
-          </div>
+          {active && <p className="sidebar-note">关闭窗口不会停止运行</p>}
         </aside>
         <div className="shell">
           <header className="topbar">
             <div className="profile-top">
-              <div className="profile-icon">
-                <Gamepad2 size={21} />
-              </div>
-              <div>
                 <select
                   className="profile-select"
                   aria-label="当前配置"
@@ -570,14 +559,14 @@ function App() {
                   {Object.values(drafts).map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
-                      {dirty(p) ? " · 未保存" : ""}
+                      {dirty(p) ? "（未保存）" : ""}
                     </option>
                   ))}
                 </select>
-                <div className="small muted">
-                  {busy || (dirty(draft) ? "有未保存修改" : "修改已保存")}
-                </div>
-              </div>
+                <span className={"save-state" + (dirty(draft) ? " dirty" : "")} role="status">
+                  {!busy && draft && !dirty(draft) && <CircleCheck size={16} aria-hidden="true" />}
+                  {busy || (draft ? (dirty(draft) ? "未保存" : "已保存") : "尚无配置")}
+                </span>
             </div>
             <div className="top-actions">
               <span className="run-state">
@@ -585,7 +574,6 @@ function App() {
                 {phases[status.phase]}
               </span>
               <button
-                className="quiet"
                 disabled={!active || !!busy}
                 onClick={() => safely("正在请求退出…", () => rpc("stop"))}
               >
@@ -659,21 +647,9 @@ function App() {
                   <div className="heading">
                     <div>
                       <h1>{titles[page]}</h1>
-                      <p>
-                        {page === "tuning"
-                          ? "从首次瞄准到持续跟随，分别调整手感。"
-                          : page === "curves"
-                            ? "编辑输入与响应的映射。"
-                            : page === "profiles"
-                              ? "每份配置独立保存参数与曲线。"
-                              : page === "devices"
-                                ? "选择识别模型，设置采集与输入设备。"
-                                : "查看真实运行状态、帧率与响应学习。"}
-                      </p>
                     </div>
                     {page === "profiles" && (
                       <button
-                        className="primary"
                         disabled={!!busy}
                         onClick={() => namedModal("create", "新建配置")}
                       >
@@ -884,6 +860,7 @@ function App() {
                                     ) && (
                                       <Group
                                         name={name}
+                                        hideHeading={["首次瞄准", "持续跟随", "目标与识别", "开火与压枪"].includes(name)}
                                         fields={groups[name].filter(
                                           (f) => !f.advanced,
                                         )}
@@ -897,7 +874,7 @@ function App() {
                                     )}
                                     {groups[name]?.some((f) => f.advanced) && (
                                       <Group
-                                        name={name + " · 高级参数"}
+                                        name={name + "高级参数"}
                                         fields={groups[name].filter(
                                           (f) => f.advanced,
                                         )}
@@ -980,7 +957,7 @@ function App() {
                               </strong>
                               <p className="small muted">
                                 {draft.values["runtime.vision.model_path"]
-                                  ? `${draft.values["runtime.vision.tensor_width"]} × ${draft.values["runtime.vision.tensor_height"]} · 模型输入`
+                                  ? `模型输入 ${draft.values["runtime.vision.tensor_width"]} × ${draft.values["runtime.vision.tensor_height"]}`
                                   : "选择模型后读取输入尺寸"}
                               </p>
                               <p className="small muted path">
@@ -1129,8 +1106,7 @@ function App() {
                   </fieldset>
                   <footer className="footer">
                     <span>
-                      {anyDirty ? "草稿尚未保存" : "配置与曲线独立保存"} · Ctrl
-                      + S 保存并应用
+                      <kbd>Ctrl</kbd> + <kbd>S</kbd> 保存并应用
                     </span>
                     <span>运行状态来自原生程序</span>
                   </footer>

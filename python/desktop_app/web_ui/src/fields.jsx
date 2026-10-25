@@ -6,13 +6,14 @@ export function Field({ field, value, onChange }) {
   const id = "f-" + field.path,
     scale = field.scale;
   const numeric = field.kind === "float" || field.kind === "int";
+  const color = ["runtime.vision.enemy_marker_color", "runtime.vision.friendly_marker_color"].includes(field.path);
   const valid = numeric
     ? typeof value === "number" &&
       Number.isFinite(value) &&
       value >= field.limits[0] &&
       value <= field.limits[1] &&
       (field.kind !== "int" || Number.isInteger(value))
-    : true;
+    : color ? /^#?[\da-f]{6}$/i.test(value ?? "") : true;
   return (
     <div className={"row field-row " + (!valid ? "invalid" : "")}>
       <div className="field-label">
@@ -77,6 +78,9 @@ export function Field({ field, value, onChange }) {
               min={field.limits[0] * scale}
               max={field.limits[1] * scale}
               step="0.1"
+              style={{
+                background: `linear-gradient(to right, var(--accent) ${valid ? ((value - field.limits[0]) / (field.limits[1] - field.limits[0])) * 100 : 0}%, var(--line) 0)`,
+              }}
               value={
                 typeof value === "number"
                   ? value * scale
@@ -104,6 +108,26 @@ export function Field({ field, value, onChange }) {
             <span>{field.unit}</span>
           </span>
         </div>
+      ) : color ? (
+        <div className="color-field">
+          <input
+            type="color"
+            aria-label={field.label + "色盘"}
+            title={"选择" + field.label}
+            disabled={field.readonly}
+            value={valid ? "#" + value.replace(/^#/, "") : "#ffffff"}
+            onChange={(e) => onChange(e.target.value.toUpperCase())}
+          />
+          <input
+            id={id}
+            className="text-field"
+            aria-invalid={!valid}
+            readOnly={field.readonly}
+            value={value ?? ""}
+            spellCheck={false}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        </div>
       ) : (
         <input
           id={id}
@@ -115,14 +139,16 @@ export function Field({ field, value, onChange }) {
       )}
       {!valid && (
         <small className="field-error">
-          {field.limits[0] * scale}–{field.limits[1] * scale} {field.unit}
-          {field.kind === "int" ? "，请输入整数" : ""}
+          {color ? "请输入六位 HEX，例如 #FF00FF。" : <>
+            {field.limits[0] * scale}–{field.limits[1] * scale} {field.unit}
+            {field.kind === "int" ? "，请输入整数" : ""}
+          </>}
         </small>
       )}
     </div>
   );
 }
-export function Group({ name, fields, draft, setValue, fold = false }) {
+export function Group({ name, fields, draft, setValue, fold = false, hideHeading = false }) {
   const content = fields.map((f) => (
     <Field
       key={f.path}
@@ -142,7 +168,7 @@ export function Group({ name, fields, draft, setValue, fold = false }) {
     </details>
   ) : (
     <section className="section">
-      <div className="sectionhead">
+      <div className={hideHeading ? "sr-only" : "sectionhead"}>
         <h2>{name}</h2>
       </div>
       {content}

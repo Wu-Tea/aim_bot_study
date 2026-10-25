@@ -181,8 +181,9 @@ export function CurveEditor({
         <div className="chart">
           <div className="chart-title">
             <span>响应 %</span>
-            <span>控制点可拖动 · 端点固定</span>
+            <span>拖动控制点，端点固定</span>
           </div>
+          <div className="curve-plot">
           <svg
             ref={svg}
             viewBox="0 0 660 410"
@@ -195,22 +196,16 @@ export function CurveEditor({
               <g key={f}>
                 <path
                   d={`M50 ${360 - f * 310}H610M${50 + f * 560} 50V360`}
-                  stroke="#dfe7d7"
+                  stroke="var(--line-muted)"
                 />
-                <text x="16" y={365 - f * 310} fontSize="12" fill="#64755b">
-                  {f * 100}
-                </text>
-                <text x={46 + f * 560} y="386" fontSize="12" fill="#64755b">
-                  {f * 100}
-                </text>
               </g>
             ))}
-            <path d="M50 360L610 50" stroke="#acbba2" strokeDasharray="6 6" />
+            <path d="M50 360L610 50" stroke="var(--muted)" strokeDasharray="6 6" />
             <path
               id="curvePath"
               d={path}
               fill="none"
-              stroke="#286750"
+              stroke="var(--accent)"
               strokeWidth="4"
             />
             {points.map(([x, y], i) => (
@@ -219,8 +214,8 @@ export function CurveEditor({
                 cx={50 + x * 560}
                 cy={360 - y * 310}
                 r={i === index ? 8 : 5}
-                fill={i === index ? "#cce0ad" : "#fff"}
-                stroke="#286750"
+                fill={i === index ? "var(--tint)" : "var(--paper)"}
+                stroke="var(--accent)"
                 strokeWidth="2"
                 onPointerDown={(e) => {
                   if (pointEdit) {
@@ -234,18 +229,25 @@ export function CurveEditor({
                 }}
               />
             ))}
-            <text x="564" y="405" fontSize="12" fill="#64755b">
-              输入 %
-            </text>
           </svg>
+          {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+            <React.Fragment key={f}>
+              <span className="curve-axis curve-axis-y" style={{ top: `${(360 - f * 310) / 410 * 100}%` }}>{f * 100}</span>
+              <span className="curve-axis curve-axis-x" style={{ left: `${(50 + f * 560) / 660 * 100}%` }}>{f * 100}</span>
+            </React.Fragment>
+          ))}
+          </div>
+          <div className="chart-axis-title">输入 %</div>
         </div>
         <p className="note">
-          这是手柄输入与响应之间的映射。控制点须严格递增，以支持原生反向映射。
+          输入和响应须严格递增。
         </p>
       </div>
       <aside className="curve-side">
-        <span className="pill">{points.length} 个控制点</span>
-        <h2 style={{ marginTop: 16 }}>编辑点位</h2>
+        <div className="sectionhead">
+          <h2>编辑点位</h2>
+          <span className="pill">{points.length} 个点</span>
+        </div>
         <label className="stack">
           控制点
           <select
@@ -256,7 +258,7 @@ export function CurveEditor({
           >
             {points.map((p, i) => (
               <option key={i} value={i}>
-                {i + 1} · {fmt(p[0] * 100)}% → {fmt(p[1] * 100)}%
+                {i + 1}：{fmt(p[0] * 100)}% → {fmt(p[1] * 100)}%
               </option>
             ))}
           </select>

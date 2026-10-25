@@ -19,7 +19,7 @@ def launch(root, *, hidden=False, service=None, ready=None):
                 return {'ok': True, 'data': True}
             return service.dispatch(command, payload)
     window = webview.create_window('手柄助手', str(assets), js_api=Bridge(), width=1360, height=940,
-        min_size=(840,640), background_color='#e9ecea', hidden=hidden, text_select=True)
+        min_size=(840,640), background_color='#ffffff', hidden=hidden, text_select=True)
     def dialogs(mode, name, filters):
         result = window.create_file_dialog(webview.FileDialog.SAVE if mode=='save' else webview.FileDialog.OPEN,
             save_filename=name, file_types=filters)

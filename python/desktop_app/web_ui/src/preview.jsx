@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { rpc, fmt } from "./bridge";
+import { Dialog } from "radix-ui";
+import { Maximize2, X } from "lucide-react";
+import { RangePlot } from "./range-plot";
 export function Preview({
   draft,
   disabled,
@@ -11,11 +14,10 @@ export function Preview({
     [pose, setPose] = useState("standing"),
     [offset, setOffset] = useState([70, 0]);
   const [geometry, setGeometry] = useState(null),
-    [error, setError] = useState("正在读取原生范围规则…");
+    [error, setError] = useState("");
+  const [observing, setObserving] = useState(false);
   const request = useRef(0),
-    panel = useRef(null),
-    svg = useRef(null),
-    drag = useRef(false);
+    panel = useRef(null);
   useEffect(() => {
     const root = panel.current;
     const body = root.closest(".workspace-fields");
@@ -88,17 +90,24 @@ export function Preview({
         (g?.body_height ?? 100) * 2,
         (g?.body_width ?? 40) * 2,
       ) * 1.2;
-  const place = (e) => {
-    const point = svg.current.createSVGPoint();
-    point.x = e.clientX;
-    point.y = e.clientY;
-    const pos = point.matrixTransform(svg.current.getScreenCTM().inverse());
-    setOffset([
-      Math.max(-w / 2, Math.min(w / 2, pos.x)),
-      Math.max(-h / 2, Math.min(h / 2, pos.y)),
-    ]);
-  };
+  const positions = () => (
+    <div className="preview-positions">
+      {[[0, "到点"], [0.15, "近距"], [0.5, "中距"], [1, "边界"]].map(([fraction, label]) => (
+        <button key={label} disabled={disabled || !g} onClick={() => setOffset([
+          (mode === "acquire" ? g.radius : g.follow_radius) * fraction, 0,
+        ])}>{label}</button>
+      ))}
+    </div>
+  );
+  const coordinates = () => (
+    <div className="preview-coordinates">
+      <span>横向 <strong>{fmt(Number(offset[0].toFixed(1)))} px</strong></span>
+      <span>纵向 <strong>{fmt(Number(offset[1].toFixed(1)))} px</strong></span>
+      <span>距准星 <strong>{fmt(Number(Math.hypot(...offset).toFixed(1)))} px</strong></span>
+    </div>
+  );
   return (
+    <Dialog.Root open={observing} onOpenChange={setObserving}>
     <aside ref={panel} className="aside">
       <div>
         <div className="preview-heading">
@@ -113,145 +122,25 @@ export function Preview({
               <option value="follow">持续跟随</option>
             </select>
           )}
-          {!showModeSwitch && <span>可拖动目标</span>}
+          <Dialog.Trigger asChild>
+            <button className="icon-button quiet" aria-label="打开观察窗口" title="打开观察窗口"
+              disabled={disabled || !g}><Maximize2 size={16} /></button>
+          </Dialog.Trigger>
         </div>
-        <div className="preview-surface live-preview">
-          <svg
-            ref={svg}
-            viewBox={`${-span / 2} ${-span / 2} ${span} ${span}`}
-            role="img"
-            aria-label="准星与目标范围"
-            onPointerDown={(e) => {
-              if (disabled || !g) return;
-              drag.current = true;
-              e.currentTarget.setPointerCapture(e.pointerId);
-              place(e);
-            }}
-            onPointerMove={(e) => {
-              if (drag.current) place(e);
-            }}
-            onPointerUp={() => (drag.current = false)}
-            onPointerCancel={() => (drag.current = false)}
-          >
-            <defs>
-              <pattern
-                id="dots"
-                width="28"
-                height="28"
-                patternUnits="userSpaceOnUse"
-              >
-                <circle cx="1" cy="1" r="1" fill="#b7c79f" />
-              </pattern>
-            </defs>
-            <rect
-              x={-span / 2}
-              y={-span / 2}
-              width={span}
-              height={span}
-              fill="url(#dots)"
-            />
-            {g && (
-              <>
-                <rect
-                  x={-w / 2}
-                  y={-h / 2}
-                  width={w}
-                  height={h}
-                  fill="none"
-                  stroke="#b9cba9"
-                  strokeDasharray="5 7"
-                />
-                {[
-                  ["radius", "acquire"],
-                  ["follow_radius", "follow"],
-                ].map(([key, m]) => (
-                  <circle
-                    key={key}
-                    r={g[key]}
-                    fill="none"
-                    stroke={m === mode ? "#476d39" : "#8a9f77"}
-                    strokeWidth={m === mode ? 2.5 : 1}
-                    strokeDasharray={m === mode ? "7 7" : "2 8"}
-                  />
-                ))}
-                <path d="M-12 0H12M0-12V12" stroke="#5d7150" strokeWidth="2" />
-                <g
-                  transform={`translate(${offset[0] - g.aim[0]},${offset[1] - g.aim[1]})`}
-                >
-                  <rect
-                    width={g.body_width}
-                    height={g.body_height}
-                    fill="#9cb38c55"
-                    stroke="#749061"
-                    rx="3"
-                  />
-                  <rect
-                    x={g.region[0]}
-                    y={g.region[1]}
-                    width={g.region[2] - g.region[0]}
-                    height={g.region[3] - g.region[1]}
-                    fill="#dde9c9"
-                    stroke="#799469"
-                  />
-                </g>
-                <path
-                  d={`M0 0L${offset.join(" ")}`}
-                  stroke="#829974"
-                  strokeDasharray="4 6"
-                />
-                <circle cx={offset[0]} cy={offset[1]} r="6" fill="#286750" />
-                <text
-                  x={offset[0] + 12}
-                  y={offset[1] - 12}
-                  fontSize="17"
-                  fill="#3f6036"
-                >
-                  目标点
-                </text>
-              </>
-            )}
-          </svg>
-        </div>
-        {error ? (
-          <p className="inline-error">{error}</p>
+        <RangePlot geometry={g} offset={offset} setOffset={setOffset} mode={mode}
+          width={span} height={span} disabled={disabled || observing} />
+        {error ? <p className="inline-error" role="alert">{error}</p> : !g ? (
+          <p className="note" role="status">正在读取范围…</p>
         ) : (
           <div className="preview-readout">
-            <strong>
-              {fmt(
-                Number(
-                  (mode === "acquire" ? g?.radius : g?.follow_radius)?.toFixed(
-                    1,
-                  ),
-                ),
-              )}{" "}
-              <small>px</small>
-            </strong>
             <span>实际{mode === "acquire" ? "抓取" : "跟随"}半径</span>
+            <strong>{fmt(Number((mode === "acquire" ? g.radius : g.follow_radius).toFixed(1)))} <small>px</small></strong>
           </div>
         )}
-        <div className="preview-positions">
-          {[
-            [0, "到点"],
-            [0.15, "近距"],
-            [0.5, "中距"],
-            [1, "边界"],
-          ].map(([f, label]) => (
-            <button
-              key={f}
-              disabled={!g}
-              onClick={() =>
-                setOffset([
-                  (mode === "acquire" ? g.radius : g.follow_radius) * f,
-                  0,
-                ])
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {coordinates()}
+        {positions()}
         <details className="preview-settings">
-          <summary>示例设置 · 高度、姿态与位置</summary>
+          <summary>示例设置</summary>
           <div className="preview-options">
             <label>
               目标高度{" "}
@@ -305,7 +194,7 @@ export function Preview({
         </details>
       </div>
       <div className="preview-info">
-        <h3>线性响应示例 · 非实时输出</h3>
+        <h3>线性响应示例（非实时）</h3>
         <dl>
           {[
             ["横向", g?.stick?.[0]],
@@ -319,5 +208,32 @@ export function Preview({
         </dl>
       </div>
     </aside>
+      <Dialog.Portal>
+        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Content className="dialog-content observation-window" style={{ "--observation-width": `${Math.max(600, Math.min(1000, w + 48))}px` }}>
+          <Dialog.Title>范围观察</Dialog.Title>
+          <Dialog.Description>按住空白处拖动目标，准星保持固定。范围示意，非实时画面。</Dialog.Description>
+          <Dialog.Close className="icon-button dialog-close" aria-label="关闭观察窗口"><X size={18} /></Dialog.Close>
+          <fieldset className="observation-controls" disabled={disabled}>
+            <div className="observation-toolbar">
+              <span>采集范围 <strong>{w} × {h}</strong></span>
+              <select aria-label="观察阶段" value={mode} onChange={(e) => setMode(e.target.value)}>
+                <option value="acquire">首次瞄准</option>
+                <option value="follow">持续跟随</option>
+              </select>
+            </div>
+            <RangePlot geometry={g} offset={offset} setOffset={setOffset} mode={mode}
+              width={w} height={h} disabled={disabled} observation />
+            <div className="observation-legend">
+              <span className={mode === "acquire" ? "active" : ""}>抓取半径 {g ? fmt(Number(g.radius.toFixed(1))) : "—"} px</span>
+              <span className={mode === "follow" ? "active" : ""}>跟随半径 {g ? fmt(Number(g.follow_radius.toFixed(1))) : "—"} px</span>
+            </div>
+            {coordinates()}
+            {positions()}
+            {error && <p className="inline-error" role="alert">{error}</p>}
+          </fieldset>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
