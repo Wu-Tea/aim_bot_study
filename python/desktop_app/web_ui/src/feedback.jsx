@@ -74,10 +74,10 @@ export function Feedback({ status, logs, run }) {
           </thead>
           <tbody>
             {[
-              "跟随 · 普通区",
-              "跟随 · 减速区",
-              "ADS · 普通区",
-              "ADS · 减速区",
+              "跟随普通区",
+              "跟随减速区",
+              "ADS 普通区",
+              "ADS 减速区",
             ].map((label, index) => {
               const value = status.learning?.regions[index];
               return (

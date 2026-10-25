@@ -83,6 +83,28 @@ def main():
                         visible:enabled.getBoundingClientRect().height>0 && strength.getBoundingClientRect().height>0};
                 })()''')
                 assert haptics=={'enabled':False,'strength':'24','visible':True}, haptics
+                palette=window.evaluate_js('''(() => {
+                    const input=document.querySelector('[aria-label="敌人标识颜色色盘"]');
+                    return {type:input.type,value:input.value};
+                })()''')
+                assert palette=={'type':'color','value':'#ff00ff'}, palette
+                for color in ('#00ff00','#ff00ff'):
+                    window.evaluate_js('''(() => {
+                        const input=document.querySelector('[aria-label="敌人标识颜色色盘"]');
+                        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,''' + json.dumps(color) + ''');
+                        input.dispatchEvent(new Event('input',{bubbles:true}));
+                    })()''')
+                    actual=window.evaluate_js('document.getElementById("f-runtime.vision.enemy_marker_color").value')
+                    assert actual==color.upper(), actual
+                window.evaluate_js('document.querySelector("[aria-label=\\"打开观察窗口\\"]").click()')
+                time.sleep(.2)
+                observation=window.evaluate_js('''(() => {
+                    const svg=document.querySelector('.observation-surface svg');
+                    const matrix=svg.getScreenCTM();
+                    return {viewBox:svg.getAttribute('viewBox'),equalScale:Math.abs(matrix.a-matrix.d)<1e-6};
+                })()''')
+                assert observation=={'viewBox':'-320 -256 640 512','equalScale':True}, observation
+                window.evaluate_js('document.querySelector("[aria-label=\\"关闭观察窗口\\"]").click()')
                 window.evaluate_js('''(() => {
                     document.getElementById('f-gamepad.detection_haptics.enabled').click();
                     const input=document.getElementById('f-gamepad.detection_haptics.strength');
@@ -118,7 +140,7 @@ def main():
                 })()''')
                 deadline=time.monotonic()+5
                 while time.monotonic()<deadline:
-                    if window.evaluate_js('document.body.innerText.includes("有未保存修改")'):break
+                    if window.evaluate_js('document.querySelector(".save-state")?.textContent === "未保存"'):break
                     time.sleep(.1)
                 else:raise RuntimeError('Native host did not register draft edit')
                 window.destroy()  # Exercise the native closing event, not only JS.
@@ -130,7 +152,7 @@ def main():
                 window.evaluate_js('Array.from(document.querySelectorAll("[role=dialog] button")).find(e=>e.textContent==="取消").click()')
                 print(json.dumps({'webview2_bootstrap':True,'title':state['title'],'bridge':state['bridge'],
                     'profile_loaded':True,'native_close_guard':True,'directional_haptics_saved':True,
-                    'capture_toggle_and_running_guard':True,'layouts':layouts}),flush=True)
+                    'capture_toggle_and_running_guard':True,'palette_and_observation':True,'layouts':layouts}),flush=True)
             except Exception as error:failure.append(error)
             finally:window.run_js('window.pywebview.api.dispatch("window_close")')
         launch(folder,service=service,ready=check)
