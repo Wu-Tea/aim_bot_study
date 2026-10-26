@@ -310,6 +310,255 @@ void cue_controller_integration() {
 }
 }
 void register_cue_identity_tests(native_test::Registry& registry) {
+    registry.add_case("BaseVisionSelection","cue_returns_after_person_occlusion",[] {
+        auto s=selector();Scene f;f.cue(300,200);f.person(300,200);const auto ref=f.run(s);
+        // Marker hidden first, real body still observed; then both disappear.
+        for(int i=0;i<25;++i){f.clear();f.person(300,200);require(f.run(s).has_target,"person OR admission during cue gap");}
+        for(int i=0;i<9;++i){f.clear();require(!f.run(s).has_target,"missing evidence cannot produce aim");}
+        f.clear();f.cue(306,203);const auto r=f.run(s);
+        require(r.has_target && !r.has_selected_detection && r.selector_target_generation>=ref.selector_target_generation &&
+            std::abs(r.target_x-ref.target_x-6)<.001f && std::abs(r.target_y-ref.target_y-3)<.001f,
+            "current unique cue must recover recent body calibration without a new full person");
+        require(!r.fire_authority,"recovered cue remains aim-only");
+    });
+    registry.add_case("BaseVisionSelection","background_growth_cannot_disprove_visible_cue",[] {
+        auto s=selector();Scene f;f.cue(310,229);f.person(310,229);auto& d=f.batch.detections.back();
+        d.x1=292;d.x2=328;d.y1=244;d.y2=294;const auto ref=f.run(s);
+        f.clear();f.cue(310,229);f.person(310,229);auto& b=f.batch.detections.back();
+        b.x1=281;b.x2=327;b.y1=183;b.y2=292;auto r=f.run(s);
+        require(r.has_target && !r.has_selected_detection && std::abs(r.target_y-ref.target_y)<.001f,
+            "a box growing above a reliable head cue is not independent recovery evidence");
+        f.clear();f.cue(308,230);r=f.run(s);
+        require(r.has_target && std::abs(r.target_y-ref.target_y-1)<.001f,"background must not discard cue reference");
+    });
+    registry.add_case("BaseVisionSelection","cue_recovery_requires_current_unique_recent_evidence",[] {
+        for(unsigned seed:{20261025u,73129u,880301u,407771u})for(int cycles:{4,40}) {
+            std::mt19937 rng(seed);auto s=selector();Scene f;
+            for(int cycle=0;cycle<cycles;++cycle) {
+                s.reset();const int x=270+int(rng()%81),y=180+int(rng()%41);
+                f.clear();f.cue(x,y);f.person(float(x),float(y));const auto ref=f.run(s);require(ref.has_target,"seed");
+                for(int i=0;i<15;++i){f.clear();f.person(float(x),float(y));require(f.run(s).has_target,"live person during cue loss");}
+                for(int i=0;i<8;++i){f.clear();require(!f.run(s).has_target,"no output from retained calibration alone");}
+                f.clear();f.cue(x-10,y);f.cue(x+10,y);require(!f.run(s).has_target,"ambiguous current cues cannot recover");
+                if(cycle%2) {
+                    for(int i=0;i<12;++i){f.clear();require(!f.run(s).has_target,"expiry produces no output");}
+                    f.clear();f.cue(x,y);require(!f.run(s).has_target,"expired calibration cannot be revived");
+                } else {
+                    f.clear();f.cue(x+3,y+2);auto r=f.run(s);
+                    require(r.has_target && !r.fire_authority && std::abs(r.target_x-ref.target_x-3)<.001f,
+                        "recent unique reacquisition is aim-only at the calibrated anatomy");
+                    s.reset();f.clear();f.cue(x+3,y+2);require(!f.run(s).has_target,"explicit reset discards recovery evidence");
+                }
+            }
+        }
+    });
+    registry.add_case("BaseVisionSelection","side_pose_cue_keeps_body_during_occlusion",[] {
+        auto s=selector();Scene f;f.cue(330,213);
+        Detection d;d.x1=296;d.x2=332;d.y1=243;d.y2=314;d.conf=.85f;
+        f.batch.detections={d};f.run(s);f.batch.captured_at_ns+=10'000'000;const auto ref=f.run(s);
+        require(ref.has_selected_detection,"side-facing body acquires independently");
+        for(int i=0;i<25;++i) {
+            f.clear();f.cue(330+i%3,213+i%5);const auto r=f.run(s);
+            require(r.has_target && !r.has_selected_detection &&
+                std::abs(r.target_x-ref.target_x-i%3)<.001f &&
+                std::abs(r.target_y-ref.target_y-i%5)<.001f,
+                "a head near the shoulder is valid anatomy, not an inflated side-box cue");
+        }
+    });
+    registry.add_case("BaseVisionSelection","cue_calibration_cannot_ratchet_top_gap",[] {
+        for (unsigned seed:{73129u,880301u,407771u,20261025u}) for (int duration:{120,1200}) {
+            auto s=selector();Scene f;std::mt19937 rng(seed);
+            f.cue(300,230);f.person(300,230);const auto initial=f.run(s);
+            for(int i=0;i<duration;++i) {
+                const int x=300+int(12*std::sin(i*.03)),y=230+int(8*std::cos(i*.04));
+                const float drift=float(std::min(37,i/3));
+                f.clear();f.cue(x,y);f.person(float(x),float(y),.8f+float(rng()%10)*.01f);
+                f.batch.detections.back().y1-=drift;
+                const auto r=f.run(s);
+                require(r.has_target && std::abs((r.target_y-y)-(initial.target_y-230))<=12,
+                    "bounded top-edge noise must not accumulate into cue offset drift");
+            }
+            f.clear();f.cue(300,230);f.person(300,230);auto r=f.run(s);
+            require(r.has_selected_detection && std::abs(r.target_y-initial.target_y)<.001f,
+                "original body must recover immediately against fixed calibration");
+        }
+    });
+    registry.add_case("BaseVisionSelection","cue_has_one_body_owner",[] {
+        auto s=selector();Scene f;f.cue(340,203);
+        Detection near;near.x1=64;near.y1=197;near.x2=354;near.y2=511;near.conf=.69f;
+        Detection far;far.x1=322;far.y1=215;far.x2=348;far.y2=273;far.conf=.61f;
+        f.batch.detections={near,far};auto r=f.run(s);
+        require(!r.selection_diagnostics.boxes[0].has_cue && r.selection_diagnostics.boxes[1].has_cue,
+            "foreground body cannot borrow the better-matched background cue");
+        f.batch.captured_at_ns+=10'000'000;std::reverse(f.batch.detections.begin(),f.batch.detections.end());r=f.run(s);
+        require(r.selection_diagnostics.boxes[0].has_cue && !r.selection_diagnostics.boxes[1].has_cue,
+            "mutual cue ownership must not depend on detection ordering");
+    });
+    registry.add_case("BaseVisionSelection","unpaired_fragment_or_background_cannot_replace_fresh_cue_body",[] {
+        auto s=selector();Scene f;f.cue(300,180);f.person(300,180);const auto initial=f.run(s);
+        for(const bool background:{false,true}) {
+            f.clear();f.cue(300,180);f.person(300,180,.95f);auto& d=f.batch.detections.back();
+            if(background){d.x1=230;d.x2=578;d.y1=0;d.y2=246;}
+            else {d.x1=295;d.x2=325;d.y1=171;d.y2=200;}
+            const auto r=f.run(s);
+            require(r.has_target && !r.has_selected_detection && r.selector_target_generation==initial.selector_target_generation &&
+                std::abs(r.target_y-initial.target_y)<.001f,
+                "independent false/partial box cannot overwrite same-identity anatomy");
+        }
+    });
+    registry.add_case("BaseVisionSelection","edge_cue_cannot_calibrate_inflated_body",[] {
+        auto s=selector();Scene f;f.cue(15,14);
+        Detection d;d.x1=0;d.y1=0;d.x2=624;d.y2=512;d.conf=.9f;f.batch.detections={d};
+        f.run(s);f.batch.captured_at_ns+=10'000'000;auto r=f.run(s);
+        require(r.has_selected_detection,"person-only acquisition stays available at the edge");
+        f.clear();f.cue(25,14);r=f.run(s);
+        require(!r.has_target,"side marker must not retain a 300px invented body offset");
+    });
+    registry.add_case("BaseVisionSelection","friendly_marker_cut_by_roi_boundary",[] {
+        for(int top=196;top<=200;++top) {
+            auto s=selector();Scene f;f.person(209,185);auto& d=f.batch.detections.back();
+            d.x1=64;d.x2=354;d.y1=float(top);d.y2=511;
+            for(int y=-5;y<=5;++y)for(int x=-5;x<=5;++x)if(x*x+y*y>=9 && x*x+y*y<=25){
+                auto* p=&f.pixels[((156+y)*640+183+x)*4];p[0]=p[1]=255;
+            }
+            const auto r=f.run(s);
+            if(!r.detections[0].is_friendly)throw std::runtime_error("compact cyan marker lost at ROI body top="+std::to_string(top));
+        }
+    });
+    registry.add_case("BaseVisionSelection","close_body_head_fragment_keeps_anatomy",[] {
+        auto s=selector();Scene f;f.cue(310,215);
+        Detection d;d.x1=72;d.y1=127;d.x2=567;d.y2=512;d.conf=.8f;f.batch.detections={d};
+        const auto ref=f.run(s);require(ref.has_selected_detection,"close cropped actor acquires");
+        f.clear();f.cue(310,217);d.x1=310;d.x2=473;d.y1=132;d.y2=295;d.conf=.9f;f.batch.detections={d};
+        const auto r=f.run(s);
+        require(r.has_target && !r.has_selected_detection && std::abs(r.target_y-ref.target_y-2)<.001f,
+            "uncued head fragment cannot bypass current close-body reference");
+    });
+    registry.add_case("BaseVisionSelection","cue_owned_identity_expires_without_evidence",[] {
+        auto s=selector();Scene f;f.cue(300,180);f.person(300,180);require(f.run(s).has_target,"seed");
+        for(int i=0;i<12;++i){f.clear();require(!f.run(s).has_target,"no synthetic output on missing evidence");}
+        f.clear();f.person(300,180,.44f);
+        require(!f.run(s).has_target,"expired enemy evidence cannot lend tracking confidence to a new object");
+        f.clear();f.person(300,180,.9f);f.run(s);
+        f.clear();f.person(300,180,.9f);
+        require(f.run(s).has_target,"independent person acquisition survives cue expiry");
+    });
+    registry.add_case("BaseVisionSelection","short_person_gap_retains_tracking_admission",[] {
+        auto s=selector();Scene f;f.cue(300,180);f.person(300,180);const auto ref=f.run(s);
+        for(int i=0;i<3;++i){f.clear();f.run(s);}
+        f.clear();f.person(300,180,.45f);const auto r=f.run(s);
+        require(r.has_target && r.has_selected_detection && r.selector_target_generation==ref.selector_target_generation,
+            "brief body gap preserves tracking confidence without requiring reacquisition");
+    });
+    registry.add_case("BaseVisionSelection","unpaired_same_body_cannot_discard_calibration",[] {
+        auto s=selector();Scene f;f.cue(320,220);f.person(320,220,.9f);const auto ref=f.run(s);
+        for(int h=120;h>=30;--h) {
+            f.clear();f.cue(320,220);f.person(320,220,.9f);f.batch.detections.back().y2=232+float(h);
+            Detection fragment;fragment.x1=310;fragment.x2=330;fragment.y1=225;fragment.y2=250;fragment.conf=.2f;
+            f.batch.detections.push_back(fragment);const auto r=f.run(s);
+            require(r.has_target && std::abs(r.target_y-ref.target_y)<=4,
+                "temporary lack of unique pairing is not contrary evidence against the reference");
+        }
+    });
+    registry.add_case("BaseVisionSelection","small_side_object_is_not_close_actor_identity",[] {
+        auto s=selector();Scene f;
+        Detection d;d.x1=149;d.y1=98;d.x2=581;d.y2=512;d.conf=.9f;f.batch.detections={d};
+        f.run(s);f.batch.captured_at_ns+=10'000'000;require(f.run(s).has_target,"close person");
+        f.clear();d.x1=546;d.y1=142;d.x2=639;d.y2=356;f.batch.detections={d};
+        require(!f.run(s).has_target,"side object cannot inherit large body's identity via center tolerance");
+    });
+    registry.add_case("BaseVisionSelection","independent_body_retires_contradicted_extent",[] {
+        auto s=selector();Scene f;
+        auto body=[&](float top) {f.person(320,220,.9f);auto& d=f.batch.detections.back();d.x1=305;d.x2=335;d.y1=top;d.y2=312;};
+        f.cue(320,220);body(252);require(f.run(s).has_target,"partial initial pair");
+        // Two plausible person pairings, but the already tracked cue is unique
+        // in motion space. Recovery must still respect head-above-body anatomy.
+        f.clear();f.cue(320,220);f.cue(320,208);body(232);auto full=f.run(s);
+        require(full.has_selected_detection,"complete body below the head cue remains authoritative");
+        f.clear();f.cue(320,220);body(234);full=f.run(s);
+        require(full.has_selected_detection && std::abs(full.target_y-249.6f)<.001f,
+            "old partial geometry must not veto anatomically supported recovery");
+        s.reset();f.clear();f.cue(320,220);f.person(320,220);const auto ref=f.run(s);
+        f.clear();f.cue(320,220);f.person(320,220,.95f);f.batch.detections.back().y1=310;
+        require(!f.run(s).has_selected_detection,"same-identity contracting fragment cannot override fresh cue anatomy");
+        f.clear();f.cue(320,220);auto held=f.run(s);
+        require(held.has_target && std::abs(held.target_y-ref.target_y)<.001f,
+            "an unpaired contracting fragment must not discard the calibrated body extent");
+    });
+    registry.add_case("BaseEndToEnd","ironsight_extent_does_not_create_vertical_command",[] {
+        double now=1;
+        controller_native::NativeGamepadController controller(
+            controller_native::incident_fixture::base_config(40,180),&now);
+        auto s=selector();Scene f;const auto physical=controller_native::incident_fixture::ads_input();
+        for(int i=0;i<400;++i) {
+            f.clear();f.cue(320,220);f.person(320,220,.9f);
+            auto& d=f.batch.detections.back();d.x1=297.5f;d.x2=342.5f;d.y1=238;d.y2=328;
+            if(i>=40 && i<350) {d.x1=306;d.x2=334;d.y2=278;}
+            auto r=f.run(s);now=double(f.batch.captured_at_ns)*1e-9;
+            r.frame_id=++f.batch.frame_id;r.captured_at_ns=f.batch.captured_at_ns;
+            r.result_at_ns=r.captured_at_ns;r.frame_updated=true;
+            controller.submit_vision_snapshot(runtime_app::adapt_vision_result(r));
+            const auto output=controller.build_output(physical);
+            require(r.has_target && std::abs(r.target_y-256)<.001f,"stationary chest stays centered during occlusion");
+            require(std::abs(output.right_y)<.001f,"box truncation must not manufacture an upward stick command");
+        }
+    });
+    registry.add_case("BaseVisionSelection","cue_extent_scale_and_gradual_truncation",[] {
+        for(unsigned seed:{25102501u,32453011u,49980211u,104396183u})
+        for(int duration:{120,1200}) {
+            std::mt19937 rng(seed);auto s=selector();Scene f;
+            const float phase=(rng()%1000)*.01f;
+            // Independent, explicit trajectory: translation + whole-body scale,
+            // UI gap either fixed or proportional. No visibility inference oracle.
+            for(int i=0;i<duration;++i) {
+                f.clear();const int x=300+int(18*std::sin(i*.05+phase)),y=210+int(12*std::cos(i*.03));
+                const float scale=1+.3f*std::sin(i*.025+phase);
+                const float gap=seed%2 ? 12.f : 12*scale;
+                f.cue(x,y);f.person(x,y,.95f);auto& d=f.batch.detections.back();
+                d.x1=x-25*scale;d.x2=x+25*scale;d.y1=y+gap;d.y2=d.y1+120*scale;
+                auto r=f.run(s);
+                require(r.has_selected_detection && std::abs(r.target_y-(d.y1+24*scale))<.001f,
+                    "real uniform scale/translation must update anatomy immediately");
+            }
+            s.reset();f.clear();f.cue(320,210);f.person(320,210);const auto ref=f.run(s);
+            // One-pixel contractions must not repeatedly retrain the shape model.
+            // Edge tolerance allows <= 4 px anatomy variation, not a collapse.
+            for(int h=119;h>=24;--h) {
+                f.clear();f.cue(320,210);f.person(320,210,.95f);
+                f.batch.detections.back().y2=222+float(h);auto r=f.run(s);
+                require(r.has_target && r.selector_target_generation==ref.selector_target_generation &&
+                    std::abs(r.target_y-ref.target_y)<=4,
+                    "gradual high-confidence truncation must have bounded anatomy drift");
+            }
+            f.clear();f.cue(320,210);f.person(320,210);auto r=f.run(s);
+            require(r.has_selected_detection && std::abs(r.target_y-ref.target_y)<.001f,"recovery without delay");
+            f.clear();f.cue(320,210);r=f.run(s);
+            require(r.has_target && std::abs(r.target_y-ref.target_y)<.001f,"recovered body owns cue-only geometry");
+        }
+    });
+    registry.add_case("BaseVisionSelection","ironsight_fragment_cannot_recalibrate_cue",[] {
+        auto s=selector();Scene f;
+        auto body=[&](float w,float h,float gap,float conf) {
+            f.person(320,220,conf);auto& d=f.batch.detections.back();
+            d.x1=320-w*.5f;d.x2=320+w*.5f;d.y1=220+gap;d.y2=d.y1+h;
+        };
+        // Rounded recorded dimensions: full person -> iron-sight upper fragment
+        // -> background above the cue. Confidence alone does not encode extent.
+        f.cue(320,220);body(45.17f,87.33f,27,.65f);const auto ref=f.run(s);
+        require(ref.has_target,"complete seed");
+        for(auto dims:{std::array<float,4>{30.33f,44.33f,27.67f,.69f},
+                       {29.17f,39,28.67f,.81f},{22,33.33f,23,.52f},
+                       {28.83f,62.67f,-7.5f,.57f}}) {
+            f.clear();f.cue(320,220);body(dims[0],dims[1],dims[2],dims[3]);
+            const auto r=f.run(s);
+            require(r.has_target && std::abs(r.target_y-ref.target_y)<.001f,
+                "high-confidence partial boxes must not pull the cue-relative chest upward");
+            require(!r.fire_authority && !r.has_selected_detection && r.selector_target_generation==ref.selector_target_generation,
+                "untrusted geometry uses existing aim-only cue continuation");
+        }
+        f.clear();f.cue(320,220);body(45,87,28,.9f);const auto recovered=f.run(s);
+        require(recovered.has_selected_detection && recovered.fire_authority,"complete person recovers immediately");
+    });
     registry.add_case("BaseVisionSelection","configurable_marker_palette_rgb_domain",[] {
         using pipeline_contract::MarkerPalette;
         const auto palette=MarkerPalette::from_hex("ff00ff","#00FFFF");

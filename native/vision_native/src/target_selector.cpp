@@ -670,7 +670,8 @@ MarkerCueObservation match_cue_patch(
 ColorClassification classify_color(
     const VisionTargetSelector::Rect& box,
     const VisionTargetSelector::ColorFrameView& frame,
-    bool friendly_filter_enabled, const pipeline_contract::MarkerPalette& palette) {
+    bool friendly_filter_enabled, const pipeline_contract::MarkerPalette& palette,
+    CueDetector* boundary_detector) {
     if (frame.data == nullptr || frame.width <= 0 || frame.height <= 0 || frame.row_pitch <= 0) {
         return {};
     }
@@ -685,6 +686,8 @@ ColorClassification classify_color(
     }
 
     int friendly_count = 0;
+    int friendly_left=bounds->right,friendly_right=bounds->left;
+    bool friendly_at_top=false;
     int cue_pixels = 0;
     float cue_sum_x = 0.0f;
     float cue_sum_y = 0.0f;
@@ -698,6 +701,8 @@ ColorClassification classify_color(
 
             if (palette.friendly.matches(r, g, b)) {
                 ++friendly_count;
+                friendly_left=std::min(friendly_left,x);friendly_right=std::max(friendly_right,x);
+                friendly_at_top=friendly_at_top || y==bounds->top;
             }
             if (palette.enemy.matches(r, g, b)) {
                 ++cue_pixels;
@@ -716,6 +721,41 @@ ColorClassification classify_color(
     if (friendly_filter_enabled && kFriendlyMaskMinRatio <= friendly_ratio && friendly_ratio <= kFriendlyMaskMaxRatio) {
         classification.is_friendly = true;
         return classification;
+    }
+    if (friendly_filter_enabled && boundary_detector && friendly_count==0 && bounds->top>=4) {
+        // A four-row-high marker can also lie just outside the moving ROI.
+        // One sparse seed row closes that edge gap without enlarging every
+        // pixel scan or altering the enemy-color statistics.
+        const IntRect seed{bounds->left,bounds->top-4,bounds->right,bounds->top-3};
+        if (frame_covers(seed,frame)) for(int x=seed.left;x<seed.right;++x) {
+            int r=0,g=0,b=0;read_rgb(frame,x,seed.top,r,g,b);
+            if(palette.friendly.matches(r,g,b)) {
+                ++friendly_count;friendly_at_top=true;
+                friendly_left=std::min(friendly_left,x);friendly_right=std::max(friendly_right,x);
+            }
+        }
+    }
+    if (friendly_filter_enabled && boundary_detector && friendly_at_top && friendly_count>0 &&
+        friendly_ratio<kFriendlyMaskMinRatio && friendly_right-friendly_left<18) {
+        // Recover a marker cut by the ROI edge, not a lower area threshold.
+        // Reuse the compact-component detector in a <=37x37 local patch;
+        // large colored background still fails its shape/extent checks.
+        const int cx=(friendly_left+friendly_right)/2;
+        const IntRect patch{std::max(0,cx-18),std::max(0,bounds->top-18),
+            std::min(effective_frame_width(frame),cx+19),
+            std::min(effective_frame_height(frame),bounds->top+19)};
+        if (frame_covers(patch,frame)) {
+            const int channels=frame.format==PixelFormat::BGRA8 ? 4 : 3;
+            boundary_detector->set_enemy_color(palette.friendly);
+            const auto* pixels=frame.data+(patch.top-frame.origin_y)*frame.row_pitch+
+                (patch.left-frame.origin_x)*channels;
+            const auto& marks=boundary_detector->detect(pixels,patch.right-patch.left,patch.bottom-patch.top,
+                frame.row_pitch,frame.format,patch.left,patch.top);
+            for (const auto& mark:marks) if (mark.x>=bounds->left && mark.x<bounds->right &&
+                std::abs(mark.y-bounds->top)<=9) {
+                classification.is_friendly=true;return classification;
+            }
+        }
     }
 
     classification.has_cue = cue_pixels >= kCueMinPixels;
@@ -776,6 +816,7 @@ void VisionTargetSelector::reset() {
 }
 
 void VisionTargetSelector::clear_tracking_state() {
+    last_identity_evidence_ns_=0;
     association_ns_=0;
     association_velocity_valid_=false;
     association_ambiguous_=false;
@@ -990,7 +1031,8 @@ DetectionBatch VisionTargetSelector::annotate_colors(
     const ColorFrameView& frame) const {
     DetectionBatch annotated = apply_detection_policy(batch);
     for (auto& detection : annotated.detections) {
-        const ColorClassification classification = classify_color(to_rect(detection), frame, friendly_filter_enabled_, marker_palette_);
+        const ColorClassification classification = classify_color(to_rect(detection), frame, friendly_filter_enabled_, marker_palette_,
+            cue_identity_enabled_ ? &friendly_boundary_detector_ : nullptr);
         detection.color_bonus = classification.color_bonus;
         detection.is_friendly = classification.is_friendly;
         detection.color_classified = true;
@@ -1582,6 +1624,15 @@ VisionTargetSelector::TargetState VisionTargetSelector::target_from_scored_candi
 }
 
 bool VisionTargetSelector::boxes_match(const Rect& lhs, const Rect& rhs) const {
+    if (cue_identity_enabled_) {
+        const float small_width=std::min(rect_width(lhs),rect_width(rhs));
+        const float large_width=std::max(rect_width(lhs),rect_width(rhs));
+        // Broad containment alone does not establish person identity. A
+        // much smaller box at the side of a close actor is a different object;
+        // centered fragments and uniform ADS scale changes remain matchable.
+        if (large_width>2.5f*small_width &&
+            std::abs(rect_center(lhs).first-rect_center(rhs).first)>std::max(8.f,.65f*small_width)) return false;
+    }
     if (rect_iou(lhs, rhs) >= kActiveTargetIouThreshold) {
         return true;
     }
@@ -2281,6 +2332,11 @@ VisionResult VisionTargetSelector::select_impl(
         v.has_cue=d.has_cue_point; v.cue_x=d.cue_x; v.cue_y=d.cue_y; v.cue_score=d.cue_score;
     }
     auto result=cue_identity_enabled_ ? select_cue_identity(batch,frame,intent) : select_impl_core(batch,frame,intent);
+    if (cue_identity_enabled_ && result.has_target && result.has_selected_detection) {
+        last_identity_evidence_ns_=batch.captured_at_ns;
+        if(cue_body_reference_ && cue_body_reference_->generation==selection_.generation())
+            cue_body_reference_->last_person_ns=batch.captured_at_ns;
+    }
     if (cue_identity_enabled_ && result.has_selected_detection && selection_.active() &&
         std::strcmp(selection_.active()->candidate.source,"observed")==0 &&
         batch.captured_at_ns>association_ns_) {
@@ -2387,7 +2443,9 @@ VisionResult VisionTargetSelector::select_impl_core(
                 return result;
             }
         }
-        if (selection_.has_identity() && active_generation_had_enemy_evidence_) {
+        const bool recent_person=last_identity_evidence_ns_ && batch.captured_at_ns>=last_identity_evidence_ns_ &&
+            batch.captured_at_ns-last_identity_evidence_ns_<=kCueHoldEvidenceGapNs;
+        if (selection_.has_identity() && (cue_identity_enabled_ ? recent_person : active_generation_had_enemy_evidence_)) {
             selection_.matched();
             if (last_direct_cue_observation_ns_ == 0 || batch.captured_at_ns == 0) {
                 cue_hold_frames_ = std::min(
@@ -2401,7 +2459,23 @@ VisionResult VisionTargetSelector::select_impl_core(
             return result;
         }
         if (!selection_.retain_miss(kActiveIdentityMissFramesBeforeInvalidation)) {
+            // Expire control identity on its original schedule. Only recent
+            // cue/body calibration survives for a unique current cue to acquire
+            // again; it cannot lend tracking confidence to a new person box.
+            auto recent_geometry=std::move(cue_body_reference_);
+            if(recent_geometry && (!recent_geometry->last_person_ns ||
+                batch.captured_at_ns<recent_geometry->last_person_ns ||
+                batch.captured_at_ns-recent_geometry->last_person_ns>kCueHoldMaxDurationNs))recent_geometry.reset();
+            if(recent_geometry && last_target_center_) {
+                const float dx=last_target_center_->first-recent_geometry->target.candidate.target_x;
+                const float dy=last_target_center_->second-recent_geometry->target.candidate.target_y;
+                auto& c=recent_geometry->target.candidate;
+                c.target_x+=dx;c.target_y+=dy;
+                for(auto* box:{&c.body_box,&c.aim_region,&c.fire_zone}){box->left+=dx;box->right+=dx;box->top+=dy;box->bottom+=dy;}
+                recent_geometry->cue.x+=dx;recent_geometry->cue.y+=dy;
+            }
             clear_tracking_state();
+            cue_body_reference_=std::move(recent_geometry);
         }
         selection_.mark_missing();
         VisionResult result = empty_result(boxes_seen);
