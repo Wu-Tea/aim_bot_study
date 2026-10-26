@@ -202,6 +202,37 @@ class WebServiceTests(unittest.TestCase):
         self.assertFalse(self.service.dispatch('save',self.profile)['ok'])
         self.assertEqual(path.read_bytes(),external)
 
+    def test_bootstrap_reads_once_and_keeps_snapshot_conflict_protection(self):
+        path=self.service.repo.path(self.profile['id'])
+        read=self.service.repo.read
+        original=path.read_bytes()
+        external=original+b'\n'
+        def changing_file(candidate):
+            snapshot=read(candidate)
+            path.write_bytes(external)
+            return snapshot
+        with patch.object(self.service.repo,'read',side_effect=changing_file) as reader:
+            loaded=self.call('bootstrap')['profiles'][0]
+        self.assertEqual(reader.call_count,1)
+        self.assertEqual(self.service.states[loaded['id']][1],original)
+        self.assertFalse(self.service.dispatch('save',loaded)['ok'])
+        self.assertEqual(path.read_bytes(),external)
+        # Explicit reload must still read the current file and establish a new revision.
+        reloaded=self.call('reload',{'id':loaded['id']})
+        self.assertNotEqual(loaded['revision'],reloaded['revision'])
+        self.call('save',reloaded)
+
+    def test_bootstrap_preserves_valid_profiles_and_reports_corrupt_files(self):
+        bad=self.service.repo.path('p_'+'0'*32)
+        bad.write_bytes(b'{broken')
+        with patch.object(self.service.repo,'read',wraps=self.service.repo.read) as reader:
+            boot=self.call('bootstrap')
+        self.assertEqual(reader.call_count,2)
+        self.assertEqual([p['id'] for p in boot['profiles']],[self.profile['id']])
+        self.assertEqual(len(boot['errors']),1)
+        self.assertIn(bad.name,boot['errors'][0])
+        self.assertEqual(bad.read_bytes(),b'{broken')
+
     def test_reset_recovers_invalid_draft(self):
         p=deepcopy(self.profile);p['values']['runtime.vision.capture_fps']=''
         reset=self.call('reset',p)
@@ -218,6 +249,23 @@ class WebServiceTests(unittest.TestCase):
         restored=self.call('raw_apply',{**saved,'text':text})
         self.assertEqual(restored['curve'],saved['curve'])
         self.assertEqual(restored['revision'],saved['revision'])
+
+    def test_preview_contract_is_sufficient_and_preserves_validation(self):
+        values=self.profile['values']
+        paths=self.call('bootstrap')['geometry_fields']
+        projected={path: values[path] for path in paths}
+        self.assertLess(len(projected),len(values))
+        for mode in ('acquire','follow'):
+            for pose in ('standing','crouching','wide'):
+                p=dict(height=22,pose=pose,offset=[70,-30],mode=mode)
+                self.assertEqual(self.call('geometry',dict(p,values=values)),
+                                 self.call('geometry',dict(p,values=projected)))
+        for path in paths:
+            invalid={**projected,path:''}
+            # Inputs specific to the other mode are validated when that mode is used.
+            results=[self.service.dispatch('geometry',dict(values=invalid,height=22,
+                pose='standing',offset=[70,0],mode=mode)) for mode in ('acquire','follow')]
+            self.assertTrue(any(not result['ok'] for result in results),path)
 
     def test_unexposed_raw_parameters_survive_save(self):
         # This valid native parameter has no visible form control.

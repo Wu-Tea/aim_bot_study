@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { Dialog } from "radix-ui";
 import {
@@ -17,7 +17,7 @@ import {
   CircleCheck,
 } from "lucide-react";
 import { IconButton, Menu } from "./controls";
-import { Field, Group } from "./fields";
+import { Field, Group, isFieldValid } from "./fields";
 import { Preview } from "./preview";
 import { CurveEditor } from "./curve-editor";
 import { Feedback } from "./feedback";
@@ -31,6 +31,13 @@ const titles = {
   devices: "模型与设备",
   feedback: "运行反馈",
 };
+const tuningGroups = {
+  acquire: ["首次瞄准"],
+  follow: ["持续跟随"],
+  assist: ["辅助输入", "响应学习与手动介入", "手动输出补偿"],
+  target: ["目标与识别", "人物震动提醒"],
+  fire: ["开火与压枪"],
+};
 function App() {
   const [boot, setBoot] = useState(null),
     [drafts, setDrafts] = useState({}),
@@ -41,6 +48,7 @@ function App() {
   const [previewMode, setPreviewMode] = useState("acquire");
   const [deviceTab, setDeviceTab] = useState("capture");
   const [pointEdits, setPointEdits] = useState({});
+  const [focusField, setFocusField] = useState(null);
   const [restartFor, setRestartFor] = useState(null);
   const [busy, setBusy] = useState(""),
     [notice, setNotice] = useState(null),
@@ -54,19 +62,25 @@ function App() {
     pendingRef = useRef(false),
     statusEpoch = useRef(0),
     viewport = useRef(null);
-  const draft = drafts[selected],
-    dirty = (p) =>
-      p &&
-      (!!pointEdits[p.id] ||
-        !eq(
-          { values: p.values, curve: p.curve, config: p.config },
-          {
-            values: saved[p.id]?.values,
-            curve: saved[p.id]?.curve,
-            config: saved[p.id]?.config,
-          },
-        ));
-  const anyDirty = Object.values(drafts).some(dirty),
+  const draft = drafts[selected];
+  const dirtyById = useMemo(() => Object.fromEntries(
+    Object.values(drafts).map((p) => [p.id,
+      !!pointEdits[p.id] || !eq(
+        { values: p.values, curve: p.curve, config: p.config },
+        { values: saved[p.id]?.values, curve: saved[p.id]?.curve, config: saved[p.id]?.config },
+      ),
+    ]),
+  ), [drafts, saved, pointEdits]);
+  const dirty = (p) => !!p && dirtyById[p.id];
+  // A primitive snapshot keeps unrelated edits out of preview rendering/RPC.
+  const geometryValuesJson = useMemo(() => draft && boot ? JSON.stringify(
+    Object.fromEntries(boot.geometry_fields.map((path) => [path, draft.values[path]])),
+  ) : null, [draft?.values, boot]);
+  const changePreviewMode = useCallback((mode) => {
+    setPreviewMode(mode);
+    if (tab === "acquire" || tab === "follow") setTab(mode);
+  }, [tab]);
+  const anyDirty = Object.values(dirtyById).some(Boolean),
     active = status.record,
     owned = !!(
       draft &&
@@ -143,7 +157,8 @@ function App() {
       const epoch = statusEpoch.current;
       try {
         const s = await rpc("status");
-        if (alive && epoch === statusEpoch.current) setStatus(s);
+        if (alive && epoch === statusEpoch.current)
+          setStatus((previous) => eq(previous, s) ? previous : s);
       } catch (e) {
         if (alive && epoch === statusEpoch.current)
           setNotice({ error: true, text: "运行状态读取失败：" + e.message });
@@ -195,6 +210,20 @@ function App() {
   useEffect(() => {
     viewport.current?.scrollTo(0, 0);
   }, [page]);
+  useEffect(() => {
+    if (!focusField || busy) return;
+    const input = document.getElementById(focusField.id);
+    if (input) {
+      let disclosure = input.closest("details");
+      while (disclosure) {
+        disclosure.open = true;
+        disclosure = disclosure.parentElement?.closest("details");
+      }
+      input.focus({ preventScroll: true });
+      input.scrollIntoView({ block: "center", behavior: "auto" });
+    }
+    setFocusField(null);
+  }, [focusField, busy, page, tab, deviceTab, selected]);
   const valuesUpdate = (changes) =>
     setDraft({ ...draft, values: { ...draft.values, ...changes } });
   const setValue = (path, value) => valuesUpdate({ [path]: value });
@@ -251,8 +280,29 @@ function App() {
     } else if (result.message) setNotice({ text: result.message });
   };
   const proposal = (candidate = draft) => {
-    if (pointEdits[candidate.id])
+    if (pointEdits[candidate.id]) {
+      setSelected(candidate.id);
+      setPage("curves");
+      setFocusField({ id: "curve-point-response" });
       throw Error("有尚未应用的曲线点位，请在响应曲线中应用或取消后再保存。");
+    }
+    const invalid = boot.fields.find((field) =>
+      !field.readonly && !isFieldValid(field, candidate.values[field.path]),
+    );
+    if (invalid) {
+      setSelected(candidate.id);
+      const section = Object.entries(tuningGroups).find(([, names]) => names.includes(invalid.group));
+      if (section) {
+        setPage("tuning");
+        setTab(section[0]);
+        if (["acquire", "follow"].includes(section[0])) setPreviewMode(section[0]);
+      } else {
+        setPage("devices");
+        setDeviceTab(invalid.group === "捕获与模型" ? "capture" : "input");
+      }
+      setFocusField({ id: "f-" + invalid.path });
+      throw Error(`请检查“${invalid.label}”，当前填写的值无效。`);
+    }
     return candidate;
   };
   const save = (apply = true) =>
@@ -443,7 +493,7 @@ function App() {
       start(m.candidate, m.identity);
     } else submitModal();
   };
-  const groups = boot ? Object.groupBy(boot.fields, (f) => f.group) : {};
+  const groups = useMemo(() => boot ? Object.groupBy(boot.fields, (f) => f.group) : {}, [boot]);
   const grouped = (names, fold = false) =>
     names
       .filter((name) => groups[name]?.length)
@@ -474,8 +524,12 @@ function App() {
     );
   const menuItems = draft
     ? [
-        { label: "仅保存配置", action: () => save(false) },
-        { label: "重启当前配置…", action: () => start() },
+        ...(owned ? [{ label: "仅保存配置", action: () => save(false) }] : []),
+        {
+          label: owned ? "重启当前配置…" : active ? "切换并启动…" : "启动配置",
+          action: () => start(),
+          disabled: transitioning || !draft.values["runtime.vision.model_path"],
+        },
         {
           label: "编辑完整配置…",
           action: () =>
@@ -569,10 +623,17 @@ function App() {
                 </span>
             </div>
             <div className="top-actions">
-              <span className="run-state">
+              <span className="run-state" title={active && drafts[active.profile_id]
+                ? `运行配置：${drafts[active.profile_id].name}` : undefined}>
                 <i className={"dot " + (active ? "" : "off")} />
-                {phases[status.phase]}
+                {active && !owned && status.phase === "running" ? "其他配置运行中" : phases[status.phase]}
               </span>
+              {draft && !owned && (
+                <button disabled={!!busy || !dirty(draft)} onClick={() => save(false)}>
+                  <Save size={16} />
+                  保存配置
+                </button>
+              )}
               <button
                 disabled={!active || !!busy}
                 onClick={() => safely("正在请求退出…", () => rpc("stop"))}
@@ -716,12 +777,13 @@ function App() {
                                   </td>
                                   <td>
                                     <button
-                                      disabled={selected === p.id}
+                                      aria-label={"编辑配置：" + p.name}
                                       onClick={() => {
                                         setSelected(p.id);
+                                        setPage("tuning");
                                       }}
                                     >
-                                      {selected === p.id ? "当前配置" : "选用"}
+                                      编辑参数
                                     </button>
                                   </td>
                                 </tr>
@@ -830,17 +892,7 @@ function App() {
                         >
                           <div key={tab}>
                             {(() => {
-                              const names = {
-                                acquire: ["首次瞄准"],
-                                follow: ["持续跟随"],
-                                assist: [
-                                  "辅助输入",
-                                  "响应学习与手动介入",
-                                  "手动输出补偿",
-                                ],
-                                target: ["目标与识别", "人物震动提醒"],
-                                fire: ["开火与压枪"],
-                              }[tab];
+                              const names = tuningGroups[tab];
                               return names.map((name) =>
                                 ["响应学习与手动介入", "手动输出补偿"].includes(
                                   name,
@@ -891,15 +943,11 @@ function App() {
                           <div hidden={["assist", "fire"].includes(tab)}>
                             <Preview
                               key={selected}
-                              draft={draft}
+                              valuesJson={geometryValuesJson}
                               disabled={!!busy}
                               mode={previewMode}
                               showModeSwitch={tab === "target"}
-                              setMode={(mode) => {
-                                setPreviewMode(mode);
-                                if (tab === "acquire" || tab === "follow")
-                                  setTab(mode);
-                              }}
+                              setMode={changePreviewMode}
                             />
                           </div>
                         </div>
@@ -1106,7 +1154,7 @@ function App() {
                   </fieldset>
                   <footer className="footer">
                     <span>
-                      <kbd>Ctrl</kbd> + <kbd>S</kbd> 保存并应用
+                      <kbd>Ctrl</kbd> + <kbd>S</kbd> {owned ? "保存并应用" : "保存配置"}
                     </span>
                     <span>运行状态来自原生程序</span>
                   </footer>

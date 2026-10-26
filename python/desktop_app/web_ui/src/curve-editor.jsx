@@ -107,6 +107,7 @@ export function CurveEditor({
             ].map(([key, label]) => (
               <button
                 key={key}
+                disabled={!!pointEdit}
                 aria-pressed={draft.curve.algorithm === key}
                 className={draft.curve.algorithm === key ? "active" : ""}
                 onClick={() =>
@@ -125,19 +126,20 @@ export function CurveEditor({
           </div>
           <IconButton
             label="撤销曲线修改"
-            disabled={!history.canUndo}
+            disabled={!!pointEdit || !history.canUndo}
             onClick={history.undo}
           >
             <Undo2 size={16} />
           </IconButton>
           <IconButton
             label="重做曲线修改"
-            disabled={!history.canRedo}
+            disabled={!!pointEdit || !history.canRedo}
             onClick={history.redo}
           >
             <Redo2 size={16} />
           </IconButton>
           <Menu
+            disabled={!!pointEdit}
             items={[
               {
                 label: "导入曲线…",
@@ -267,6 +269,7 @@ export function CurveEditor({
           <label className="stack" key={label}>
             {label}
             <input
+              id={i === 0 ? "curve-point-input" : "curve-point-response"}
               aria-label={"控制点" + label}
               type="number"
               step="any"

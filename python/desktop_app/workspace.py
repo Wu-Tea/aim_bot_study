@@ -108,13 +108,17 @@ class ProfileRepository:
         return data, raw
 
     def entries(self):
+        return [data for data, _raw in self.read_entries()]
+
+    def read_entries(self):
+        """Validated documents with the exact bytes used for optimistic writes."""
         entries, self.errors = [], []
         for path in sorted(self.folder.glob('p_*.json')):
             try:
-                entries.append(self.read(path)[0])
+                entries.append(self.read(path))
             except (OSError, ValueError, TypeError, KeyError) as error:
                 self.errors.append(f'{path.name}：{error}')
-        return sorted(entries,key=lambda entry:(entry.get('created_at_utc',''),entry['id']))
+        return sorted(entries,key=lambda entry:(entry[0].get('created_at_utc',''),entry[0]['id']))
 
     def check(self, data):
         if not isinstance(data, dict) or type(data.get('schema_version')) is not int or data.get('schema_version') != 2:
