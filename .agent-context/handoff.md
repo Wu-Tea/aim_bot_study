@@ -1,25 +1,46 @@
 # 当前接续
 
-更新：2026-10-24，sync-20261024-015。用户要求先push再同步clean；dev实现84fc8b8已先推送。clean从5b7a693建立临时分支，15个生产文件同步并验证完成，验证后快进合回codex/runtime-clean并push；clean发布提交1524c65，最终远端状态以Git为准。
+更新：2026-10-26，sync-20261026-020。用户授权“所有改动分类，同步 clean 并 push”。dev 生产修改已分类提交：958f69c（目标识别/遮挡恢复）、22f70a7（GUI 交互、空闲与启动性能）。clean 从 43f0a92 的临时分支 codex/all-sync-20261026 同步 11 个生产文件并完成验证；合并与远端状态以 Git 为准。研究工具/夹具/报告保留 dev，个人资产及生成输出留本地。
 
 ## 当前实现
 
+- GUI 沿用 Primer 白色界面、敌我色盘和等比例观察窗口。空闲显式保存，错误定位到字段，曲线点待应用时保护编辑；状态内容未变不更新界面，修改颜色不触发范围计算。Python 桥接统一声明 16 项预览依赖，配置加载只读取/校验一次并保留外部写冲突保护，首次预览不再等待 60 ms，连续编辑仍合并请求。没有降低状态轮询、识别或控制频率。
+
+- 最新遮挡修复：当前跟踪权限与近期身体标定分开，真实 person 观测后 180 ms 内可保留休眠标定；当前唯一 cue 返回才能恢复 aim-only，不在空帧输出，不延长旧身份/弱框准入。持续可靠 cue 仍可长期跟踪。身体恢复必须从 cue 下方接近头部，不能把吞进背景的大框当反证；独立 person 移出旧 cue 仍可接管。尝试过的长期横向固定偏移已撤下，旧素材证明它会锁住初始偏差。
+- 新dev：同一可靠cue下，person身份置信度与身体完整几何分开。参考比例、初始框及cue间距固定标定，当前位置仍刷新；未配cue的残框/背景也不能绕过几何验证。完整身体恢复、确实移出旧cue的身体及显式手动换目标保留通路。cue反向唯一归属；标定横向支撑同时看宽高，允许侧身头靠肩膀。首次仅残框/显著非等比姿态变化仍有局限，不能称为可见性识别。
+- 友军ROI裁边用原扫描边界信息和至多37×37局部组件恢复，必要时补一行种子；没有新全图扫描。过期敌人身份不再无限续存，保留原50ms真实person短缺口；持续可靠cue仍可长期续跟。侧边小框不能靠大框包含关系继承身份。保持person OR cue，不降低person权重或检测频率。
 - 用户选定敌人#FF00FF、友军#00FFFF。共享MarkerPalette模块，独立cue/人物分类/外观续跟统一。Profile字段runtime.vision.enemy_marker_color/friendly_marker_color，桌面“目标与识别”可填HEX，默认新配色、重启生效；启动前拒绝无效/过暗/无彩色/色相范围重叠。
 - 自动标记敌人开关映射gamepad.enemy_mark.enabled，重启生效。小菱形形状已支持；自动标记空心双菱形仍可能干扰，用户选择自行关闭生成。
 - 保留此前腰射AI接管连续性、ADS倍率进入原平滑链修复。Off被动敌人减速已由用户撤回，禁止无新请求恢复。逐轴权限、源身体瞄点、原始手动透传保持。
-- 颜色加载时编译，洋红/青色整数快速路径；没有新增扫描/同步锁/逐帧解析或降频。配色和控制实施报告分别见[MarkerPalette](../docs/project/MARKER_PALETTE_DEV_20261024.md)、[腰射接管](../docs/project/HIPFIRE_HANDOFF_DEV_FIX_20261023.md)。
+- 配色模块在加载时编译，洋红/青色整数快速路径，无逐帧解析。配色和控制实施报告分别见[MarkerPalette](../docs/project/MARKER_PALETTE_DEV_20261024.md)、[腰射接管](../docs/project/HIPFIRE_HANDOFF_DEV_FIX_20261023.md)。
 
 ## 验证与发布
 
-- dev CTest51/51、Base483/483、桌面82/82。clean生产库由dev夹具验证Base483/483、开火14/14、桌面82/82、隔离WebView2及真实关闭输出的初始化/IPC热更新/停止通过。
+- 本轮 dev Release 构建、CTest51/51；clean Release/React 构建、dev 夹具链接 clean 生产库 Base501/501、开火14/14、桌面85/85、隔离 WebView2 通过。关闭输出与震动的真实模型初始化、GUI 保存热更新及停止通过。两段 HDR 固定检测回放10072帧与dev最终结果一致；四个独立种子短长近似闭环加全片开放回放390组4475994tick不变量违规0。11个生产文件和JS/CSS产物一致，共有native仅4处构建职责差异。产物 runs/all-sync-20261026/，不是实机验收。
+- GUI 三轮空闲4次轮询的React提交4→0、整份配置序列化48→0；修改颜色8次的范围请求8→0。启动加载4份配置中位11.2→6.0ms，40份121.7→63.9ms；新进程WebView2启动有系统波动，未清系统缓存，不能称为重启后冷启动或游戏FPS收益。测量工具 python/tools/benchmarks/desktop_{web_performance,startup_probe}.py，结果 output/playwright/{gui-performance,gui-startup}/。首次加载/预览错误恢复、草稿保存与关闭保护通过。
+
+- 最新 dev Base501/501、CTest51/51。两段 QQNT 为用户确认的直接 HDR 录制，PQ/BT.2020 按元数据做离线 SDR 色调映射；原始录像、生产颜色阈值、Capture/Profile/controller 不变。两片10072帧原始模型输出与PTS逐帧一致；q1 6.634–7.142s原0/62→62/62，q2 13.301–13.659s原0/44→44/44，均cue_hold且无fire权限。全片新增84/52目标帧、无新增丢失，不能当准确率。
+- 最终产物 runs/cue-motion-20261025/{release-hdr,validation-release,controller-release}/、behavior-release.json；before-hdr为正确基线，before无HDR转换及after/pose/final/stable/delivery-hdr均非最终。八旧片43825帧无新增目标丢失，v07正常身体21803帧仍立即observed。三轮30216对CPU/GPU行为一致。selector均值q1 0.1856–0.1990→0.1806–0.1927ms、q2 0.2547–0.2660→0.2389–0.2508ms，非实机FPS；390组4475994tick合成控制拟真不变量违规0。工具 tests/cue_motion_20261025/。
+- 最新dev Base498/498、CTest51/51，8片43825帧原始像素/实际PTS/生产GPU，前后原始模型框/置信度/类别逐帧一致。友军重叠跳变131.67→1.18px、头框107.90→2px、背景177.57→1.41px；正常框首帧恢复，边缘错误296.5px参考不再记录。真实边缘短缺口32/32、侧身遮挡14/14保留；旧机瞄cue偏移44.90/44.47px。侧身回归在修正前失败、修后通过。
+- 最终数据runs/new-video-fix-20261025/final/、behavior-final.json、performance-final/、controller-final/；此前recovered/verified等是中间版本，不当最终证据。CPU selector三轮均值v01 0.1464–0.1518→0.1303–0.1340ms；v06 0.1991–0.2061→0.1461–0.1508ms；v08 0.1260–0.1314→0.1260–0.1289ms（基本持平）。28599帧固定检测回放与最终GPU导出的选择/身份/瞄点一致；不是实机FPS。
+- 此前机瞄阶段dev Release全构建，Base487/487、CTest51/51。裁剪录像2479帧原始像素/生产GPU推理及固定检测三轮回放，235帧保护；约10.17s瞄点距cue 4.33→43.70px，约14.07s 4.93→44.47px。旧近身2038帧显式合成换色补测，53帧保护。两片目标存在/身份序列均无变化；不是实机验收。
+- 此前机瞄阶段selector三轮均值0.0953–0.0982→0.0867–0.0888ms，彼时无新图像扫描/锁/逐帧分配/降频。工具tests/ironsight_cue_20261025/，历史产物runs/ironsight-cue-drift-20261025/，verified-round1..3、recovered-nearpass、summary-verified.json、verified-base/ctest。
+- 上次配色发布验证：dev CTest51/51、Base483/483、桌面82/82。clean生产库由dev夹具验证Base483/483、开火14/14、桌面82/82、隔离WebView2及真实关闭输出的初始化/IPC热更新/停止通过。
 - 两录像合成换色对照3983帧clean/dev行为一致；15个同步生产文件一致，180个原有共有native文件一致、4处构建职责差异保留。测试/研究只在dev，未改个人Profile/模型/曲线/历史素材。
 - 三轮selector均值菱形0.135–0.140→0.131–0.136ms、近身0.190–0.196→0.182–0.186ms；独立全图cue菱形多约0.03ms。不是实机FPS，旧录像合成换色不是新配色实拍。
 - 详情：[发布记录](../docs/project/PALETTE_CLEAN_SYNC_20261024.md)；产物runs/palette-clean-sync-20261024/及runs/palette-20261023/。
 
 ## 已知限制与下一步
 
+- 最新 cue 修复解决已复现的短暂遮挡恢复和错误几何反证；cue 不能单独还原跳跃/滑铲胸部姿态、首次残框或长期共同不可见。HDR SDR 映射不是实机截屏真值；无真实手柄日志，拟真使用合成输入、既有录像镜头且不重渲染，待用户实机反馈。
+- 上轮确认的累计标定/归属/接管问题本轮已修；独立探针原先y266→236.4且不恢复，现在漂移被容差限制，最低254.8，原框首帧恢复266。不要把有界噪声说成零漂移。
+- v06换弹枪身仍可能被模型高置信度识别成人而独立新建目标；旧身份错误继承已修，不等于模型误检全部消失。没有用拒绝近身大框或强制AND掩盖。重点减少帧人工复核过友军/尸体/枪/背景，但没有全片真值，不能把存在帧数下降当准确率提升。
+- 原修改前轨迹tests/new_video_study_20261025/fixtures/（12条2882帧）保留；修改后完整轨迹在final/，工具说明已更新。用户实机验收待反馈，正常dev可试。
+- 最终修复版轨迹24组开放回放+576组四种子2/20秒近似闭环，共7432476tick，数值/权限/Off透传等不变量违规0；不证明选对人。无真实手柄日志、Vision无原手动intent，视频已有镜头运动，未重渲染；不得把模拟输出称为实战复原。原调查含颜色回读的GPU selector计时不可直比本轮CPU-only性能对照。
 - 新配色实际游戏效果待用户反馈，不能把发布授权记成实机验收。区域占比法仍有青色背景友军误判（20:17片段978帧）；两处树叶案例仅局部换标识后可正确关联/排除。
-- 22:52 BEST PLAY近身错身场景已定位observed人体框形状突变与person/cue身体参考不一致：源瞄点跳117px、后续57–59px跳变；本轮未修几何算法。报告[录像调查](../docs/project/NEAR_PASS_VIDEO_DIAGNOSTIC_20261023.md)。没有对应真实手柄日志，不能把模拟输出当实战重建。
+- 22:52 BEST PLAY仍有跨cue误配与observed形状突变问题（例如570帧117px跳变），不能把本次同cue几何保护宣称为全部修复。完整person恢复不应被旧参考压过的边界已覆盖。原调查[录像报告](../docs/project/NEAR_PASS_VIDEO_DIAGNOSTIC_20261023.md)。没有对应真实手柄日志，不能把模拟输出当实战重建。
 - 上次控制回放的所有模型假设、限制见对应报告；不要再查已经确认关闭的遥测，优先使用现有录像/明确输入假设。
 
-SyncSet015沿用维护和发布授权，reviewer=accept_draft；旧dev/clean交接原文已存archive/handoff-before-palette-clean-sync-20261024.md及archive/clean-handoff-before-palette-sync-20261024.md。无新正式decision/brief/外部记忆/秘密，session-log长历史保留，建议以后独立压缩。
+SyncSet019沿用上下文维护授权，reviewer=accept_draft；修复及离线证据不写成用户实机验收，无新正式decision/brief/外部记忆/秘密。旧发布交接原文已存archive/*palette*20261024.md。session-log长历史保留，建议以后独立压缩。GUI改动未触碰或归为本轮修复。
+
+SyncSet020：发布状态与GUI接续更新，保留识别边界；沿用已有上下文维护授权，reviewer=accept_draft。生成output已加入忽略，不删除本地数据；没有新增外部记忆或验收框架。

@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.26)
+project(ironsight_cue_review LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+get_filename_component(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+add_executable(replay replay.cpp "${ROOT}/native/runtime_app/runtime_timing.cpp")
+target_include_directories(replay PRIVATE "${ROOT}/native" "${ROOT}/native/vision_native/include")
+target_compile_definitions(replay PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(replay PRIVATE "${ROOT}/native/build/vision_native/Release/vision_native_core.lib" winmm)

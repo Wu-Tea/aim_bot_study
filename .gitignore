@@ -27,6 +27,8 @@ models/candidates/
 models/20*/
 yolo26n*.pt
 runs/
+# Generated captures, local diagnostics and temporary build/research outputs.
+/output/
 debug_captures/
 artifacts/
 Ultralytics/

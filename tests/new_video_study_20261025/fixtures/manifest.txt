@@ -1,0 +1,12 @@
+friend_overlap tests/new_video_study_20261025/fixtures/friend_overlap.records 0
+reload_weapon tests/new_video_study_20261025/fixtures/reload_weapon.records 0
+statue tests/new_video_study_20261025/fixtures/statue.records 0
+cue_return tests/new_video_study_20261025/fixtures/cue_return.records 0
+head_fragment tests/new_video_study_20261025/fixtures/head_fragment.records 0
+background_growth tests/new_video_study_20261025/fixtures/background_growth.records 0
+pose_scale tests/new_video_study_20261025/fixtures/pose_scale.records 0
+nearpass tests/new_video_study_20261025/fixtures/nearpass.records 0
+clipped_body tests/new_video_study_20261025/fixtures/clipped_body.records 0
+scale_recovery tests/new_video_study_20261025/fixtures/scale_recovery.records 0
+clear_tracking tests/new_video_study_20261025/fixtures/clear_tracking.records 0
+ironsight_control tests/new_video_study_20261025/fixtures/ironsight_control.records 0

@@ -1,0 +1,134 @@
+[
+  {
+    "name": "friend_overlap",
+    "clip": "v01",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Call of Duty  Black Ops 7\\Call of Duty  Black Ops 7 2026.10.24 - 11.01.31.02.mp4",
+    "first_frame": 1380,
+    "last_frame": 1619,
+    "first_video_t": 11.500967,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "reload_weapon",
+    "clip": "v06",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.24 - 23.12.56.08.mp4",
+    "first_frame": 612,
+    "last_frame": 851,
+    "first_video_t": 5.100322,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "statue",
+    "clip": "v07",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 02.55.19.01.mp4",
+    "first_frame": 1776,
+    "last_frame": 2015,
+    "first_video_t": 14.800489,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "cue_return",
+    "clip": "v07",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 02.55.19.01.mp4",
+    "first_frame": 2736,
+    "last_frame": 2975,
+    "first_video_t": 22.800678,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "head_fragment",
+    "clip": "v07",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 02.55.19.01.mp4",
+    "first_frame": 5256,
+    "last_frame": 5495,
+    "first_video_t": 43.8006,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "background_growth",
+    "clip": "v07",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 02.55.19.01.mp4",
+    "first_frame": 10536,
+    "last_frame": 10776,
+    "first_video_t": 87.800378,
+    "frames": 241,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "pose_scale",
+    "clip": "v07",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 02.55.19.01.mp4",
+    "first_frame": 21685,
+    "last_frame": 21924,
+    "first_video_t": 180.707489,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "nearpass",
+    "clip": "v07",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 02.55.19.01.mp4",
+    "first_frame": 29017,
+    "last_frame": 29256,
+    "first_video_t": 241.807122,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "clipped_body",
+    "clip": "v08",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 03.00.10.02.mp4",
+    "first_frame": 2160,
+    "last_frame": 2399,
+    "first_video_t": 18.000567,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "scale_recovery",
+    "clip": "v08",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 03.00.10.02.mp4",
+    "first_frame": 1284,
+    "last_frame": 1523,
+    "first_video_t": 10.701011,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "clear_tracking",
+    "clip": "v07",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 02.55.19.01.mp4",
+    "first_frame": 7200,
+    "last_frame": 7440,
+    "first_video_t": 60.000289,
+    "frames": 241,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  },
+  {
+    "name": "ironsight_control",
+    "clip": "v08",
+    "video": "C:\\Users\\Administrator\\Videos\\NVIDIA\\Content\\Content 2026.10.25 - 03.00.10.02.mp4",
+    "first_frame": 4200,
+    "last_frame": 4439,
+    "first_video_t": 35.000733,
+    "frames": 240,
+    "timestamp_rebased": true,
+    "interpretation": "Recorded screen observations, not world-space target truth. Controller input is synthetic."
+  }
+]

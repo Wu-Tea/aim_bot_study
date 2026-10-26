@@ -1,0 +1,1026 @@
+{
+  "friend_overlap": {
+    "frame": 1458,
+    "cue": [
+      340.5,
+      203
+    ],
+    "association_costs": [
+      0.46167102783027175,
+      0.2646080769004058
+    ],
+    "previous_target": [
+      209.000015,
+      259.733337
+    ],
+    "next_target": [
+      336.166687,
+      225.600006
+    ],
+    "jump_px": 131.66794124885203
+  },
+  "snapshots": [
+    {
+      "clip": "v01",
+      "frame": 1458,
+      "t": 12.150956,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        209.000015,
+        259.733337
+      ],
+      "generation": 7,
+      "body": [
+        64.3333359,
+        197,
+        353.666687,
+        510.666687
+      ],
+      "motion_cue": [
+        6,
+        340.5,
+        203
+      ],
+      "selector_ms": 0.4527,
+      "infer_ms": 0.679935992,
+      "selected": 0,
+      "cue_reason": "person_cue_reference_recorded",
+      "cue_best": -1,
+      "cue_direct_age_ms": 8.98900032,
+      "cue_age_ms": 8.98900032,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            64.3333359,
+            197,
+            353.666687,
+            510.666687
+          ],
+          "conf": 0.684082031,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": true,
+          "cue": [
+            340.5,
+            203
+          ],
+          "cue_score": 0.94220829,
+          "motion_anchor": true,
+          "motion_score": 1,
+          "gate": "admitted_for_ranking"
+        },
+        {
+          "box": [
+            322.333344,
+            214.833344,
+            348.333344,
+            272.833344
+          ],
+          "conf": 0.608398438,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": true,
+          "cue": [
+            340.600006,
+            203.309097
+          ],
+          "cue_score": 0.190972224,
+          "motion_anchor": false,
+          "motion_score": 0,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            340.5,
+            203
+          ],
+          "color": 1,
+          "score": 0.94220829
+        }
+      ]
+    },
+    {
+      "clip": "v01",
+      "frame": 1459,
+      "t": 12.159256,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        336.166687,
+        225.600006
+      ],
+      "generation": 7,
+      "body": [
+        323,
+        213.666672,
+        349.333344,
+        273.333344
+      ],
+      "motion_cue": [
+        6,
+        340.5,
+        202.5
+      ],
+      "selector_ms": 0.1816,
+      "infer_ms": 0.683008015,
+      "selected": 1,
+      "cue_reason": "person_cue_reference_recorded",
+      "cue_best": -1,
+      "cue_direct_age_ms": 8.30000019,
+      "cue_age_ms": 8.30000019,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            66.3333359,
+            195.666672,
+            357,
+            511.333344
+          ],
+          "conf": 0.691894531,
+          "class": 0,
+          "color_checked": true,
+          "friendly": true,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": false,
+          "motion_score": 0,
+          "gate": "friendly_color"
+        },
+        {
+          "box": [
+            323,
+            213.666672,
+            349.333344,
+            273.333344
+          ],
+          "conf": 0.608398438,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": true,
+          "cue": [
+            340.5,
+            202.5
+          ],
+          "cue_score": 0.944001079,
+          "motion_anchor": false,
+          "motion_score": 0,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            340.5,
+            202.5
+          ],
+          "color": 1,
+          "score": 0.944001079
+        }
+      ]
+    },
+    {
+      "clip": "v06",
+      "frame": 650,
+      "t": 5.416833,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        402.166687,
+        104.133331
+      ],
+      "generation": 2,
+      "body": [
+        167.333344,
+        2.16666675,
+        637,
+        512
+      ],
+      "motion_cue": [
+        0,
+        0,
+        0
+      ],
+      "selector_ms": 0.4646,
+      "infer_ms": 0.740351975,
+      "selected": 0,
+      "cue_reason": "not_attempted",
+      "cue_best": -1,
+      "cue_direct_age_ms": 2866.37695,
+      "cue_age_ms": 2866.37695,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            167.333344,
+            2.16666675,
+            637,
+            512
+          ],
+          "conf": 0.438720703,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": true,
+          "motion_score": 0.559043705,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": []
+    },
+    {
+      "clip": "v06",
+      "frame": 679,
+      "t": 5.658833,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        382.833344,
+        103.817734
+      ],
+      "generation": 2,
+      "body": [
+        125.666672,
+        1.66666675,
+        640,
+        512
+      ],
+      "motion_cue": [
+        0,
+        0,
+        0
+      ],
+      "selector_ms": 0.4659,
+      "infer_ms": 0.740351975,
+      "selected": 0,
+      "cue_reason": "not_attempted",
+      "cue_best": -1,
+      "cue_direct_age_ms": 3108.3772,
+      "cue_age_ms": 3108.3772,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            125.666672,
+            1.66666675,
+            640,
+            512
+          ],
+          "conf": 0.676757812,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": true,
+          "motion_score": 1,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": []
+    },
+    {
+      "clip": "v07",
+      "frame": 1864,
+      "t": 15.533322,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        412,
+        264.800018
+      ],
+      "generation": 5,
+      "body": [
+        397.333344,
+        254.166672,
+        426.666687,
+        307.333344
+      ],
+      "motion_cue": [
+        3,
+        300.5,
+        182.5
+      ],
+      "selector_ms": 0.2098,
+      "infer_ms": 0.678911984,
+      "selected": 0,
+      "cue_reason": "not_attempted",
+      "cue_best": -1,
+      "cue_direct_age_ms": 849.010986,
+      "cue_age_ms": 849.010986,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            397.333344,
+            254.166672,
+            426.666687,
+            307.333344
+          ],
+          "conf": 0.48046875,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": false,
+          "motion_score": 0,
+          "gate": "admitted_for_ranking"
+        },
+        {
+          "box": [
+            290.166687,
+            216.833344,
+            316,
+            237.666672
+          ],
+          "conf": 0.262939453,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": false,
+          "motion_score": 0,
+          "gate": "body_geometry_gate"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            300.5,
+            182.5
+          ],
+          "color": 1,
+          "score": 0.987791538
+        }
+      ]
+    },
+    {
+      "clip": "v07",
+      "frame": 5332,
+      "t": 44.433211,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        391.583344,
+        164.672363
+      ],
+      "generation": 13,
+      "body": [
+        309.833344,
+        132.083344,
+        473.333344,
+        295
+      ],
+      "motion_cue": [
+        14,
+        309.5,
+        216.5
+      ],
+      "selector_ms": 0.5111,
+      "infer_ms": 0.691200018,
+      "selected": 0,
+      "cue_reason": "not_attempted",
+      "cue_best": -1,
+      "cue_direct_age_ms": 7.87799978,
+      "cue_age_ms": 7.87799978,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            309.833344,
+            132.083344,
+            473.333344,
+            295
+          ],
+          "conf": 0.55078125,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": true,
+          "motion_score": 0.795484006,
+          "gate": "admitted_for_ranking"
+        },
+        {
+          "box": [
+            69.3333359,
+            126.166672,
+            606,
+            512
+          ],
+          "conf": 0.244384766,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": false,
+          "motion_score": 0,
+          "gate": "tracking_confidence"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            309.5,
+            216.5
+          ],
+          "color": 1,
+          "score": 0.866018176
+        }
+      ]
+    },
+    {
+      "clip": "v07",
+      "frame": 10611,
+      "t": 88.424889,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        404.583374,
+        90.8391571
+      ],
+      "generation": 26,
+      "body": [
+        230.833344,
+        0,
+        578.333374,
+        246.333344
+      ],
+      "motion_cue": [
+        0,
+        0,
+        0
+      ],
+      "selector_ms": 0.403,
+      "infer_ms": 0.677887976,
+      "selected": 0,
+      "cue_reason": "person_disproves_cue_reference",
+      "cue_best": -1,
+      "cue_direct_age_ms": 883.545044,
+      "cue_age_ms": 883.545044,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            230.833344,
+            0,
+            578.333374,
+            246.333344
+          ],
+          "conf": 0.673828125,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": true,
+          "motion_score": 0.349999994,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            297.5,
+            188.5
+          ],
+          "color": 1,
+          "score": 0.969933867
+        }
+      ]
+    },
+    {
+      "clip": "v07",
+      "frame": 21710,
+      "t": 180.916467,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        312.083344,
+        233.333344
+      ],
+      "generation": 47,
+      "body": [
+        288.833344,
+        213.5,
+        335.333344,
+        312.666687
+      ],
+      "motion_cue": [
+        67,
+        312.5,
+        186.5
+      ],
+      "selector_ms": 0.2653,
+      "infer_ms": 0.694271982,
+      "selected": 0,
+      "cue_reason": "person_cue_reference_recorded",
+      "cue_best": -1,
+      "cue_direct_age_ms": 9.01099968,
+      "cue_age_ms": 9.01099968,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            288.833344,
+            213.5,
+            335.333344,
+            312.666687
+          ],
+          "conf": 0.770507812,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": true,
+          "cue": [
+            312.5,
+            186.5
+          ],
+          "cue_score": 0.909873605,
+          "motion_anchor": true,
+          "motion_score": 0.963259995,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            312.5,
+            186.5
+          ],
+          "color": 1,
+          "score": 0.909873605
+        }
+      ]
+    },
+    {
+      "clip": "v07",
+      "frame": 21759,
+      "t": 181.324656,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        302.75,
+        166.699997
+      ],
+      "generation": 47,
+      "body": [
+        269.833344,
+        140.25,
+        335.666687,
+        272.5
+      ],
+      "motion_cue": [
+        67,
+        294.5,
+        151.5
+      ],
+      "selector_ms": 0.361,
+      "infer_ms": 0.694271982,
+      "selected": 0,
+      "cue_reason": "person_cue_reference_recorded",
+      "cue_best": -1,
+      "cue_direct_age_ms": 17.0230007,
+      "cue_age_ms": 17.0230007,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            269.833344,
+            140.25,
+            335.666687,
+            272.5
+          ],
+          "conf": 0.534179688,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": true,
+          "cue": [
+            294.5,
+            151.5
+          ],
+          "cue_score": 0.981706023,
+          "motion_anchor": true,
+          "motion_score": 0.955561578,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            294.5,
+            151.5
+          ],
+          "color": 1,
+          "score": 0.981706023
+        }
+      ]
+    },
+    {
+      "clip": "v07",
+      "frame": 21803,
+      "t": 181.6905,
+      "has_target": true,
+      "source": "cue_hold",
+      "aim_authority": true,
+      "fire_authority": false,
+      "target": [
+        282.75,
+        131.699997
+      ],
+      "generation": 47,
+      "body": [
+        249.833344,
+        105.25,
+        315.666687,
+        237.5
+      ],
+      "motion_cue": [
+        67,
+        274.5,
+        116.5
+      ],
+      "selector_ms": 0.1845,
+      "infer_ms": 0.698368013,
+      "selected": -1,
+      "cue_reason": "cue_preserves_body_extent",
+      "cue_best": 0.919183612,
+      "cue_direct_age_ms": 249.932999,
+      "cue_age_ms": 249.932999,
+      "outcome": "cue_continuation",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            250.166672,
+            145.666672,
+            299.666687,
+            245.166672
+          ],
+          "conf": 0.764648438,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": false,
+          "motion_score": 0,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            274.5,
+            116.5
+          ],
+          "color": 1,
+          "score": 0.919183612
+        }
+      ]
+    },
+    {
+      "clip": "v08",
+      "frame": 2247,
+      "t": 18.725744,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        312,
+        140.075623
+      ],
+      "generation": 3,
+      "body": [
+        0,
+        0,
+        624,
+        512
+      ],
+      "motion_cue": [
+        8,
+        15.5,
+        13.5
+      ],
+      "selector_ms": 0.2986,
+      "infer_ms": 0.694271982,
+      "selected": 0,
+      "cue_reason": "person_cue_reference_recorded",
+      "cue_best": -1,
+      "cue_direct_age_ms": 1074.16602,
+      "cue_age_ms": 1074.16602,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            0,
+            0,
+            624,
+            512
+          ],
+          "conf": 0.522460938,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": true,
+          "cue": [
+            15.5,
+            13.5
+          ],
+          "cue_score": 1,
+          "motion_anchor": true,
+          "motion_score": 0.349999994,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            15.5,
+            13.5
+          ],
+          "color": 1,
+          "score": 1
+        }
+      ]
+    },
+    {
+      "clip": "v08",
+      "frame": 2251,
+      "t": 18.758889,
+      "has_target": true,
+      "source": "cue_hold",
+      "aim_authority": true,
+      "fire_authority": false,
+      "target": [
+        352,
+        145.075623
+      ],
+      "generation": 3,
+      "body": [
+        40,
+        5,
+        664,
+        517
+      ],
+      "motion_cue": [
+        8,
+        55.5,
+        18.5
+      ],
+      "selector_ms": 0.2629,
+      "infer_ms": 0.694271982,
+      "selected": -1,
+      "cue_reason": "fresh_cue_body_reference",
+      "cue_best": 0.95348382,
+      "cue_direct_age_ms": 33.1450005,
+      "cue_age_ms": 33.1450005,
+      "outcome": "cue_continuation",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            0,
+            0,
+            315.333344,
+            512
+          ],
+          "conf": 0.301513672,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": false,
+          "cue": [
+            0,
+            0
+          ],
+          "cue_score": 0,
+          "motion_anchor": false,
+          "motion_score": 0,
+          "gate": "pickup_confidence"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            55.5,
+            18.5
+          ],
+          "color": 1,
+          "score": 0.95348382
+        }
+      ]
+    },
+    {
+      "clip": "v08",
+      "frame": 2252,
+      "t": 18.767344,
+      "has_target": true,
+      "source": "observed",
+      "aim_authority": true,
+      "fire_authority": true,
+      "target": [
+        134,
+        116.666672
+      ],
+      "generation": 3,
+      "body": [
+        0,
+        17.833334,
+        268,
+        512
+      ],
+      "motion_cue": [
+        8,
+        70.5,
+        20.5
+      ],
+      "selector_ms": 0.2422,
+      "infer_ms": 0.699392021,
+      "selected": 0,
+      "cue_reason": "person_cue_reference_recorded",
+      "cue_best": -1,
+      "cue_direct_age_ms": 41.5999985,
+      "cue_age_ms": 41.5999985,
+      "outcome": "selected_detection",
+      "region": [
+        0,
+        0,
+        640,
+        512
+      ],
+      "detections": [
+        {
+          "box": [
+            0,
+            17.833334,
+            268,
+            512
+          ],
+          "conf": 0.568847656,
+          "class": 0,
+          "color_checked": true,
+          "friendly": false,
+          "has_cue": true,
+          "cue": [
+            70.5,
+            20.5
+          ],
+          "cue_score": 0.932655215,
+          "motion_anchor": false,
+          "motion_score": 0,
+          "gate": "admitted_for_ranking"
+        }
+      ],
+      "independent_cues": [
+        {
+          "xy": [
+            70.5,
+            20.5
+          ],
+          "color": 1,
+          "score": 0.932655215
+        }
+      ]
+    }
+  ]
+}
