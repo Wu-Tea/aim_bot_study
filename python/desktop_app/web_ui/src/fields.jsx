@@ -2,18 +2,27 @@ import React from "react";
 import { Popover } from "radix-ui";
 import { ChevronRight, X } from "lucide-react";
 import { fmt } from "./bridge";
+export const isColorField = (field) => [
+  "runtime.vision.enemy_marker_color",
+  "runtime.vision.friendly_marker_color",
+].includes(field.path);
+
+// Shared with save navigation; native validation still owns configuration writes.
+export function isFieldValid(field, value) {
+  if (field.kind === "float" || field.kind === "int") {
+    return typeof value === "number" && Number.isFinite(value) &&
+      value >= field.limits[0] && value <= field.limits[1] &&
+      (field.kind !== "int" || Number.isInteger(value));
+  }
+  return !isColorField(field) || /^#?[\da-f]{6}$/i.test(value ?? "");
+}
+
 export function Field({ field, value, onChange }) {
   const id = "f-" + field.path,
     scale = field.scale;
   const numeric = field.kind === "float" || field.kind === "int";
-  const color = ["runtime.vision.enemy_marker_color", "runtime.vision.friendly_marker_color"].includes(field.path);
-  const valid = numeric
-    ? typeof value === "number" &&
-      Number.isFinite(value) &&
-      value >= field.limits[0] &&
-      value <= field.limits[1] &&
-      (field.kind !== "int" || Number.isInteger(value))
-    : color ? /^#?[\da-f]{6}$/i.test(value ?? "") : true;
+  const color = isColorField(field);
+  const valid = isFieldValid(field, value);
   return (
     <div className={"row field-row " + (!valid ? "invalid" : "")}>
       <div className="field-label">
@@ -95,6 +104,7 @@ export function Field({ field, value, onChange }) {
               type="number"
               readOnly={field.readonly}
               aria-invalid={!valid}
+              aria-describedby={!valid ? id + "-error" : undefined}
               min={field.limits[0] * scale}
               max={field.limits[1] * scale}
               step={field.kind === "int" ? 1 : "any"}
@@ -122,6 +132,7 @@ export function Field({ field, value, onChange }) {
             id={id}
             className="text-field"
             aria-invalid={!valid}
+            aria-describedby={!valid ? id + "-error" : undefined}
             readOnly={field.readonly}
             value={value ?? ""}
             spellCheck={false}
@@ -138,7 +149,7 @@ export function Field({ field, value, onChange }) {
         />
       )}
       {!valid && (
-        <small className="field-error">
+        <small className="field-error" id={id + "-error"}>
           {color ? "请输入六位 HEX，例如 #FF00FF。" : <>
             {field.limits[0] * scale}–{field.limits[1] * scale} {field.unit}
             {field.kind === "int" ? "，请输入整数" : ""}

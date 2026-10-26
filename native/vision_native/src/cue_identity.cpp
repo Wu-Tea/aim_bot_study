@@ -10,6 +10,19 @@ constexpr int kMaximumCueExtent=18;
 constexpr float kCueMatchDistance=42;
 constexpr float kHitMarkerRadius=32;
 constexpr float kHitMarkerTolerance=4;
+const CueObservation* match_cue(const CueObservation& previous,const std::vector<CueObservation>& cues,float dx,float dy) {
+    const CueObservation* best=nullptr;float best_cost=1e9f,second_cost=1e9f;
+    for(const auto& cue:cues) {
+        if(cue.color!=previous.color || std::hypot(cue.x-previous.x,cue.y-previous.y)>kCueMatchDistance)continue;
+        const float ratio=cue.size/previous.size;
+        const float residual=std::hypot(cue.x-previous.x-dx,cue.y-previous.y-dy);
+        if(ratio<.5f || ratio>2 || residual>36)continue;
+        const float cost=residual+8*std::abs(std::log(ratio));
+        if(cost<best_cost){second_cost=best_cost;best_cost=cost;best=&cue;}
+        else second_cost=std::min(second_cost,cost);
+    }
+    return best && second_cost-best_cost>=4 ? best : nullptr;
+}
 int enemy_color(const unsigned char* p, PixelFormat format, const pipeline_contract::MarkerColorBand& color) {
     return color.matches(p[format == PixelFormat::BGRA8 ? 2 : 0], p[1],
         p[format == PixelFormat::BGRA8 ? 0 : 2]) ? 1 : 0;
@@ -184,21 +197,17 @@ void CueIdentity::update(const std::vector<CueObservation>& cues, std::uint64_t 
     float dx=velocity_x_*dt,dy=velocity_y_*dt;
     const float length=std::hypot(dx,dy);
     if (length>36) { dx*=36/length; dy*=36/length; }
-    const CueObservation* best=nullptr;
-    float best_cost=1e9f,second_cost=1e9f;
-    for (const auto& cue:cues) {
-        if (cue.color!=active_->color || std::hypot(cue.x-active_->x,cue.y-active_->y)>kCueMatchDistance) continue;
-        const float ratio=cue.size/active_->size;
-        const float residual=std::hypot(cue.x-active_->x-dx,cue.y-active_->y-dy);
-        if (ratio<.5f || ratio>2 || residual>36) continue;
-        const float cost=residual+8*std::abs(std::log(ratio));
-        if (cost<best_cost) { second_cost=best_cost; best_cost=cost; best=&cue; }
-        else second_cost=std::min(second_cost,cost);
-    }
-    if (!best || second_cost-best_cost<4) return;
+    const auto* best=match_cue(*active_,cues,dx,dy);
+    if (!best) return;
     velocity_x_=.5f*velocity_x_+.5f*(best->x-active_->x)/dt;
     velocity_y_=.5f*velocity_y_+.5f*(best->y-active_->y)/dt;
     const float size=.8f*active_->size+.2f*best->size;
     active_=*best; active_->size=size; last_ns_=timestamp; fresh_=true;
+}
+bool CueIdentity::reacquire(const CueObservation& expected,const std::vector<CueObservation>& cues,std::uint64_t timestamp) {
+    if(active_ || !timestamp)return false;
+    const auto* cue=match_cue(expected,cues,0,0);
+    if(!cue)return false;
+    seed(*cue,timestamp);return true;
 }
 } // namespace vision_native

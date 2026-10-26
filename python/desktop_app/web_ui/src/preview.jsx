@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, memo } from "react";
 import { rpc, fmt } from "./bridge";
 import { Dialog } from "radix-ui";
 import { Maximize2, X } from "lucide-react";
 import { RangePlot } from "./range-plot";
-export function Preview({
-  draft,
+export const Preview = memo(function Preview({
+  valuesJson,
   disabled,
   mode,
   setMode,
@@ -61,7 +61,7 @@ export function Preview({
     let alive = true;
     const serial = ++request.current;
     const timer = setTimeout(() => {
-      rpc("geometry", { values: draft.values, mode, height, pose, offset })
+      rpc("geometry", { values: JSON.parse(valuesJson), mode, height, pose, offset })
         .then((g) => {
           if (alive && serial === request.current) {
             setGeometry(g);
@@ -74,12 +74,13 @@ export function Preview({
             setError(e.message);
           }
         });
-    }, 60);
+    // Initial display is not a gesture burst; debounce only subsequent edits.
+    }, serial === 1 ? 0 : 60);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [draft.values, mode, height, pose, offset]);
+  }, [valuesJson, mode, height, pose, offset]);
   const g = geometry,
     w = g?.width ?? 640,
     h = g?.height ?? 512,
@@ -236,4 +237,4 @@ export function Preview({
       </Dialog.Portal>
     </Dialog.Root>
   );
-}
+});

@@ -114,13 +114,21 @@ private:
         const pipeline_contract::UserAimIntent* intent);
     bool cue_identity_enabled_ = false;
     CueDetector cue_detector_;
+    mutable CueDetector friendly_boundary_detector_;
     std::vector<CueSearchRegion> cue_search_regions_;
     CueIdentity cue_identity_;
     std::uint64_t last_cue_frame_ns_ = 0;
+    std::uint64_t last_identity_evidence_ns_ = 0;
     struct CueBodyReference {
         TargetState target;
         CueObservation cue;
         std::uint64_t generation = 0;
+        // Scale-free extent model, retained across accepted refreshes. Learning
+        // it again from each box would ratchet a gradual truncation into anatomy.
+        float calibrated_aspect = 0;
+        Rect calibrated_box;
+        CueObservation calibrated_cue;
+        std::uint64_t last_person_ns = 0;
     };
     std::optional<CueBodyReference> cue_body_reference_;
     // The existing texture correspondence can translate trusted anatomy when

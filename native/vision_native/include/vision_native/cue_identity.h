@@ -47,6 +47,8 @@ public:
     void reset();
     void seed(const CueObservation& cue, std::uint64_t timestamp);
     void update(const std::vector<CueObservation>& cues, std::uint64_t timestamp);
+    bool reacquire(const CueObservation& expected, const std::vector<CueObservation>& cues,
+        std::uint64_t timestamp);
     const std::optional<CueObservation>& active() const { return active_; }
     bool fresh() const { return fresh_; }
     std::optional<CueSearchRegion> search_region() const;

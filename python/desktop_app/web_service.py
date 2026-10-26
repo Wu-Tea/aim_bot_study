@@ -14,6 +14,20 @@ from .settings import lookup, UiPreferences
 from .curves import CurveLibrary, curve_document, read_curve, seed_points
 from .long_capture import capture_status, set_capture_enabled
 
+# The preview contract owns both validation and the browser's invalidation keys.
+# Adding a geometry input requires adding it here; unrelated fields stay local.
+GEOMETRY_PATHS = (
+    'runtime.vision.capture_width', 'runtime.vision.capture_height',
+    'runtime.vision.target_height_ratio', 'runtime.vision.target_wide_low_height_ratio',
+    'gamepad.ads.pickup_base_radius_px', 'gamepad.bodylock.activation_range_px',
+    'gamepad.assist.minimum_position_stick', 'gamepad.assist.arrival_radius_px',
+    'gamepad.assist.input_deadzone',
+    'gamepad.ads.output_limit_x', 'gamepad.ads.output_limit_y', 'gamepad.ads.response_time_ms',
+    'gamepad.bodylock.response_time_x_ms', 'gamepad.bodylock.response_time_y_ms',
+    'gamepad.bodylock.output_limit_x', 'gamepad.bodylock.output_limit_y',
+)
+GEOMETRY_FIELDS = {f[0]: f for f in FIELDS if f[0] in GEOMETRY_PATHS}
+
 
 def schema():
     result = []
@@ -61,9 +75,11 @@ class WorkspaceService:
         return lambda path: self.manager.validate(path, [game])
 
     def _open(self, identifier):
-        doc, raw = self.repo.read(self.repo.path(identifier))
+        return self._opened(*self.repo.read(self.repo.path(identifier)))
+
+    def _opened(self, doc, raw):
         revision = uuid.uuid4().hex
-        self.states[identifier] = (doc, raw, revision)
+        self.states[doc['id']] = (doc, raw, revision)
         return self._view(doc, revision)
 
     def _view(self, doc, revision):
@@ -160,9 +176,9 @@ class WorkspaceService:
                 set_capture_enabled(self.root, p['enabled'])
             return dict(status=self._status(), message='性能采集已开启，最长 12 小时。' if p['enabled'] else '性能采集已关闭，已有日志保留。')
         if command == 'bootstrap':
-            entries = self.repo.entries()
-            return dict(profiles=[self._open(doc['id']) for doc in entries], errors=self.repo.errors,
-                selected=self.preferences.read().get('profile_id'), fields=schema(),
+            entries = self.repo.read_entries()
+            return dict(profiles=[self._opened(doc, raw) for doc, raw in entries], errors=self.repo.errors,
+                selected=self.preferences.read().get('profile_id'), fields=schema(), geometry_fields=GEOMETRY_PATHS,
                 seeds={key: seed_points(key, self.repo.curve_source) for key in ('linear','cod_dynamic_legacy_lut')})
         if command == 'select':
             doc = self.states[p['id']][0]
@@ -300,8 +316,8 @@ class WorkspaceService:
         from .ads_geometry import envelope, admission, acquisition_example, follow_response_example, filter_ai_input
         if self.policy is None: self.policy = self.manager.ads_geometry_policy()
         if self.policy.get('parameter_semantics') != 'range-response-v4': raise ValueError('原生预览版本不匹配，请更新原生程序。')
-        v=p['values']; fields={f[0]:f for f in FIELDS}
-        def n(path): return field_value(fields[path],v[path])
+        v=p['values']
+        def n(path): return field_value(GEOMETRY_FIELDS[path],v[path])
         width,height=n('runtime.vision.capture_width'),n('runtime.vision.capture_height')
         fraction=float(p['height'])/100
         x,y=map(float,p['offset'])
