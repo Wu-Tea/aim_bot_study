@@ -55,6 +55,11 @@ public sealed class IntegratedCaption : NativeWindow {
         // FormBorderStyle.None and a full client rectangle agree on restore geometry.
         // WS_THICKFRAME keeps Windows sizing/snap; padding exposes its resize edges.
         if (m.Msg == 0x83 && m.WParam != IntPtr.Zero) { m.Result = IntPtr.Zero; return; }
+        // The entire rectangle belongs to our client, including the resize inset.
+        // Default non-client painting can still draw a light WS_THICKFRAME over it.
+        if (m.Msg == 0x85) { m.Result = IntPtr.Zero; return; } // WM_NCPAINT
+        // Preserve activation processing without repainting the system frame.
+        if (m.Msg == 0x86) m.LParam = new IntPtr(-1); // WM_NCACTIVATE
         base.WndProc(ref m);
         if (m.Msg == 0x24) {
             MinMax bounds = (MinMax)Marshal.PtrToStructure(m.LParam, typeof(MinMax));
