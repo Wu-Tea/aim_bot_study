@@ -21,6 +21,7 @@ import { Field, Group, isFieldValid } from "./fields";
 import { Preview } from "./preview";
 import { CurveEditor } from "./curve-editor";
 import { Feedback } from "./feedback";
+import { WindowControls } from "./window-controls";
 import { copy, eq, rpc, phases } from "./bridge";
 import "./surfaces.css";
 import "./app.css";
@@ -629,12 +630,13 @@ function App() {
                 {active && !owned && status.phase === "running" ? "其他配置运行中" : phases[status.phase]}
               </span>
               {draft && !owned && (
-                <button disabled={!!busy || !dirty(draft)} onClick={() => save(false)}>
+                <button title="保存配置" disabled={!!busy || !dirty(draft)} onClick={() => save(false)}>
                   <Save size={16} />
                   保存配置
                 </button>
               )}
               <button
+                title="停止"
                 disabled={!active || !!busy}
                 onClick={() => safely("正在请求退出…", () => rpc("stop"))}
               >
@@ -672,6 +674,7 @@ function App() {
               </button>
               <Menu disabled={!draft || !!busy} items={menuItems} />
             </div>
+            <WindowControls onError={(text) => setNotice({error: true, text})} />
           </header>
           {notice && (
             <div
@@ -1173,6 +1176,7 @@ function App() {
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
           <Dialog.Content
+            aria-describedby={modal?.description || ["raw", "logs"].includes(modal?.kind) ? "desktop-dialog-description" : undefined}
             className={
               "dialog-content " +
               (["raw", "logs"].includes(modal?.kind) ? "wide" : "")
@@ -1183,14 +1187,14 @@ function App() {
             onPointerDownOutside={(e) => e.preventDefault()}
           >
             <Dialog.Title>{modal?.title}</Dialog.Title>
-            <Dialog.Description>
+            {(modal?.description || ["raw", "logs"].includes(modal?.kind)) && <Dialog.Description id="desktop-dialog-description">
               {modal?.description ||
                 (modal?.kind === "raw"
                   ? "校验后载入当前草稿，保存后才写入配置。"
                   : modal?.kind === "logs"
                     ? "实际运行日志。错误会保留在这里。"
                     : "")}
-            </Dialog.Description>
+            </Dialog.Description>}
             <IconButton
               label="关闭对话框"
               className="dialog-close"

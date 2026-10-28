@@ -1,39 +1,48 @@
-/* Primer light semantics. Profile marker HEX values are data, not theme colors. */
+/* Dark desktop semantics. Profile marker HEX values remain data, not theme colors. */
 :root {
-  color-scheme: light;
-  --bg: #ffffff;
-  --paper: #ffffff;
-  --side: #f6f8fa;
-  --subtle: #f6f8fa;
-  --selected: #eff2f5;
-  --hover: #e6eaef;
-  --ink: #1f2328;
-  --muted: #59636e;
-  --disabled: #818b98;
-  --line: #d1d9e0;
-  --line-muted: #d1d9e0b3;
-  --accent: #0969da;
-  --tint: #ddf4ff;
-  --tab-active: #fd8c73;
-  --success: #1f883d;
-  --success-hover: #1a7f37;
-  --danger: #d1242f;
-  --danger-bg: #ffebe9;
-  --warning: #9a6700;
-  --on-emphasis: #ffffff;
-  --scrim: #1f232866;
-  --overlay-shadow: 0 3px 12px #1f232826;
-  --border: 0.5px solid var(--line);
-  --radius: 6px;
-  --font-small: 12px;
+  color-scheme: dark;
+  --bg: #111214;
+  --paper: #1a1c20;
+  --field: #141518;
+  --floating: #202227;
+  --side: #0d0e10;
+  --subtle: #1b1d20;
+  --selected: #24262a;
+  --hover: #2b2e33;
+  --ink: #eeeef0;
+  --muted: #a0a3ab;
+  --disabled: #70747d;
+  --line: #303238;
+  --line-muted: #25272d;
+  --accent: #8caafb;
+  --tint: #26334e;
+  --tab-active: #d9dce3;
+  --success: #98d4b4;
+  --success-hover: #b0e2c8;
+  --danger: #ff969d;
+  --danger-bg: #3e2028;
+  --warning: #eac17b;
+  --on-emphasis: #14241c;
+  --on-danger: #2b1116;
+  --scrim: #00000099;
+  --panel-shadow: 0 2px 8px #0000002e;
+  --menu-shadow: 0 4px 16px #0000003d;
+  --overlay-shadow: 0 12px 40px #00000040;
+  --border: 1px solid var(--line);
+  --radius: 8px;
+  --radius-panel: 12px;
+  --radius-dialog: 16px;
+  --control-height: 36px;
+  --font-small: 13px;
   --font-body: 14px;
-  --font-title: 20px;
+  --font-title: 28px;
+  --number-width: 100px;
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; overflow: hidden; }
-body { margin: 0; font: var(--font-body)/1.5 "Segoe UI", "Microsoft YaHei UI", sans-serif; color: var(--ink); background: var(--bg); }
+body { margin: 0; font: var(--font-body)/1.5 "Segoe UI", "Microsoft YaHei UI", sans-serif; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
 button, input, select, textarea { font: inherit; color: inherit; }
-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 5px 12px; border: var(--border); border-radius: var(--radius); background: var(--subtle); cursor: pointer; font-weight: 500; }
+button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--control-height); padding: 4px 12px; border: var(--border); border-radius: var(--radius); background: var(--subtle); cursor: pointer; font-weight: 500; }
 button:hover:not(:disabled) { background: var(--hover); }
 button:active:not(:disabled) { background: var(--selected); }
 button:disabled, input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; color: var(--disabled); }
@@ -45,51 +54,51 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 svg { display: block; flex-shrink: 0; }
 button > svg { width: 16px; height: 16px; }
 h1, h2, h3, p { margin: 0; }
-h1 { font-size: var(--font-title); font-weight: 600; line-height: 1.4; }
-h2, h3 { font-size: var(--font-body); font-weight: 600; }
+h1 { font-size: var(--font-title); font-weight: 500; line-height: 1.3; letter-spacing: -.6px; }
+h2, h3 { font-size: var(--font-body); font-weight: 500; }
 small, .small { font-size: var(--font-small); }
 strong { font-weight: 600; }
 .muted, .note { color: var(--muted); }
 .note { margin-top: 12px; font-size: var(--font-small); line-height: 1.6; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-select, .text-field, .stack input, .stack select, .preview-options input[type="number"] { min-width: 0; max-width: 100%; min-height: 32px; padding: 5px 10px; background: var(--paper); border: var(--border); border-radius: var(--radius); }
+select, .text-field, .stack input, .stack select, .preview-options input[type="number"] { min-width: 0; max-width: 100%; min-height: var(--control-height); padding: 4px 12px; background: var(--field); border: var(--border); border-radius: var(--radius); }
 select { padding-right: 24px; }
 input[type="number"] { appearance: textfield; font-variant-numeric: tabular-nums; }
 input::-webkit-inner-spin-button { appearance: none; }
-.number { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; width: 90px; min-height: 32px; padding: 5px 8px; background: var(--paper); border: var(--border); border-radius: var(--radius); }
+.number { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; width: var(--number-width); height: var(--control-height); padding: 4px 12px; background: var(--field); border: var(--border); border-radius: var(--radius); font-variant-numeric: tabular-nums; }
 .number input { min-width: 0; width: 100%; padding: 0; border: 0; background: transparent; text-align: right; }
 .number input:focus-visible { outline: 0; }
 .number:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .number span { color: var(--muted); font-size: var(--font-small); }
-input[type="range"] { appearance: none; width: 108px; height: 4px; margin: 8px 0; border-radius: 2px; background: var(--line); accent-color: var(--accent); cursor: pointer; }
-input[type="range"]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border: 0.5px solid var(--accent); border-radius: 50%; background: var(--paper); }
+input[type="range"] { appearance: none; width: 112px; height: 3px; margin: 8px 0; border-radius: 2px; background: var(--line); accent-color: var(--accent); cursor: pointer; }
+input[type="range"]::-webkit-slider-thumb { appearance: none; width: 13px; height: 13px; border: 0.5px solid var(--accent); border-radius: 50%; background: var(--accent); }
 input[type="range"]:focus-visible { outline-offset: 6px; }
 .switch { appearance: none; flex-shrink: 0; width: 32px; height: 20px; margin: 0; border: var(--border); border-radius: 10px; background: var(--line); position: relative; cursor: pointer; }
 .switch:checked { background: var(--accent); border-color: var(--accent); }
-.switch::before { content: ""; position: absolute; width: 14px; height: 14px; top: 2.5px; left: 2.5px; border-radius: 50%; background: var(--paper); }
+.switch::before { content: ""; position: absolute; width: 14px; height: 14px; top: 2.5px; left: 2.5px; border-radius: 50%; background: #e8eaf0; }
 .switch:checked::before { transform: translateX(12px); }
 .switch:disabled { opacity: 0.55; }
-.stack { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.stack { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
 .pill { display: inline-block; padding: 1px 7px; border: var(--border); border-radius: 10px; color: var(--muted); font-size: var(--font-small); white-space: nowrap; }
 kbd { display: inline-block; min-width: 20px; padding: 0 4px; text-align: center; background: var(--subtle); border: var(--border); border-radius: 4px; font: inherit; font-size: var(--font-small); }
 .danger, .field-error, .inline-error { color: var(--danger); }
 .inline-error { margin-top: 8px; font-size: var(--font-small); white-space: pre-wrap; overflow-wrap: anywhere; }
 .invalid .number, .invalid .text-field { border-color: var(--danger); }
-.danger-button { background: var(--danger) !important; border-color: var(--danger) !important; color: var(--on-emphasis); }
-.icon-button { width: 32px; padding: 6px; }
-.popup-menu, .field-help, .dialog-content { border: var(--border); border-radius: var(--radius); background: var(--paper); box-shadow: var(--overlay-shadow); }
+.danger-button { background: var(--danger) !important; border-color: var(--danger) !important; color: var(--on-danger); }
+.icon-button { width: 36px; padding: 4px; }
+.popup-menu, .field-help, .dialog-content { border: var(--border); border-radius: var(--radius-panel); background: var(--floating); box-shadow: var(--menu-shadow); }
 .popup-menu { min-width: 210px; max-width: calc(100vw - 24px); padding: 4px; z-index: 60; }
-.menu-item { padding: 6px 8px; min-height: 32px; border-radius: 3px; cursor: pointer; outline: none; }
+.menu-item { padding: 8px 12px; min-height: 36px; border-radius: var(--radius); cursor: pointer; outline: none; }
 .menu-item[data-highlighted] { background: var(--selected); }
 .menu-item[data-disabled] { color: var(--disabled); cursor: not-allowed; }
 .menu-separator { height: 0.5px; background: var(--line); margin: 4px 0; }
 .dialog-overlay { position: fixed; inset: 0; background: var(--scrim); z-index: 70; }
-.dialog-content { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 460px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; z-index: 71; }
+.dialog-content { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 460px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; border-radius: var(--radius-dialog); box-shadow: var(--overlay-shadow); z-index: 71; }
 .dialog-content.wide { width: 880px; }
-.dialog-content h2 { font-size: var(--font-title); padding-right: 24px; }
-.dialog-content > p { margin: 8px 0 20px; color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }
+.dialog-content h2 { font-size: 22px; line-height: 1.4; padding-right: 24px; }
+.dialog-content > p { margin: 8px 0 0; color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }
 .dialog-content h3 { margin-top: 16px; }
-.dialog-close { position: absolute; right: 12px; top: 12px; padding: 6px; background: transparent; border-color: transparent; }
+.dialog-close { position: absolute; right: 16px; top: 16px; padding: 4px; background: transparent; border-color: transparent; }
 .dialog-content .actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
 .dialog-content pre, .code-editor { width: 100%; padding: 12px; border: var(--border); border-radius: var(--radius); background: var(--subtle); font: var(--font-small)/1.6 Consolas, "Microsoft YaHei UI", monospace; color: var(--ink); tab-size: 4; }
 .dialog-content pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; user-select: text; }
@@ -102,10 +111,19 @@ kbd { display: inline-block; min-width: 20px; padding: 0 4px; text-align: center
 .preset-list button { width: 100%; justify-content: space-between; gap: 16px; margin-top: 8px; text-align: left; }
 .preset-list span { font-size: var(--font-small); color: var(--muted); }
 .field-help { z-index: 100; width: min(320px, calc(100vw - 32px)); max-height: var(--radix-popover-content-available-height); overflow: auto; padding: 12px 16px; font-size: var(--font-small); line-height: 1.6; }
-.field-help-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.field-help-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .field-help-heading button { min-height: 24px; padding: 3px; border-color: transparent; background: transparent; }
-.help { display: inline-grid; place-items: center; width: 20px; min-height: 20px; padding: 0; background: transparent; border: var(--border); border-radius: 50%; color: var(--muted); font-size: var(--font-small); }
+.help { display: inline-grid; place-items: center; width: 18px; min-height: 18px; padding: 0; background: var(--subtle); border: var(--border); border-radius: 50%; color: var(--muted); font-size: 11px; border-color: transparent; }
 .help:hover, .help[data-state="open"] { color: var(--accent); background: var(--tint); }
 .busy-spinner { animation: busy-turn 1s linear infinite; }
 @keyframes busy-turn { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .busy-spinner { animation: none; } }
+
+/* Modal rhythm: heading → 24px → form, input → 32px → actions. */
+.dialog-content > form { margin-top: 24px; }
+.dialog-content .modal-fields > .stack { margin: 0; }
+.dialog-content .modal-fields > .stack + .stack { margin-top: 16px; }
+.dialog-content .actions { margin-top: 32px; gap: 8px; }
+.dialog-content .actions button { min-width: 72px; }
+::selection { background: var(--tint); color: var(--ink); }
+input, textarea { caret-color: var(--accent); }
