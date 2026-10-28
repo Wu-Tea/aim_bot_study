@@ -23,6 +23,7 @@ export function Field({ field, value, onChange }) {
   const numeric = field.kind === "float" || field.kind === "int";
   const color = isColorField(field);
   const valid = isFieldValid(field, value);
+  const legacyFireInput = field.path === "gamepad.auto_fire.manual_fire_input" && value === "both";
   return (
     <div className={"row field-row " + (!valid ? "invalid" : "")}>
       <div className="field-label">
@@ -70,8 +71,10 @@ export function Field({ field, value, onChange }) {
         <select
           id={id}
           value={value}
+          aria-describedby={legacyFireInput ? id + "-legacy" : undefined}
           onChange={(e) => onChange(e.target.value)}
         >
+          {legacyFireInput && <option value="both" hidden disabled>请选择</option>}
           {Object.entries(field.choices).map(([k, v]) => (
             <option key={k} value={k}>
               {v}
@@ -147,6 +150,11 @@ export function Field({ field, value, onChange }) {
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
         />
+      )}
+      {legacyFireInput && (
+        <small className="field-legacy-note" id={id + "-legacy"}>
+          当前配置仍为双键触发，选择 RB 或 RT 后保存。
+        </small>
       )}
       {!valid && (
         <small className="field-error" id={id + "-error"}>

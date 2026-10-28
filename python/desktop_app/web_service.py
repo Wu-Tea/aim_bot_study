@@ -33,6 +33,8 @@ def schema():
     result = []
     for path, label, kind, default, limits in FIELDS:
         meta = field_presentation(path)
+        # Keep legacy "both" readable/persistable, but offer only single buttons in the GUI.
+        choices = ('RT', 'RB') if path == 'gamepad.auto_fire.manual_fire_input' else limits
         if path.startswith('runtime.vision.'):
             group = '目标与识别' if path.endswith(('friendly_filter_enabled', 'enemy_marker_color', 'friendly_marker_color', 'target_height_ratio', 'target_wide_low_height_ratio')) else '捕获与模型'
         elif path.startswith('runtime.input.'): group = '输入设备'
@@ -49,7 +51,7 @@ def schema():
         result.append(dict(path=path, label=meta.get('label', label), kind=kind.__name__,
             limits=limits, scale=meta.get('display_scale', 1), unit=meta.get('unit', ''),
             help=meta.get('help', ''), advanced=advanced, group=group,
-            choices={value: CHOICE_LABELS.get(value, value) for value in limits} if kind is str and limits else None,
+            choices={value: CHOICE_LABELS.get(value, value) for value in choices} if kind is str and choices else None,
             hot_reload=meta.get('hot_reload'), readonly=path in ('runtime.vision.tensor_width','runtime.vision.tensor_height','runtime.input.device_name')))
     order = ['gamepad.ads.output_limit_x','gamepad.ads.output_limit_y','gamepad.ads.response_time_ms',
              'gamepad.bodylock.output_limit_x','gamepad.bodylock.output_limit_y',

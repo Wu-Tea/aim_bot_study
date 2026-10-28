@@ -56,6 +56,20 @@ class WebServiceTests(unittest.TestCase):
         self.assertTrue(result['ok'],result.get('error'))
         return result['data']
 
+    def test_manual_fire_choices_preserve_legacy_until_explicit_selection(self):
+        path = 'gamepad.auto_fire.manual_fire_input'
+        boot = self.call('bootstrap')
+        field = next(f for f in boot['fields'] if f['path'] == path)
+        self.assertEqual(field['choices'], {'RT': 'RT', 'RB': 'RB'})
+        draft = deepcopy(boot['profiles'][0])
+        draft['values'][path] = 'both'
+        saved = self.call('save', draft)['profile']
+        self.assertEqual(saved['values'][path], 'both')
+        for button in ('RB', 'RT'):
+            saved['values'][path] = button
+            saved = self.call('save', saved)['profile']
+            self.assertEqual(saved['values'][path], button)
+
     def test_capture_is_global_immediate_and_requires_stopped_assistant(self):
         before = deepcopy(self.profile)
         self.assertEqual(self.call('status')['capture']['state'], 'off')
