@@ -39,8 +39,6 @@ constexpr float kWeakAssociationConfidenceThreshold = 0.20f;
 constexpr float kTrackingBonus = 2000.0f;
 constexpr float kMinScoreThreshold = -50000.0f;
 constexpr float kMaxColorBonus = 10000.0f;
-constexpr float kFriendlyMaskMinRatio = 0.02f;
-constexpr float kFriendlyMaskMaxRatio = 0.35f;
 constexpr float kEnemyMaskMinRatio = 0.03f;
 constexpr float kEnemyMaskMaxRatio = 0.45f;
 constexpr int kCueMinPixels = 8;
@@ -685,9 +683,6 @@ ColorClassification classify_color(
         return classification;
     }
 
-    int friendly_count = 0;
-    int friendly_left=bounds->right,friendly_right=bounds->left;
-    bool friendly_at_top=false;
     int cue_pixels = 0;
     float cue_sum_x = 0.0f;
     float cue_sum_y = 0.0f;
@@ -699,11 +694,6 @@ ColorClassification classify_color(
             int b = 0;
             read_rgb(frame, x, y, r, g, b);
 
-            if (palette.friendly.matches(r, g, b)) {
-                ++friendly_count;
-                friendly_left=std::min(friendly_left,x);friendly_right=std::max(friendly_right,x);
-                friendly_at_top=friendly_at_top || y==bounds->top;
-            }
             if (palette.enemy.matches(r, g, b)) {
                 ++cue_pixels;
                 cue_sum_x += static_cast<float>(x);
@@ -717,33 +707,15 @@ ColorClassification classify_color(
         return classification;
     }
 
-    const float friendly_ratio = static_cast<float>(friendly_count) / static_cast<float>(area);
-    if (friendly_filter_enabled && kFriendlyMaskMinRatio <= friendly_ratio && friendly_ratio <= kFriendlyMaskMaxRatio) {
-        classification.is_friendly = true;
-        return classification;
-    }
-    if (friendly_filter_enabled && boundary_detector && friendly_count==0 && bounds->top>=4) {
-        // A four-row-high marker can also lie just outside the moving ROI.
-        // One sparse seed row closes that edge gap without enlarging every
-        // pixel scan or altering the enemy-color statistics.
-        const IntRect seed{bounds->left,bounds->top-4,bounds->right,bounds->top-3};
-        if (frame_covers(seed,frame)) for(int x=seed.left;x<seed.right;++x) {
-            int r=0,g=0,b=0;read_rgb(frame,x,seed.top,r,g,b);
-            if(palette.friendly.matches(r,g,b)) {
-                ++friendly_count;friendly_at_top=true;
-                friendly_left=std::min(friendly_left,x);friendly_right=std::max(friendly_right,x);
-            }
-        }
-    }
-    if (friendly_filter_enabled && boundary_detector && friendly_at_top && friendly_count>0 &&
-        friendly_ratio<kFriendlyMaskMinRatio && friendly_right-friendly_left<18) {
-        // Recover a marker cut by the ROI edge, not a lower area threshold.
-        // Reuse the compact-component detector in a <=37x37 local patch;
-        // large colored background still fails its shape/extent checks.
-        const int cx=(friendly_left+friendly_right)/2;
-        const IntRect patch{std::max(0,cx-18),std::max(0,bounds->top-18),
-            std::min(effective_frame_width(frame),cx+19),
-            std::min(effective_frame_height(frame),bounds->top+19)};
+    if (friendly_filter_enabled && boundary_detector) {
+        // Colour area is not marker evidence: a wall can occupy the same ratio
+        // as a teammate cue. Require a compact complete component, including
+        // markers cut by the old ROI boundary. Components crossing this local
+        // patch edge are rejected by CueDetector, never reinterpreted as glyphs.
+        const IntRect patch{std::max(frame.origin_x,bounds->left-19),
+            std::max(frame.origin_y,bounds->top-19),
+            std::min(frame.origin_x+frame.width,bounds->right+19),
+            std::min(frame.origin_y+frame.height,bounds->bottom+19)};
         if (frame_covers(patch,frame)) {
             const int channels=frame.format==PixelFormat::BGRA8 ? 4 : 3;
             boundary_detector->set_enemy_color(palette.friendly);
@@ -752,7 +724,10 @@ ColorClassification classify_color(
             const auto& marks=boundary_detector->detect(pixels,patch.right-patch.left,patch.bottom-patch.top,
                 frame.row_pitch,frame.format,patch.left,patch.top);
             for (const auto& mark:marks) if (mark.x>=bounds->left && mark.x<bounds->right &&
-                std::abs(mark.y-bounds->top)<=9) {
+                mark.y>=bounds->top-9 && mark.y+mark.size*.5f<bounds->bottom && mark.score>=.90f) {
+                // Friendly is a hard veto, unlike a cue proposal. Require a
+                // well-centred complete marker above the body boundary, not
+                // a head/helmet highlight extending into the expanded patch.
                 classification.is_friendly=true;return classification;
             }
         }
@@ -823,6 +798,7 @@ void VisionTargetSelector::clear_tracking_state() {
     cue_identity_.reset();
     last_cue_frame_ns_ = 0;
     cue_body_reference_.reset();
+    recent_person_.reset();
     last_target_center_.reset();
     selection_.clear();
     active_generation_had_enemy_evidence_ = false;
@@ -931,7 +907,7 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_
     if (has_merged) {
         // Include template context around every possible candidate center.
         // The extra pixel also covers rounding of the directly observed cue.
-        constexpr int margin = kCuePatchAfter + 1;
+        constexpr int margin = std::max(kCuePatchAfter + 1, 19);
         merged.left = std::max(0, merged.left - margin);
         merged.top = std::max(0, merged.top - margin);
         merged.right = std::min(frame_width, merged.right + margin);
@@ -1032,7 +1008,7 @@ DetectionBatch VisionTargetSelector::annotate_colors(
     DetectionBatch annotated = apply_detection_policy(batch);
     for (auto& detection : annotated.detections) {
         const ColorClassification classification = classify_color(to_rect(detection), frame, friendly_filter_enabled_, marker_palette_,
-            cue_identity_enabled_ ? &friendly_boundary_detector_ : nullptr);
+            &friendly_boundary_detector_);
         detection.color_bonus = classification.color_bonus;
         detection.is_friendly = classification.is_friendly;
         detection.color_classified = true;
@@ -2307,6 +2283,19 @@ VisionResult VisionTargetSelector::select_with_frame(
     return result;
 }
 
+void VisionTargetSelector::remember_person(const Detection& detection,std::uint64_t ns,bool confirmed) {
+    RecentPerson next{detection,ns,selection_.generation(),confirmed};
+    if(recent_person_ && recent_person_->generation==next.generation && ns>recent_person_->captured_at_ns &&
+        ns-recent_person_->captured_at_ns<=40'000'000ull &&
+        boxes_match(to_rect(detection),to_rect(recent_person_->detection))) {
+        const auto& old=recent_person_->detection;
+        const float dt=float(ns-recent_person_->captured_at_ns)*1e-9f;
+        next.velocity_x=(detection.x1+detection.x2-old.x1-old.x2)*.5f/dt;
+        next.velocity_y=(detection.y1+detection.y2-old.y1-old.y2)*.5f/dt;
+    }
+    recent_person_=next;
+}
+
 VisionResult VisionTargetSelector::select_impl(
     const DetectionBatch& batch, const ColorFrameView* frame,
     const pipeline_contract::UserAimIntent* intent) {
@@ -2331,7 +2320,27 @@ VisionResult VisionTargetSelector::select_impl(
         v.class_id=d.class_id; v.color_checked=d.color_classified; v.friendly=d.is_friendly;
         v.has_cue=d.has_cue_point; v.cue_x=d.cue_x; v.cue_y=d.cue_y; v.cue_score=d.cue_score;
     }
+    const bool fresh_cue_capture=batch.captured_at_ns && batch.captured_at_ns>last_cue_frame_ns_;
     auto result=cue_identity_enabled_ ? select_cue_identity(batch,frame,intent) : select_impl_core(batch,frame,intent);
+    if(cue_identity_enabled_ && frame && fresh_cue_capture) {
+        if(result.has_selected_detection && std::strcmp(result.target_source,"observed")==0) {
+            remember_person(batch.detections[result.selected_detection_index],batch.captured_at_ns,true);
+        } else if(!result.has_target && !selection_.has_identity()) {
+            // A unique plausible detection may await independent cue evidence
+            // without passing person-only confidence or receiving authority.
+            const Detection* proposal=nullptr;bool ambiguous=false;
+            for(const auto& d:batch.detections) {
+                if(d.class_id!=0 || d.is_friendly || d.conf<kPickupEnemyConfidenceThreshold ||
+                    !passes_geometry_gate(d.x2-d.x1,d.y2-d.y1,false))continue;
+                Candidate c;c.body_box=to_rect(d);const auto p=target_point(c.body_box);
+                c.target_x=p.first;c.target_y=p.second;
+                if(!candidate_within_pickup_envelope(c))continue;
+                if(proposal){ambiguous=true;break;}proposal=&d;
+            }
+            if(ambiguous)recent_person_.reset();
+            else if(proposal)remember_person(*proposal,batch.captured_at_ns,false);
+        }
+    }
     if (cue_identity_enabled_ && result.has_target && result.has_selected_detection) {
         last_identity_evidence_ns_=batch.captured_at_ns;
         if(cue_body_reference_ && cue_body_reference_->generation==selection_.generation())
@@ -2463,6 +2472,9 @@ VisionResult VisionTargetSelector::select_impl_core(
             // cue/body calibration survives for a unique current cue to acquire
             // again; it cannot lend tracking confidence to a new person box.
             auto recent_geometry=std::move(cue_body_reference_);
+            auto recent_person=std::move(recent_person_);
+            if(recent_person && (batch.captured_at_ns<recent_person->captured_at_ns ||
+                batch.captured_at_ns-recent_person->captured_at_ns>kCueHoldMaxDurationNs))recent_person.reset();
             if(recent_geometry && (!recent_geometry->last_person_ns ||
                 batch.captured_at_ns<recent_geometry->last_person_ns ||
                 batch.captured_at_ns-recent_geometry->last_person_ns>kCueHoldMaxDurationNs))recent_geometry.reset();
@@ -2476,6 +2488,7 @@ VisionResult VisionTargetSelector::select_impl_core(
             }
             clear_tracking_state();
             cue_body_reference_=std::move(recent_geometry);
+            recent_person_=std::move(recent_person);
         }
         selection_.mark_missing();
         VisionResult result = empty_result(boxes_seen);

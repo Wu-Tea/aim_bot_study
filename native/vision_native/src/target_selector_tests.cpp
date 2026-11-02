@@ -253,6 +253,19 @@ void paint_sparse_bgra(
     }
 }
 
+// A friendly fixture represents a UI marker, not a uniform ratio of speckles.
+void paint_marker_bgra(ColorFrameFixture& frame,
+    const vision_native::Detection& person,
+    std::uint8_t red,std::uint8_t green,std::uint8_t blue) {
+    const int cx=int((person.x1+person.x2)*.5f);
+    const float h=person.y2-person.y1;
+    const int cy=int(person.y1-2-std::clamp(h*.1f,6.f,18.f));
+    for(int y=-5;y<=5;++y)for(int x=-5;x<=5;++x)if(x*x+y*y>=9 && x*x+y*y<=25) {
+        const auto offset=std::size_t((cy+y)*frame.view.row_pitch+(cx+x)*4);
+        frame.pixels[offset]=blue;frame.pixels[offset+1]=green;frame.pixels[offset+2]=red;
+    }
+}
+
 void paint_solid_magenta_bgra(
     ColorFrameFixture& frame,
     int center_x,
@@ -709,7 +722,7 @@ void test_bgra_cyan_friendly_is_hard_rejected() {
     batch.frame_height = 512;
     batch.detections.push_back(friendly);
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(friendly), 0, 255, 255);
+    paint_marker_bgra(frame, friendly, 0, 255, 255);
 
     const auto first = selector.select_with_frame(batch, frame.view);
     const auto second = selector.select_with_frame(batch, frame.view);
@@ -721,7 +734,7 @@ void test_bgra_cyan_friendly_is_hard_rejected() {
     require_true(second.detections.front().is_friendly,
                  "cyan marker must set the friendly hard-filter flag");
     auto foliage=full_bgra_frame();
-    paint_sparse_bgra(foliage,color_region_for(friendly),0,255,0);
+    paint_marker_bgra(foliage,friendly,0,255,0);
     selector.reset();
     const auto green=selector.select_with_frame(batch,foliage.view);
     require_true(!green.detections.front().is_friendly,"green foliage no longer counts as a friendly marker");
@@ -736,7 +749,7 @@ void test_friendly_switch_and_configured_target_point() {
     batch.frame_width = 640; batch.frame_height = 512;
     batch.detections = {person};
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(person), 0, 255, 255);
+    paint_marker_bgra(frame, person, 0, 255, 255);
     vision_native::VisionTargetSelector selector(640, 512, 150.0f, false, 0.35f);
     selector.select_with_frame(batch, frame.view);
     const auto selected = selector.select_with_frame(batch, frame.view);
@@ -804,7 +817,7 @@ void test_bgra_cyan_friendly_cannot_beat_magenta_enemy() {
     batch.frame_height = 512;
     batch.detections = {friendly, enemy};
     auto frame = full_bgra_frame();
-    paint_sparse_bgra(frame, color_region_for(friendly), 0, 255, 255);
+    paint_marker_bgra(frame, friendly, 0, 255, 255);
     paint_sparse_bgra(frame, color_region_for(enemy), 255, 0, 255);
 
     selector.select_with_frame(batch, frame.view);
@@ -1088,7 +1101,7 @@ void test_cue_readback_includes_active_search_with_unrelated_detection() {
                 paint_solid_magenta_bgra(frame, x, y, 1);
                 auto missing = single_target_batch(530.f, 370.f, .82f);
                 missing.captured_at_ns = observed.captured_at_ns + tick * 5'000'000ull;
-                paint_sparse_bgra(frame, color_region_for(missing.detections[0]), 0, 255, 255);
+                paint_marker_bgra(frame, missing.detections[0], 0, 255, 255);
                 const auto expected = full.select_with_frame(missing, frame.view);
                 require_true(expected.has_target, "full-frame reference must follow the visible cue");
                 const auto roi = cropped.required_color_region(missing);

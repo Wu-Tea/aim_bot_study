@@ -105,6 +105,15 @@ bool translated_body(const VisionTargetSelector::Rect& box,const VisionTargetSel
         std::abs((box.left+box.right-previous.left-previous.right)*.5f)<=std::max(12.f,.5f*pw) &&
         std::abs((box.top+box.bottom-previous.top-previous.bottom)*.5f)<=std::max(12.f,.5f*ph);
 }
+bool same_body_shape(const VisionTargetSelector::Rect& box,const VisionTargetSelector::Rect& calibrated) {
+    const float w=box.right-box.left,h=box.bottom-box.top;
+    const float rw=calibrated.right-calibrated.left,rh=calibrated.bottom-calibrated.top;
+    // Both extents must agree with the original body, not the last fragment.
+    // A coherent current body can move relative to the UI marker; the marker's
+    // initial top gap is not an immutable anatomical measurement.
+    return rw>0 && rh>0 && w>=.85f*rw && w<=1.18f*rw && h>=.85f*rh && h<=1.18f*rh &&
+        std::abs(w/rw-h/rh)<=.12f;
+}
 }
 
 VisionResult VisionTargetSelector::select_cue_identity(const DetectionBatch& batch,
@@ -118,6 +127,19 @@ VisionResult VisionTargetSelector::select_cue_identity(const DetectionBatch& bat
         return empty_result(boxes_seen);
     }
     last_cue_frame_ns_=batch.captured_at_ns;
+    if(recent_person_ && (batch.captured_at_ns<recent_person_->captured_at_ns ||
+        batch.captured_at_ns-recent_person_->captured_at_ns>180'000'000ull ||
+        recent_person_->generation!=selection_.generation()))recent_person_.reset();
+    std::optional<Detection> projected_person;
+    if(recent_person_) {
+        projected_person=recent_person_->detection;
+        // The same short motion horizon as person association. Extrapolation
+        // only locates a cue correspondence; it never authorizes an empty frame.
+        const float dt=std::min(.04f,float(batch.captured_at_ns-recent_person_->captured_at_ns)*1e-9f);
+        const float dx=recent_person_->velocity_x*dt,dy=recent_person_->velocity_y*dt;
+        projected_person->x1+=dx;projected_person->x2+=dx;
+        projected_person->y1+=dy;projected_person->y2+=dy;
+    }
     // A missing marker revokes current coordinates, not recent anatomical
     // evidence. Retention is bounded by real person observations, never holds.
     const bool recent_reference=cue_body_reference_ && cue_body_reference_->last_person_ns &&
@@ -142,6 +164,8 @@ VisionResult VisionTargetSelector::select_cue_identity(const DetectionBatch& bat
         // a person that association_cost would otherwise accept this frame.
         for(const auto& person:batch.detections)
             if(const auto region=association_region(person))cue_search_regions_.push_back(*region);
+        if(projected_person && !cue_body_reference_)
+            if(const auto region=association_region(*projected_person))cue_search_regions_.push_back(*region);
         if(const auto region=cue_identity_.search_region())cue_search_regions_.push_back(*region);
         else if(recovery_cue)cue_search_regions_.push_back({recovery_cue->x-42,recovery_cue->y-42,
             recovery_cue->x+42,recovery_cue->y+42});
@@ -179,10 +203,24 @@ VisionResult VisionTargetSelector::select_cue_identity(const DetectionBatch& bat
     build_candidates(evidence,last_target_center_,intent);
     diagnostics_.admitted=static_cast<std::uint32_t>(candidate_scratch_.size());
     const auto selected=select_candidate_targets(candidate_scratch_,last_target_center_,intent);
-    const auto transition=selected.first ? resolve_active_target_transition(*selected.first,selected.second,intent) : std::nullopt;
+    auto transition=selected.first ? resolve_active_target_transition(*selected.first,selected.second,intent) : std::nullopt;
+    if(!transition && selected.first && cue_body_reference_ && !cue_body_reference_->simultaneous_pair &&
+        cue_identity_.fresh() && selected.first->candidate.has_source_detection) {
+        const auto& person=evidence.detections[selected.first->candidate.source_detection_index];
+        const auto* cue=associated_cue(cues,person,evidence.detections);
+        const auto& active=*cue_identity_.active();
+        if(cue && cue->x==active.x && cue->y==active.y &&
+            calibration_supported(selected.first->candidate.body_box,*cue,frame_height_)) {
+            // The provisional displacement cannot veto the first real pair.
+            // Unique current cue correspondence supplies identity, while the
+            // directly observed body replaces estimated geometry immediately.
+            transition=*selected.first;
+            selection_.observe(*transition,true);
+        }
+    }
     bool retain_body_geometry=false;
     bool independent_recovery=false;
-    if(transition && cue_body_reference_ && cue_identity_.fresh() &&
+    if(transition && cue_body_reference_ && cue_body_reference_->simultaneous_pair && cue_identity_.fresh() &&
         cue_body_reference_->generation==selection_.generation() &&
         targets_match(*selection_.active(),*transition) &&
         transition->candidate.has_source_detection) {
@@ -205,7 +243,10 @@ VisionResult VisionTargetSelector::select_cue_identity(const DetectionBatch& bat
         const bool explicit_handover=intent && intent->valid && intent->aiming &&
             intent->purpose==pipeline_contract::UserAimIntentPurpose::HandoverTarget && transition->intent_applied;
         const bool same_cue=!cue || (cue->x==active.x && cue->y==active.y);
-        retain_body_geometry=!explicit_handover && !independent_recovery &&
+        const bool current_body_supported=cue && same_cue &&
+            calibration_supported(transition->candidate.body_box,*cue,frame_height_) &&
+            same_body_shape(transition->candidate.body_box,ref.calibrated_box);
+        retain_body_geometry=!explicit_handover && !independent_recovery && !current_body_supported &&
             (!same_cue || !compatible_body_extent(transition->candidate.body_box,active,
                 ref.calibrated_box,ref.calibrated_cue,ref.calibrated_aspect));
     }
@@ -249,16 +290,54 @@ VisionResult VisionTargetSelector::select_cue_identity(const DetectionBatch& bat
             if (cue && std::strcmp(target.candidate.source,"observed")==0 &&
                 calibration_supported(target.candidate.body_box,*cue,frame_height_)) {
                 const auto& box=target.candidate.body_box;
-                const float aspect=cue_body_reference_ ? cue_body_reference_->calibrated_aspect :
+                const bool calibrated=cue_body_reference_ && cue_body_reference_->simultaneous_pair;
+                const float aspect=calibrated ? cue_body_reference_->calibrated_aspect :
                     (box.right-box.left)/(box.bottom-box.top);
-                const auto calibrated_box=cue_body_reference_ ? cue_body_reference_->calibrated_box : box;
-                const auto calibrated_cue=cue_body_reference_ ? cue_body_reference_->calibrated_cue : *cue;
+                const auto calibrated_box=calibrated ? cue_body_reference_->calibrated_box : box;
+                const auto calibrated_cue=calibrated ? cue_body_reference_->calibrated_cue : *cue;
                 cue_identity_.seed(*cue,batch.captured_at_ns);
                 cue_body_reference_=CueBodyReference{target,*cue,selection_.generation(),aspect,calibrated_box,calibrated_cue,batch.captured_at_ns};
                 diagnostics_.cue_reason="person_cue_reference_recorded";
             }
         }
         return result;
+    }
+
+    if(!transition && !cue_body_reference_ && recent_person_ && !association_ambiguous_) {
+        auto person=*projected_person;
+        const auto* cue=associated_cue(cues,person,evidence.detections);
+        bool contested=false;
+        if(cue)for(const auto& current:evidence.detections) {
+            auto competitor=current;competitor.is_friendly=false;
+            if(current.is_friendly && association_cost(*cue,competitor)<=.95f)contested=true;
+        }
+        if(cue && !contested && calibration_supported(to_rect(person),*cue,frame_height_)) {
+            annotate_cue(person,*cue);
+            // Reuse ordinary geometry/confidence/envelope admission. The body
+            // is historical, so it cannot be exposed as a current detection or
+            // confer fire authority. No coordinates are produced without cue.
+            auto candidate=build_candidate(person,~std::uint32_t(0),last_target_center_,intent);
+            if(candidate) {
+                candidate->has_source_detection=false;candidate->source="cue_hold";
+                if(const auto target=select_single_candidate(*candidate,intent)) {
+                    if(!selection_.has_identity() && recent_person_->confirmed)
+                        selection_.commit(*target,true);
+                    auto result=finalize_selected_target(*target,boxes_seen,true,batch.captured_at_ns);
+                    if(result.has_target && selection_.active()) {
+                        const auto body_ns=recent_person_->captured_at_ns;
+                        cue_identity_.seed(*cue,batch.captured_at_ns);
+                        const auto& box=candidate->body_box;
+                        cue_body_reference_=CueBodyReference{*selection_.active(),*cue,selection_.generation(),
+                            (box.right-box.left)/(box.bottom-box.top),box,*cue,body_ns,false};
+                        diagnostics_.cue_reason="recent_person_first_cue";
+                        recent_person_.reset();
+                    }
+                    // Preserve ordinary two-frame confirmation for an
+                    // unselected proposal; the empty legacy path would erase it.
+                    return result;
+                }
+            }
+        }
     }
 
     const bool reference_matches=cue_body_reference_ && selection_.has_identity() &&

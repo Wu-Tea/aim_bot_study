@@ -14,10 +14,10 @@ inline constexpr float kBodyAimOrdinaryAspect = 1.00f;
 inline constexpr float kAimRegionShrinkX = 0.22f;
 inline constexpr float kAimRegionHalfHeightRatio = 0.18f;
 inline constexpr float kWideLowAimRegionHalfHeightRatio = 0.22f;
-inline constexpr float kMinPickupHeightRatio = 0.08f;
 inline constexpr float kMinTrackingHeightRatio = 0.06f;
-inline constexpr float kMinPickupAreaRatio = 0.003f;
+inline constexpr float kMinPickupHeightRatio = kMinTrackingHeightRatio;
 inline constexpr float kMinTrackingAreaRatio = 0.002f;
+inline constexpr float kMinPickupAreaRatio = kMinTrackingAreaRatio;
 inline constexpr float kMinAspectRatio = 0.30f;
 inline constexpr float kMaxAspectRatio = 4.50f;
 
@@ -33,14 +33,17 @@ inline float ordinary_body_reference_weight(float width, float height) noexcept 
 }
 
 inline bool body_geometry_admitted(float width, float height, int frame_width, int frame_height,
-                                   bool tracking_candidate) noexcept {
+                                   bool /*tracking_candidate*/) noexcept {
     const float aspect = width > 0 ? height / width : 0.0f;
     // Pose affects the aim point, not whether an otherwise plausible person
     // exists. Partial occlusion must not create a rejection hole at 0.65-0.85.
     if (aspect < kMinAspectRatio || aspect > kMaxAspectRatio) return false;
-    const float min_height = frame_height * (tracking_candidate ? kMinTrackingHeightRatio : kMinPickupHeightRatio);
-    const float min_area = (frame_width * frame_height) * (tracking_candidate ? kMinTrackingAreaRatio : kMinPickupAreaRatio);
-    return height >= min_height && width * height >= min_area;
+    // Acquisition and continuation share the existing resolved-body floor.
+    // Confidence/confirmation own new identity admission; an identical person
+    // must not become geometrically invalid just because it is newly seen.
+    // Preserve the tracking floor so weak head fragments cannot shrink identity.
+    return height>=frame_height*kMinTrackingHeightRatio &&
+        width*height>=(frame_width*frame_height)*kMinTrackingAreaRatio;
 }
 
 struct BodyAimGeometry {

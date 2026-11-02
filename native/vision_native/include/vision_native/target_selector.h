@@ -129,8 +129,20 @@ private:
         Rect calibrated_box;
         CueObservation calibrated_cue;
         std::uint64_t last_person_ns = 0;
+        bool simultaneous_pair = true;
     };
     std::optional<CueBodyReference> cue_body_reference_;
+    // Recent image evidence awaiting its first marker, not an output hold.
+    // A later unique cue may establish an aim-only provisional reference;
+    // the first simultaneous person/cue observation replaces that estimate.
+    struct RecentPerson {
+        Detection detection;
+        std::uint64_t captured_at_ns=0,generation=0;
+        bool confirmed=false;
+        float velocity_x=0,velocity_y=0;
+    };
+    std::optional<RecentPerson> recent_person_;
+    void remember_person(const Detection& detection,std::uint64_t captured_at_ns,bool confirmed);
     // The existing texture correspondence can translate trusted anatomy when
     // the current detector box is weak. Reacquiring a template clears it.
     struct MotionBodyReference {
