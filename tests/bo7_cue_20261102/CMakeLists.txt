@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.26)
+project(bo7_cue_audit LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+get_filename_component(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+add_executable(cue_probe cue_probe.cpp "${ROOT}/native/vision_native/src/cue_identity.cpp")
+target_include_directories(cue_probe PRIVATE "${ROOT}/native" "${ROOT}/native/vision_native/include")
+target_compile_definitions(cue_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_compile_options(cue_probe PRIVATE /utf-8)
