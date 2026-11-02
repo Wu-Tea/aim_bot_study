@@ -1,5 +1,11 @@
 # Workspace AimLab rules
 
+## 简单设计与复杂度边界
+
+用户于 2026-11-02 确认；适用于项目设计、实现与精简：
+
+实时识别和控制本身有不可消除的复杂度，不能靠削弱跟踪、降低频率或牺牲手动权限制造“简单”。但完全可以要求：每一份复杂度都有明确用途，而且不会扩散到整个系统。
+
 ## Performance before changes
 
 User-confirmed on 2026-10-23; apply to all project changes:
