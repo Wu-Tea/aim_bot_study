@@ -99,6 +99,8 @@ struct Detection {
     float motion_anchor_x = 0.0f;
     float motion_anchor_y = 0.0f;
     float motion_anchor_score = 0.0f;
+    // Current independently associated marker extent, not inferred body size.
+    float cue_size = 0.0f;
 };
 
 struct DetectionBatch {

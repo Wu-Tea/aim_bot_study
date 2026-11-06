@@ -1308,7 +1308,7 @@ void test_external_cue_continuation_does_not_request_full_color_frame() {
         "external cue continuation should not request a full color frame when there are no detections");
 }
 
-void test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition() {
+void test_wide_low_no_cue_candidate_retains_full_authority() {
     vision_native::VisionTargetSelector selector(640, 512);
     vision_native::DetectionBatch uncertain;
     uncertain.frame_width = 640;
@@ -1320,16 +1320,16 @@ void test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition() 
     const vision_native::VisionResult result =
         selector.select_with_frame(uncertain, dark_full_frame.view);
 
-    require_true(result.has_target, "wide-low no-cue candidate should remain aimable as weak evidence");
+    require_true(result.has_target, "wide-low no-cue candidate must retain full person authority");
     require_text(
         result.target_source,
-        "weak_observed",
-        "wide-low no-cue candidate should be downgraded instead of treated as strong observed");
-    require_true(result.aim_authority, "weak observed target should retain aim authority");
-    require_true(!result.fire_authority, "weak observed target must not grant fire authority");
+        "observed",
+        "wide-low no-cue candidate must remain strong observed evidence");
+    require_true(result.aim_authority, "observed target retains full aim authority");
+    require_true(result.fire_authority, "observed target retains normal fire eligibility");
 }
 
-void test_wide_low_no_cue_candidate_retains_aim_without_fire() {
+void test_wide_low_no_cue_candidate_retains_observed_authority() {
     vision_native::VisionTargetSelector selector(640, 512);
     const auto live = single_target_batch(320.0f, 256.0f, 0.45f);
     const auto live_region = selector.required_color_region(live);
@@ -1350,9 +1350,9 @@ void test_wide_low_no_cue_candidate_retains_aim_without_fire() {
     const vision_native::VisionResult result = selector.select_with_frame(corpse, dark_full_frame.view);
 
     require_true(
-        result.has_target && result.aim_authority && !result.fire_authority &&
+        result.has_target && result.aim_authority && result.fire_authority &&
             result.selector_target_generation == locked.selector_target_generation,
-        "wide-low current observation must remain aimable without granting fire authority");
+        "wide-low current observation must remain aimable with normal observed authority");
 }
 
 void test_enemy_marker_history_does_not_veto_current_flat_person() {
@@ -1390,7 +1390,7 @@ void test_enemy_marker_history_does_not_veto_current_flat_person() {
     const auto result = selector.select_with_frame(corpse, dark_full_frame.view);
 
     require_true(
-        result.has_target && result.aim_authority && !result.fire_authority &&
+        result.has_target && result.aim_authority && result.fire_authority &&
             result.selector_target_generation == locked.selector_target_generation,
         "marker history must not turn a current flat-body observation into a target veto");
 }
@@ -1420,11 +1420,11 @@ void test_enemy_marker_loss_with_flat_body_remains_aimable() {
 
     marker_gap.captured_at_ns = kLockTimeNs + (81ull * kMillisecondNs);
     // User contract 2026-09-28: a flat body is still a legal aim target.
-    // Posture and marker history may limit fire, not erase the observation.
+    // The November 6 contract makes marker presence neutral for observed people.
     marker_gap.detections = {wide_low_detection_for_target(320.0f, 280.0f, 0.92f)};
     const auto expired = selector.select_with_frame(marker_gap, dark_full_frame.view);
     require_true(
-        expired.has_target && expired.aim_authority && !expired.fire_authority,
+        expired.has_target && expired.aim_authority && expired.fire_authority,
         "marker loss plus a flat body must remain aimable");
 
     marker_gap.captured_at_ns = kLockTimeNs + (140ull * kMillisecondNs);
@@ -1445,8 +1445,8 @@ void test_enemy_marker_loss_with_flat_body_remains_aimable() {
     const auto drift_rejected = selector.select_with_frame(drifting_corpse, dark_full_frame.view);
     require_true(
         drift_pending.has_target && drift_rejected.has_target &&
-            !drift_pending.fire_authority && !drift_rejected.fire_authority,
-        "a moving flat body must remain aimable without fire authority");
+            drift_pending.fire_authority && drift_rejected.fire_authority,
+        "a moving flat body must remain aimable with normal observed authority");
 
     marked.captured_at_ns = kLockTimeNs + (230ull * kMillisecondNs);
     const auto marker_returned = selector.select_with_frame(marked, marked_frame.view);
@@ -1483,8 +1483,8 @@ void test_selector_owns_size_scaled_ads_pickup_gate() {
 
     const auto pending = inside_selector.select(inside);
     const auto admitted = inside_selector.select(inside);
-    require_true(!pending.has_target,
-                 "selector pickup must retain its two-frame identity confirmation");
+    require_true(pending.has_target,
+                 "a single strong unmarked person shares marked-person acquisition timing");
     require_true(admitted.has_target,
                  "candidate inside the dynamic pickup radius must be admitted");
     require_near(admitted.target_y, 400.0f, 0.001f,
@@ -1535,7 +1535,7 @@ void test_flat_person_after_dropout_is_not_vetoed_by_marker_history() {
     const auto not_reacquired = selector.select_with_frame(corpse, dark_full_frame.view);
     require_true(
         expired.has_target && not_reacquired.has_target &&
-            expired.aim_authority && !expired.fire_authority,
+            expired.aim_authority && expired.fire_authority,
         "current flat-body observations after dropout must not be vetoed by marker history");
 }
 
@@ -1873,7 +1873,7 @@ CueGeometryRegressionMetrics measure_cue_geometry_regressions() {
         const auto observed = selector.select(single_target_batch(320.0f, 256.0f, 0.92f));
         const auto locked = selector.select(single_target_batch(320.0f, 256.0f, 0.92f));
         metrics.observed_single_target_preserved =
-            !observed.has_target && locked.has_target &&
+            observed.has_target && locked.has_target &&
             locked.has_selected_detection &&
             std::fabs(locked.target_x - 320.0f) <= 0.001f &&
             std::fabs(locked.target_y - 256.0f) <= 0.001f &&
@@ -2074,8 +2074,8 @@ void register_target_selector_tests(native_test::Registry& registry) {
     registry.add_case("BaseVisionSelection", "roi_miss_preserves_identity_without_old_coordinates", test_roi_miss_preserves_identity_without_old_coordinate_authority);
     registry.add_case("BaseVisionSelection", "color_region_clamps_edge_candidate", test_required_color_region_clamps_edge_candidate_to_screen);
     registry.add_case("BaseVisionSelection", "external_cue_does_not_request_full_frame", test_external_cue_continuation_does_not_request_full_color_frame);
-    registry.add_case("BaseVisionSelection", "wide_low_candidate_degrades_without_death", test_wide_low_no_cue_candidate_degrades_to_weak_without_death_transition);
-    registry.add_case("BaseVisionSelection", "wide_low_candidate_aim_without_fire", test_wide_low_no_cue_candidate_retains_aim_without_fire);
+    registry.add_case("BaseVisionSelection", "wide_low_candidate_full_authority", test_wide_low_no_cue_candidate_retains_full_authority);
+    registry.add_case("BaseVisionSelection", "wide_low_candidate_observed_authority", test_wide_low_no_cue_candidate_retains_observed_authority);
     registry.add_case("BaseVisionSelection", "marker_history_does_not_veto_flat_person", test_enemy_marker_history_does_not_veto_current_flat_person);
     registry.add_case("BaseVisionSelection", "marker_loss_with_flat_body_remains_aimable", test_enemy_marker_loss_with_flat_body_remains_aimable);
     registry.add_case("BaseVisionSelection", "upright_without_marker_not_blanket_rejected", test_upright_candidate_without_prior_marker_is_not_blanket_rejected);

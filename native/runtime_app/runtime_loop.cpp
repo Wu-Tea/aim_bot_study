@@ -377,6 +377,7 @@ RuntimeLoop::RuntimeLoop(
         config_.vision.target_wide_low_height_ratio);
     vision_engine->set_marker_palette(pipeline_contract::MarkerPalette::from_hex(config_.vision.enemy_marker_color, config_.vision.friendly_marker_color));
     vision_engine->set_cue_identity_enabled(true);
+    vision_engine->set_cue_pickup_offset_y(config_.vision.cue_pickup_offset_y_px);
     std::cout << "[VisionSelection][CPP] person_or_cue=1 cue_body_reference=1 markers=circle,nemesis\n";
     std::cout << "[VisionGeometry][CPP]"
               << " capture=" << vision_engine->width() << 'x' << vision_engine->height()

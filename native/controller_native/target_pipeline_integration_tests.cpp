@@ -766,6 +766,38 @@ void test_non_cue_target_without_candidates_fails_closed() {
                  "fail-closed target mismatch did not restore physical Y");
 }
 
+void test_unpaired_cue_acquisition_and_person_transition() {
+    for(int length:{20,400})for(int shift:{-50,-20,20,50}) {
+        double now=60.0;
+        NativeGamepadController controller(current_config(),&now);
+        for(int i=0;i<length;++i) {
+            auto cue=cue_snapshot(i+1,now,float(shift+i%3),-20.f,31);
+            cue.state.target_tier="cue_unpaired";cue.state.has_body_box=false;
+            cue.state.body_x1=cue.state.body_x2=cue.state.body_y1=cue.state.body_y2=0;
+            cue.state.has_aim_region=true;
+            cue.state.aim_region_x1=cue.state.target_x-3;cue.state.aim_region_x2=cue.state.target_x+3;
+            cue.state.aim_region_y1=cue.state.target_y-3;cue.state.aim_region_y2=cue.state.target_y+3;
+            cue.selector_target_changed=i==0;
+            controller.submit_vision_snapshot(cue);
+            auto output=controller.build_output(physical_input());const auto& plan=controller.last_target_plan();
+            require(plan.target_id!=0&&plan.cue_continuation&&plan.aim_authority>0,"explicit unpaired cue must acquire through the complete control chain");
+            require(plan.normalized_size==0&&!plan.fire_authority&&!output.rb,"cue point must not invent body or fire authority");
+            require_near(plan.source_aim_px.y,236,1e-4f,"controller must preserve selector offset point");
+            require_finite_unit_output(output,"unpaired cue acquisition");now+=.005;
+        }
+        controller.submit_vision_snapshot(observed_snapshot(length+1,now,float(shift),10.f,701,31));
+        controller.build_output(physical_input());
+        require(controller.last_target_plan().normalized_size>0&&!controller.last_target_plan().cue_continuation,"returning body must replace cue point geometry");
+        require_near(controller.last_target_plan().velocity_px_per_sec.y,0,1e-5f,
+            "cue-to-person geometry correction must not become measured target velocity");
+        now+=.005;controller.submit_vision_snapshot(empty_snapshot(length+2,now));
+        auto manual=physical_input(.2f,-.3f);auto output=controller.build_output(manual);
+        require(controller.last_target_plan().aim_authority==0,"fresh absence must remove authority");
+        require_near(output.right_x,manual.right_x,1e-6f,"raw X passthrough after cue loss");
+        require_near(output.right_y,manual.right_y,1e-6f,"raw Y passthrough after cue loss");
+    }
+}
+
 void test_cue_continuation_is_same_generation_aim_only_evidence() {
     double now = 50.0;
     auto config = current_config();
@@ -1171,6 +1203,7 @@ void register_target_pipeline_integration_tests(
     registry.add_case("BaseEndToEnd", "fresh_no_target_removes_authority", test_fresh_no_target_removes_authority_immediately);
     registry.add_case("BaseEndToEnd", "non_cue_without_candidates_fails_closed", test_non_cue_target_without_candidates_fails_closed);
     registry.add_case("BaseEndToEnd", "cue_continuation_is_same_generation_aim_only", test_cue_continuation_is_same_generation_aim_only_evidence);
+    registry.add_case("BaseEndToEnd", "unpaired_cue_acquisition_and_person_transition", test_unpaired_cue_acquisition_and_person_transition);
     registry.add_case("BaseEndToEnd", "cue_ignores_unselected_clutter", test_cue_continuation_ignores_unselected_detection_clutter);
     registry.add_case("BaseEndToEnd", "cue_clutter_preserves_boundaries", test_cue_clutter_does_not_bypass_identity_or_freshness);
     registry.add_case("BaseEndToEnd", "boundary_handover_releases_then_captures", test_boundary_qualified_handover_releases_then_captures);

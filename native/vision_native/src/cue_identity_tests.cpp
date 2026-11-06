@@ -110,7 +110,7 @@ void cue_frame_and_reset() {
     r=s.select_with_frame(f.batch,{f.pixels.data(),320,512,640*4,0,0,640,512,PixelFormat::BGRA8});
     require(!r.has_target,"partial frame cannot establish independent cue");
     s.reset(); f.clear(); f.person(300,230); r=f.run(s);
-    require(!r.has_target && r.selector_target_generation==0,"request reset releases old cue and body");
+    require(r.has_target && !r.enemy_cue_current && r.has_selected_detection,"reset releases cue history while a fresh strong person may acquire");
 }
 void cue_handover_and_correction() {
     auto s=selector(); Scene f; f.cue(280,230); f.cue(400,230); f.person(280,230); f.person(400,230);
@@ -284,9 +284,9 @@ void cue_controller_integration() {
         controller.submit_vision_snapshot(runtime_app::adapt_vision_result(result));
         return controller.build_output(physical);
     };
-    f.cue(380,220); f.person(320,320); // unrelated person cannot give this cue a body
+    f.cue(380,220); f.person(320,320,.3f); // unrelated weak person cannot give this pending cue a body
     auto output=publish();
-    require(controller.last_target_plan().aim_authority==0 && output.right_x==0,"cue-only identity must not become downstream acquisition");
+    require(controller.last_target_plan().aim_authority==0 && output.right_x==0,"unconfirmed cue must not become downstream acquisition");
     f.clear(); f.cue(380,220); f.person(380,220); output=publish();
     const auto id=controller.last_target_plan().target_id;
     require(id!=0 && output.right_x>0,"cue/body pair must reach actual ADS output");
@@ -508,27 +508,36 @@ void register_cue_identity_tests(native_test::Registry& registry) {
         for(int duration:{120,1200}) {
             std::mt19937 rng(seed);auto s=selector();Scene f;
             const float phase=(rng()%1000)*.01f;
-            // Independent, explicit trajectory: translation + whole-body scale,
-            // UI gap either fixed or proportional. No visibility inference oracle.
+            // November 6: box scale alone is not a completeness oracle. A
+            // shrinking box now retains the reliable body reference, even
+            // when both dimensions shrink. Growing extent can update it.
+            float largest_scale=0;
+            const bool proportional_gap=duration==1200;
             for(int i=0;i<duration;++i) {
                 f.clear();const int x=300+int(18*std::sin(i*.05+phase)),y=210+int(12*std::cos(i*.03));
                 const float scale=1+.3f*std::sin(i*.025+phase);
-                const float gap=seed%2 ? 12.f : 12*scale;
+                const float gap=proportional_gap ? 12*scale : 12.f;
                 f.cue(x,y);f.person(x,y,.95f);auto& d=f.batch.detections.back();
                 d.x1=x-25*scale;d.x2=x+25*scale;d.y1=y+gap;d.y2=d.y1+120*scale;
                 auto r=f.run(s);
-                require(r.has_selected_detection && std::abs(r.target_y-(d.y1+24*scale))<.001f,
-                    "real uniform scale/translation must update anatomy immediately");
+                const bool expanded=scale>largest_scale+.0001f;
+                largest_scale=std::max(largest_scale,scale);
+                const float reference_gap=proportional_gap ? 12*largest_scale : 12.f;
+                require(r.has_target && std::abs(r.target_y-(y+reference_gap+24*largest_scale))<.001f,
+                    "shrinking boxes must translate the reliable body point with the cue");
+                if(expanded)require(r.has_selected_detection,"growing complete extent updates immediately");
+                if(scale<largest_scale-.0001f)require(!r.has_selected_detection&&!r.fire_authority,
+                    "ambiguous contraction uses aim-only body-reference continuation");
             }
             s.reset();f.clear();f.cue(320,210);f.person(320,210);const auto ref=f.run(s);
             // One-pixel contractions must not repeatedly retrain the shape model.
-            // Edge tolerance allows <= 4 px anatomy variation, not a collapse.
+            // The live output must keep that reference from the first pixel.
             for(int h=119;h>=24;--h) {
                 f.clear();f.cue(320,210);f.person(320,210,.95f);
                 f.batch.detections.back().y2=222+float(h);auto r=f.run(s);
                 require(r.has_target && r.selector_target_generation==ref.selector_target_generation &&
-                    std::abs(r.target_y-ref.target_y)<=4,
-                    "gradual high-confidence truncation must have bounded anatomy drift");
+                    std::abs(r.target_y-ref.target_y)<.001f,
+                    "gradual high-confidence truncation must retain the original body point");
             }
             f.clear();f.cue(320,210);f.person(320,210);auto r=f.run(s);
             require(r.has_selected_detection && std::abs(r.target_y-ref.target_y)<.001f,"recovery without delay");

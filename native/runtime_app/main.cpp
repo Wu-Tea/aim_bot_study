@@ -168,6 +168,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config, std::
     line("runtime.vision.enemy_marker_color", config.vision.enemy_marker_color);
     line("runtime.vision.friendly_marker_color", config.vision.friendly_marker_color);
     line("runtime.vision.target_height_ratio", config.vision.target_height_ratio);
+    line("runtime.vision.cue_pickup_offset_y_px", config.vision.cue_pickup_offset_y_px);
     line("runtime.vision.target_wide_low_height_ratio", config.vision.target_wide_low_height_ratio);
     line("runtime.vision.dynamic_viewport_enabled", config.vision.dynamic_viewport_enabled);
     line("runtime.vision.capture_fps", config.vision.capture_fps);

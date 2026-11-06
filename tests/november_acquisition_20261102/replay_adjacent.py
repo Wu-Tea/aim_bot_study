@@ -1,10 +1,14 @@
 """Adjacent recorded materials. Fixed boxes, same decoded pixels, no live I/O."""
-import csv,json,struct,subprocess,statistics
+import argparse,csv,json,struct,subprocess,statistics
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[2];R=ROOT/'runs/incident-20261102/fix';O=R/'adjacent';O.mkdir(exist_ok=True)
+ROOT=Path(__file__).resolve().parents[2]
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output',type=Path,default=ROOT/'runs/incident-20261102/fix')
+parser.add_argument('--cases',nargs='+',default=['v01','v06','v07','q1','q2'])
+args=parser.parse_args();R=args.output;O=R/'adjacent';O.mkdir(parents=True,exist_ok=True)
 clips=json.loads((ROOT/'runs/new-video-study-20261025/selected.json').read_text())+json.loads((ROOT/'runs/cue-motion-20261025/selected.json').read_text())
 summary=[]
-for clip in [c for c in clips if c['id'] in ['v01','v06','v07','q1','q2']]:
+for clip in [c for c in clips if c['id'] in args.cases]:
  name=clip['id'];hdr=name.startswith('q');base=ROOT/('runs/cue-motion-20261025/before-hdr' if hdr else 'runs/new-video-fix-20261025/final')/name
  rows=[json.loads(s) for s in (base/'vision.jsonl').read_text().splitlines()];stamps=list(map(int,(base/'timestamps.txt').read_text().split()))
  vf='crop=640:512'

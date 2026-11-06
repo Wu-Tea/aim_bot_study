@@ -36,6 +36,8 @@ void register_target_selector_tests(native_test::Registry&);
 void register_cue_identity_tests(native_test::Registry&);
 void register_marker_loss_acquisition_incident_tests(native_test::Registry&);
 void register_november_acquisition_tests(native_test::Registry&);
+void register_person_cue_policy_tests(native_test::Registry&);
+void register_cue_offset_tests(native_test::Registry&);
 void register_visible_selection_contract_tests(native_test::Registry&);
 void register_visible_selection_pipeline_tests(native_test::Registry&);
 void register_color_readback_tests(native_test::Registry&);
@@ -85,6 +87,8 @@ int main(int argc, char** argv) {
     register_cue_identity_tests(registry);
     register_marker_loss_acquisition_incident_tests(registry);
     register_november_acquisition_tests(registry);
+    register_person_cue_policy_tests(registry);
+    register_cue_offset_tests(registry);
     register_visible_selection_contract_tests(registry);
     register_visible_selection_pipeline_tests(registry);
     register_color_readback_tests(registry);

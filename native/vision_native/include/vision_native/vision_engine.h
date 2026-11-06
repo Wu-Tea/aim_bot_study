@@ -44,6 +44,7 @@ public:
     void set_request(pipeline_contract::VisionRequest request);
     void set_marker_palette(const pipeline_contract::MarkerPalette& palette) { selector_.set_marker_palette(palette); }
     void set_cue_identity_enabled(bool enabled) { selector_.set_cue_identity_enabled(enabled); }
+    void set_cue_pickup_offset_y(float pixels) { selector_.set_cue_pickup_offset_y(pixels); }
     void set_detection_policy(bool friendly, float height, float wide_height) {
         selector_.set_detection_policy(friendly, height, wide_height);
     }

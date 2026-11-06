@@ -77,10 +77,19 @@ void test_vision_selection_config() {
         }
     }
     TempConfig file("cod_native_vision_selection.toml",
-        "[runtime.vision]\nfriendly_filter_enabled = false\ntarget_height_ratio = 0.35\ntarget_wide_low_height_ratio = 0.6\n");
+        "[runtime.vision]\nfriendly_filter_enabled = false\ntarget_height_ratio = 0.35\ntarget_wide_low_height_ratio = 0.6\ncue_pickup_offset_y_px = 72\n");
     const auto config = controller_native::load_runtime_config(file.path());
     require(config.diagnostics.empty(), "selection keys must be recognized");
     require(!config.vision.friendly_filter_enabled, "friend switch must parse");
+    require(config.vision.cue_pickup_offset_y_px==72, "cue-only offset must parse");
+    for(const auto* value:{"-1","0","9.99","513","nan"}) {
+        TempConfig invalid("cod_native_invalid_cue_offset.toml",
+            std::string("[runtime.vision]\ncue_pickup_offset_y_px = ")+value+"\n");
+        bool threw=false;
+        try{(void)controller_native::load_runtime_config(invalid.path());}
+        catch(const std::runtime_error&){threw=true;}
+        require(threw,"invalid cue offset must fail at config boundary");
+    }
     require(std::fabs(config.vision.target_height_ratio - 0.35f) < 1e-6f, "person ratio must parse");
     require(std::fabs(config.vision.target_wide_low_height_ratio - 0.6f) < 1e-6f, "wide ratio must parse");
     for (const auto* key : {"target_height_ratio", "target_wide_low_height_ratio"}) {

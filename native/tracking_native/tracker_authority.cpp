@@ -26,7 +26,7 @@ TargetTierClass classify_target_tier(std::string_view target_tier) {
     if (tier == "projected" || tier == "projection" || tier == "predicted") {
         return TargetTierClass::LostOrNone;
     }
-    if (tier == "cue_hold") {
+    if (tier == "cue_hold" || tier == "cue_unpaired") {
         return TargetTierClass::CueHold;
     }
     if (tier == "associated_weak" ||

@@ -18,6 +18,7 @@ struct AdsSelectionEvidence {
     bool replacement = false;
     bool within_pickup = false;
     bool fresh_source = true;
+    bool cue_acquisition = false;
 };
 enum class AdsTargetDisposition : unsigned char { Absent, Retain, Wait, Release };
 struct AdsMissingEvidence {

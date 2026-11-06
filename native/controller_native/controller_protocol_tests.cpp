@@ -176,8 +176,8 @@ void test_adapter_forwards_valid_vision_candidates() {
     require_near(first_candidate.confidence, 0.30f, 0.001f, "ranking bonus must not change detector confidence");
     require_true(
         first_candidate.suggested_authority_state ==
-            common_native::TargetAuthorityState::StrongAssist,
-        "candidate should expose strong suggested authority for confident enemy evidence");
+            common_native::TargetAuthorityState::WeakAssist,
+        "enemy marker must not promote a low-confidence person above the shared model threshold");
     require_near(
         first_candidate.aim_point_px.y,
         58.0f,

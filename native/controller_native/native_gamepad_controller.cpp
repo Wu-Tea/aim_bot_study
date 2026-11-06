@@ -426,14 +426,19 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
     batch.motion_cue_id = snapshot.motion_cue_id;
     batch.motion_cue_px = snapshot.motion_cue_px;
     batch.selector_enemy_identity_confirmed = snapshot.enemy_identity_confirmed;
-    batch.selector_cue_continuation =
+    batch.selector_cue_acquisition = snapshot.selector_identity_protocol &&
+        snapshot.selector_target_generation != 0 && snapshot.selected_observation_id == 0 &&
+        snapshot.state.has_target && snapshot.state.aim_authority &&
+        !snapshot.state.has_body_box && snapshot.enemy_cue_current &&
+        snapshot.state.target_tier == "cue_unpaired";
+    batch.selector_cue_continuation = batch.selector_cue_acquisition || (
         snapshot.selector_identity_protocol &&
         snapshot.selector_target_generation != 0 &&
         !snapshot.selector_target_changed &&
         snapshot.selected_observation_id == 0 &&
         snapshot.state.has_target && snapshot.state.aim_authority &&
         tracking_native::is_cue_hold_observation(
-            snapshot.state.target_tier);
+            snapshot.state.target_tier));
     batch.fire_requested = snapshot.state.auto_fire_requested;
     batch.observed_fire_eligible = snapshot.state.fire_authority &&
         (snapshot.state.target_tier == "strong" ||

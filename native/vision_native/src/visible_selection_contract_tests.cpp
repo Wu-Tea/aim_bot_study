@@ -104,7 +104,7 @@ int run(const char* path) {
                     (observed.selector_target_generation != generation ||
                      observed.selected_detection_index != 0);
                 if (observed.has_target && observed.selected_detection_index == 0 &&
-                    observed.fire_authority) ++m.controls_failed;
+                    !observed.fire_authority) ++m.controls_failed;
             }
             pipeline_contract::UserAimIntent intent;
             intent.valid = true; intent.aiming = true; intent.has_direction = true;
@@ -123,6 +123,10 @@ int run(const char* path) {
         if (edge == 1) { d.x1 = 530; d.x2 = 730; }
         if (edge == 2) { d.y1 = -180; d.y2 = 330; }
         if (edge == 3) { d.y1 = 182; d.y2 = 692; }
+        // This checks clipping, not cue pairing. Move the synthetic marker
+        // with its body; the old top-edge fixture left it below the aim point.
+        d.cue_x = (d.x1 + d.x2) / 2;
+        d.cue_y = d.y1 - 8;
         auto input = batch({d});
         VisionTargetSelector selector(640, 512, 1000, true, .35f, .65f);
         selector.select(input); advance(input);

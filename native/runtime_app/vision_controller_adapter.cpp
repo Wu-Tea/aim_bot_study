@@ -1,3 +1,4 @@
+#include "pipeline_contract/person_target_policy.h"
 #include "vision_controller_adapter.h"
 #include "vision_native/observation_time.h"
 
@@ -31,27 +32,8 @@ bool detection_has_enemy_evidence(const vision_native::Detection& detection) {
     return detection.has_cue_point || detection.color_bonus > 0.0f;
 }
 
-bool detection_is_wide_low(const vision_native::Detection& detection) {
-    const float width = std::max(0.0f, detection.x2 - detection.x1);
-    const float height = std::max(0.0f, detection.y2 - detection.y1);
-    if (width <= 0.0f) {
-        return false;
-    }
-    return (height / width) < 0.65f;
-}
-
-bool detection_is_color_checked_wide_low_without_enemy_evidence(
-    const vision_native::Detection& detection) {
-    return detection.color_classified
-        && detection_is_wide_low(detection)
-        && !detection_has_enemy_evidence(detection);
-}
-
 std::string observation_tier_for_detection(const vision_native::Detection& detection) {
-    if (detection_is_color_checked_wide_low_without_enemy_evidence(detection)) {
-        return "associated_weak";
-    }
-    if (detection.conf < 0.40f && detection.color_bonus <= 0.0f) {
+    if (detection.conf < pipeline_contract::PersonTargetPolicy::tracking_confidence) {
         return "associated_weak";
     }
     return "observed_strong";

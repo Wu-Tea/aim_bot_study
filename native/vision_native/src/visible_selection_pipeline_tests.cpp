@@ -22,8 +22,8 @@ void test_flat_observation_reaches_ads_and_releases_to_raw_input() {
     selector.select(input);
     input.frame_id = 2; input.captured_at_ns = 1'000'000'000ull;
     auto result = selector.select(input);
-    if (!result.has_target || !result.aim_authority || result.fire_authority)
-        throw std::runtime_error("flat-body setup did not produce aim-only person evidence");
+    if (!result.has_target || !result.aim_authority || !result.fire_authority)
+        throw std::runtime_error("flat-body setup did not produce full observed person evidence");
     // The engine, rather than select(), stamps these source-publication fields.
     result.frame_id = input.frame_id; result.captured_at_ns = input.captured_at_ns;
     result.result_at_ns = input.captured_at_ns; result.frame_updated = true;
@@ -31,7 +31,7 @@ void test_flat_observation_reaches_ads_and_releases_to_raw_input() {
     const auto output = controller.build_output(controller_native::incident_fixture::ads_input());
     const auto& plan = controller.last_target_plan();
     if (plan.target_id == 0 || plan.mode != pipeline_contract::ControlMode::AdsAcquire ||
-        plan.aim_authority <= 0 || plan.fire_authority ||
+        plan.aim_authority <= 0 ||
         !std::isfinite(output.right_x) || output.right_x <= 0)
         throw std::runtime_error("flat-body observation was blocked between selector and ADS output");
     auto manual = controller_native::incident_fixture::ads_input(-.95f, 0.0f);

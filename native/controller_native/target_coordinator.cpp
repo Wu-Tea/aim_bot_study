@@ -106,17 +106,17 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
     // detector candidate. Candidates still enter the batch for diagnostics
     // and memory, but only the selector may grant fresh control ownership.
     if (observations.preferred_source_id == 0) {
-        // Cue continuation deliberately has no frame-local person id. It may
-        // update only the already-owned target, in the same ADS epoch and the
-        // exact same selector generation. It can neither acquire nor switch.
+        const bool acquisition=observations.selector_cue_acquisition &&
+            observations.selector_enemy_cue_current;
+        // Paired continuation can update only the already-owned generation.
+        // Cold cue acquisition is explicitly granted by the selector; it must
+        // still pass the ADS pickup envelope below and cannot invent a body.
         if (!observations.selector_cue_continuation ||
             !ads_lifecycle_reducer_.snapshot().epoch_active ||
-            !target_lifecycle_reducer_.snapshot().has_target() ||
-            observations.selector_target_changed ||
             observations.selector_target_generation == 0 ||
-            selector_target_generation_ == 0 ||
-            observations.selector_target_generation !=
-                selector_target_generation_ ||
+            (!acquisition && (!target_lifecycle_reducer_.snapshot().has_target() ||
+                observations.selector_target_changed || selector_target_generation_ == 0 ||
+                observations.selector_target_generation != selector_target_generation_)) ||
             observations.count != 1) {
             return nullptr;
         }
@@ -125,10 +125,11 @@ const pipeline_contract::VisionCandidate* TargetCoordinator::choose_candidate(
             (cue.has_aim_region && valid_region(cue.aim_region_px)) ||
             (cue.has_body_box && valid_region(cue.body_box_px));
         if (cue.source_id != 0 || !cue.has_aim_point || !cue_has_region ||
+            !pipeline_contract::finite(cue.aim_px) || (acquisition && cue.has_body_box) ||
             cue.reliability <= 0.0f ||
             cue.cue_confidence <= 0.0f ||
-            length(subtract(cue.aim_px, association_anchor)) >
-                config_.association_radius_px) {
+            (!acquisition && length(subtract(cue.aim_px, association_anchor)) >
+                config_.association_radius_px)) {
             return nullptr;
         }
         return &cue;
@@ -303,7 +304,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         return ads_lifecycle_reducer_.select({
             pipeline_contract::owns_ads_task(intent.activation), cue, replacement,
             length(subtract(point, center)) <= target_scaled_radius(
-                config_.ads_pickup_base_radius_px, size), fresh_source}, now_seconds);
+                config_.ads_pickup_base_radius_px, size), fresh_source,
+            observations.selector_cue_acquisition}, now_seconds);
     };
     const auto* candidate = accepted_fresh_capture
         ? choose_candidate(observations, association_anchor)
@@ -311,10 +313,11 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     const bool cue_continuation_candidate = candidate != nullptr &&
         observations.selector_cue_continuation &&
         candidate->source_id == 0 &&
-        target_lifecycle_reducer_.snapshot().has_target() &&
         ads.epoch_active &&
         observations.selector_target_generation != 0 &&
-        observations.selector_target_generation == selector_target_generation_;
+        (observations.selector_cue_acquisition ||
+            (target_lifecycle_reducer_.snapshot().has_target() &&
+             observations.selector_target_generation == selector_target_generation_));
     if (accepted_fresh_capture) {
         cue_continuation_active_ = cue_continuation_candidate;
     }
@@ -332,7 +335,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     const bool ads_ended_by_target_loss = ads.snap_consumed &&
         ads.terminal_reason == pipeline_contract::AdsDecisionReason::TargetLost;
     const bool selector_replacement = generation_changed &&
-        ((target_lifecycle_reducer_.snapshot().has_target() && observations.preferred_source_id != 0) ||
+        ((target_lifecycle_reducer_.snapshot().has_target() &&
+            (observations.preferred_source_id != 0 || observations.selector_cue_acquisition)) ||
          ads_ended_by_target_loss);
 
     if (candidate == nullptr) {
@@ -390,7 +394,8 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
     // source_id is frame-local. Only a selector-owned generation may signal a
     // replacement; when that signal is unavailable we deliberately do not
     // infer a switch from an observation id.
-    if (selector_generation_evidence && observations.preferred_source_id != 0) {
+    if (selector_generation_evidence && (observations.preferred_source_id != 0 ||
+        observations.selector_cue_acquisition)) {
         selector_target_generation_ = observations.selector_target_generation;
     }
     pipeline_contract::TargetLifecycle lifecycle =
@@ -423,6 +428,11 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
         // velocity is learned only from the source point, never from a manual
         // D correction.
         if (cue_continuation_candidate) {
+            if (new_target) {
+                target_lifecycle_reducer_.observe(true,selector_replacement);
+                ads_lifecycle_reducer_.clear_unadmitted_target_identity();
+                observed_frames_=0;
+            }
             // A current cue can prove arrival, but a person/cue domain change
             // is not a measured motion or a physical center crossing.
             capture_error_rate_ = {};
@@ -437,15 +447,18 @@ pipeline_contract::TargetPlan TargetCoordinator::update_impl(
             } else {
                 settled_frames_ = 0;
             }
-            adopt_candidate_geometry(*candidate, true, false);
+            adopt_candidate_geometry(*candidate, true, new_target);
             velocity_ = {};
             acceleration_ = {};
             previous_firing_velocity_innovation_ = {};
             firing_velocity_observer_active_ = false;
-        } else if (new_target) {
+        } else if (new_target || latest_.cue_continuation) {
+            // Cue displacement and a newly measured body point are different
+            // geometry domains. Adopt the body immediately, but start motion
+            // measurement with this person sample instead of the prior offset.
             target_lifecycle_reducer_.observe(false, selector_replacement);
             ads_lifecycle_reducer_.clear_unadmitted_target_identity();
-            adopt_candidate_geometry(*candidate, false, true);
+            adopt_candidate_geometry(*candidate, false, new_target);
             velocity_ = {};
             capture_error_rate_ = {};
             acceleration_ = {};

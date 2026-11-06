@@ -36,7 +36,7 @@ def schema():
         # Keep legacy "both" readable/persistable, but offer only single buttons in the GUI.
         choices = ('RT', 'RB') if path == 'gamepad.auto_fire.manual_fire_input' else limits
         if path.startswith('runtime.vision.'):
-            group = '目标与识别' if path.endswith(('friendly_filter_enabled', 'enemy_marker_color', 'friendly_marker_color', 'target_height_ratio', 'target_wide_low_height_ratio')) else '捕获与模型'
+            group = '目标与识别' if path.endswith(('friendly_filter_enabled', 'enemy_marker_color', 'friendly_marker_color', 'target_height_ratio', 'target_wide_low_height_ratio', 'cue_pickup_offset_y_px')) else '捕获与模型'
         elif path.startswith('runtime.input.'): group = '输入设备'
         elif path.startswith('runtime.'): group = '诊断记录'
         elif path.startswith('gamepad.enemy_mark.'): group = '目标与识别'

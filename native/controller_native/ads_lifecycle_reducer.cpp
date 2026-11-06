@@ -16,7 +16,7 @@ bool AdsLifecycleReducer::select(const AdsSelectionEvidence& evidence, double no
 
 bool AdsLifecycleReducer::select_impl(const AdsSelectionEvidence& evidence, double now_seconds) noexcept {
     if (evidence.replacement && evidence.scope_active && state_.epoch_active &&
-        !evidence.cue && state_.target_admitted && !state_.snap_consumed) {
+        (!evidence.cue || evidence.cue_acquisition) && state_.target_admitted && !state_.snap_consumed) {
         complete(pipeline_contract::AdsDecisionReason::TargetSwitch, now_seconds);
     }
     state_.evidence_wait = AdsEvidenceWait::None;
@@ -25,7 +25,7 @@ bool AdsLifecycleReducer::select_impl(const AdsSelectionEvidence& evidence, doub
         return false;
     }
     if (evidence.scope_active && state_.epoch_active && !state_.snap_consumed &&
-        !state_.target_admitted && !evidence.cue) {
+        !state_.target_admitted && (!evidence.cue || evidence.cue_acquisition)) {
         if (evidence.within_pickup) {
             admit_target(now_seconds);
             return true;

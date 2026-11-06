@@ -1,4 +1,6 @@
+#include "pipeline_contract/person_target_policy.h"
 #include "vision_native/target_selector.h"
+#include "vision_native/cue_aim_geometry.h"
 
 #include "pipeline_contract/target_acquisition.h"
 
@@ -32,10 +34,9 @@ constexpr float kActiveTargetIouThreshold = 0.12f;
 constexpr float kActiveTargetCenterXRatio = 0.65f;
 constexpr float kActiveTargetCenterYRatio = 0.35f;
 constexpr float kCrosshairPriorityMarginRatio = 10.0f / 640.0f;
-constexpr float kPickupConfidenceThreshold = 0.65f;
-constexpr float kPickupEnemyConfidenceThreshold = 0.42f;
-constexpr float kTrackingConfidenceThreshold = 0.40f;
-constexpr float kWeakAssociationConfidenceThreshold = 0.20f;
+constexpr float kPickupConfidenceThreshold = pipeline_contract::PersonTargetPolicy::pickup_confidence;
+constexpr float kTrackingConfidenceThreshold = pipeline_contract::PersonTargetPolicy::tracking_confidence;
+constexpr float kWeakAssociationConfidenceThreshold = pipeline_contract::PersonTargetPolicy::weak_confidence;
 constexpr float kTrackingBonus = 2000.0f;
 constexpr float kMinScoreThreshold = -50000.0f;
 constexpr float kMaxColorBonus = 10000.0f;
@@ -68,26 +69,13 @@ constexpr float kAutoFireEdgePadding = 2.0f;
 constexpr int kAutoFireReleaseGraceFrames = 4;
 constexpr float kIntentMinStrength = 0.05f;
 constexpr float kIntentScoreScale = 700.0f;
-constexpr float kIntentPickupConfidenceThreshold = 0.50f;
-constexpr float kIntentPickupScoreThreshold = kIntentScoreScale * 0.85f;
 constexpr float kHandoverCapturedRadiusPx = 24.0f;
 constexpr float kHandoverActiveIntentRatio = 0.75f;
-constexpr float kWeakObservedScorePenalty = 1200.0f;
-constexpr float kTargetValidityScoreScale = 250.0f;
-constexpr float kCorpseRiskScoreScale = 650.0f;
-constexpr float kWeakObservedRiskThreshold = 0.50f;
 
 struct IntentScore {
     bool applied = false;
     const char* decision = "none";
     float bonus = 0.0f;
-};
-
-struct TargetEvidence {
-    float live_score = 1.0f;
-    float corpse_risk = 0.0f;
-    float uncertainty = 0.0f;
-    bool weak_only = false;
 };
 
 bool source_equals(const char* lhs, const char* rhs) {
@@ -209,69 +197,6 @@ bool is_crouched_pose(float box_w, float box_h, int frame_height) {
 
 bool has_enemy_cue_evidence(const Detection& detection) {
     return detection.has_cue_point || detection.color_bonus > 0.0f;
-}
-
-bool is_color_checked_without_enemy_cue(const Detection& detection) {
-    return detection.color_classified && !has_enemy_cue_evidence(detection);
-}
-
-bool is_color_checked_wide_low_without_enemy_cue(
-    const Detection& detection,
-    float box_w,
-    float box_h) {
-    return is_color_checked_without_enemy_cue(detection)
-        && is_wide_low_pose(box_w, box_h);
-}
-
-TargetEvidence evaluate_target_evidence(
-    const Detection& detection,
-    float box_w,
-    float box_h,
-    bool tracking_candidate,
-    bool active_match,
-    bool active_had_enemy_evidence) {
-    const bool wide_low_without_enemy_cue =
-        is_color_checked_wide_low_without_enemy_cue(detection, box_w, box_h);
-    const bool checked_missing_enemy_cue = is_color_checked_without_enemy_cue(detection);
-
-    TargetEvidence evidence;
-    evidence.live_score = clamp01(detection.conf);
-    evidence.uncertainty = detection.color_classified ? 0.15f : 0.35f;
-
-    if (has_enemy_cue_evidence(detection)) {
-        evidence.live_score += 0.30f;
-        evidence.uncertainty -= 0.10f;
-    }
-    if (tracking_candidate) {
-        evidence.live_score += 0.10f;
-        evidence.uncertainty -= 0.05f;
-    }
-    if (active_match) {
-        evidence.live_score += 0.05f;
-    }
-    if (checked_missing_enemy_cue) {
-        evidence.uncertainty += 0.20f;
-    }
-    if (wide_low_without_enemy_cue) {
-        evidence.live_score -= 0.25f;
-        evidence.corpse_risk += 0.60f;
-        evidence.uncertainty += 0.25f;
-    }
-    if (active_match && active_had_enemy_evidence && checked_missing_enemy_cue) {
-        evidence.live_score -= 0.20f;
-        evidence.corpse_risk += 0.30f;
-    }
-    if (active_match && wide_low_without_enemy_cue) {
-        evidence.corpse_risk += 0.08f;
-    }
-
-    evidence.live_score = clamp01(evidence.live_score);
-    evidence.corpse_risk = clamp01(evidence.corpse_risk);
-    evidence.uncertainty = clamp01(evidence.uncertainty);
-    // Pose/cue evidence can reduce priority and fire authority, but cannot
-    // prove death or veto an otherwise valid current person observation.
-    evidence.weak_only = evidence.corpse_risk >= kWeakObservedRiskThreshold;
-    return evidence;
 }
 
 VisionTargetSelector::Rect shift_rect(
@@ -749,6 +674,13 @@ ColorClassification classify_color(
 
 } // namespace
 
+void VisionTargetSelector::set_cue_pickup_offset_y(float pixels) {
+    if (!std::isfinite(pixels) || pixels < 10 || pixels > 512)
+        throw std::invalid_argument("cue pickup offset must be within 10..512 pixels");
+    reset();
+    cue_pickup_offset_y_px_ = pixels;
+}
+
 void VisionTargetSelector::set_detection_policy(bool friendly, float height, float wide_height) {
     if (!std::isfinite(height) || height <= 0 || height >= 1 || !std::isfinite(wide_height) || wide_height <= 0 || wide_height >= 1)
         throw std::invalid_argument("target height ratios must be finite and inside (0, 1)");
@@ -867,7 +799,7 @@ std::optional<VisionTargetSelector::FrameRegion> VisionTargetSelector::required_
 
         const float min_conf = tracking_candidate
             ? kTrackingConfidenceThreshold
-            : kPickupEnemyConfidenceThreshold;
+            : kPickupConfidenceThreshold;
         if (detection.conf < min_conf) {
             continue;
         }
@@ -935,7 +867,7 @@ VisionResult VisionTargetSelector::result_from_target(const TargetState& target,
     result.has_target = true;
     result.has_selected_detection = target.candidate.has_source_detection;
     result.selected_detection_index = target.candidate.source_detection_index;
-    result.has_body_box = true;
+    result.has_body_box = target.candidate.has_body_geometry;
     result.target_x = target.candidate.target_x;
     result.target_y = target.candidate.target_y;
     result.dx = result.target_x - result.screen_center_x;
@@ -952,7 +884,8 @@ VisionResult VisionTargetSelector::result_from_target(const TargetState& target,
     result.aim_region_x2 = target.candidate.aim_region.right;
     result.aim_region_y2 = target.candidate.aim_region.bottom;
     result.target_source = target.candidate.source;
-    result.target_tier = target_tier_for_source(target.candidate.source);
+    result.target_tier = source_equals(target.candidate.source,"cue_hold") && !target.candidate.has_body_geometry
+        ? "cue_unpaired" : target_tier_for_source(target.candidate.source);
     result.aim_authority = aim_authority_for_source(target.candidate.source);
     result.fire_authority = fire_authority_for_source(target.candidate.source);
     result.enemy_cue_current = candidate_has_enemy_evidence(target.candidate);
@@ -1242,21 +1175,10 @@ bool VisionTargetSelector::passes_geometry_gate(float box_w, float box_h, bool t
     return pipeline_contract::body_geometry_admitted(box_w, box_h, frame_width_, frame_height_, tracking_candidate);
 }
 
-bool VisionTargetSelector::passes_confidence_gate(
-    float conf,
-    bool tracking_candidate,
-    bool enemy_colored) const {
-    if (tracking_candidate) {
-        return conf >= kTrackingConfidenceThreshold;
-    }
-    return conf >= (enemy_colored ? kPickupEnemyConfidenceThreshold : kPickupConfidenceThreshold);
-}
-
 std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candidate(
     const Detection& detection,
     std::uint32_t source_detection_index,
-    const std::optional<std::pair<float, float>>& last_target_center,
-    const pipeline_contract::UserAimIntent* intent) const {
+    const std::optional<std::pair<float, float>>& last_target_center) const {
     auto reject = [&](const char* reason) -> std::optional<Candidate> {
         if (source_detection_index < diagnostics_.count) diagnostics_.boxes[source_detection_index].gate=reason;
         return std::nullopt;
@@ -1275,6 +1197,8 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     }
 
     const auto point = target_point(box);
+    if (detection.has_cue_point && !cue_aim_is_below_marker(point.second,detection.cue_y,detection.cue_size))
+        return reject("aim_overlaps_cue");
     Candidate observed;
     observed.has_source_detection = true;
     observed.source_detection_index = source_detection_index;
@@ -1298,20 +1222,7 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
     if (!passes_geometry_gate(box_w, box_h, tracking_candidate)) {
         return reject("body_geometry_gate");
     }
-    const IntentScore pickup_intent_score = score_intent(
-        observed,
-        screen_center_x_,
-        screen_center_y_,
-        frame_width_,
-        frame_height_,
-        intent);
-    const bool intent_supported_pickup =
-        !tracking_candidate
-        && source_equals(pickup_intent_score.decision, "applied_direction")
-        && pickup_intent_score.bonus >= kIntentPickupScoreThreshold
-        && detection.conf >= kIntentPickupConfidenceThreshold;
-    if (!passes_confidence_gate(detection.conf, tracking_candidate, detection.color_bonus > 0.0f)
-        && !intent_supported_pickup) {
+    if (!pipeline_contract::PersonTargetPolicy::admits(detection.conf, tracking_candidate)) {
         return reject(tracking_candidate ? "tracking_confidence" : "pickup_confidence");
     }
 
@@ -1320,27 +1231,8 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_candi
         diagnostics_.boxes[source_detection_index].active_match=active_match;
         diagnostics_.boxes[source_detection_index].within_pickup=candidate_within_pickup_envelope(observed);
     }
-    // An optional enemy marker can disappear on a live, directly observed
-    // person (for example across hip-fire/ADS). Its age limits cue-only
-    // reconstruction, not current person admission. Evidence below ranks
-    // uncertain targets and limits fire authority without denying aim.
-    const bool active_had_enemy_evidence = selection_.has_identity()
-        && (active_generation_had_enemy_evidence_
-            || candidate_has_enemy_evidence(selection_.active()->candidate));
-    const TargetEvidence evidence = evaluate_target_evidence(
-        detection,
-        box_w,
-        box_h,
-        tracking_candidate,
-        active_match,
-        active_had_enemy_evidence);
-    observed.live_score = evidence.live_score;
-    observed.corpse_risk = evidence.corpse_risk;
-    observed.uncertainty = evidence.uncertainty;
-    if (evidence.weak_only) {
-        observed.source = "weak_observed";
-    }
-
+    // A current non-friendly person has full observed authority. Marker
+    // presence and posture do not change its admission or ranking weight.
     if (source_detection_index < diagnostics_.count) diagnostics_.boxes[source_detection_index].gate="admitted_for_ranking";
     return observed;
 }
@@ -1365,6 +1257,8 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
     }
 
     const auto point = target_point(box);
+    if (detection.has_cue_point && !cue_aim_is_below_marker(point.second,detection.cue_y,detection.cue_size))
+        return std::nullopt;
     Candidate weak;
     weak.has_source_detection = true;
     weak.source_detection_index = source_detection_index;
@@ -1390,34 +1284,19 @@ std::optional<VisionTargetSelector::Candidate> VisionTargetSelector::build_weak_
     if (!active_target_matches_candidate(weak)) {
         return std::nullopt;
     }
-    const bool active_had_enemy_evidence = selection_.has_identity()
-        && (active_generation_had_enemy_evidence_
-            || candidate_has_enemy_evidence(selection_.active()->candidate));
-    const TargetEvidence evidence = evaluate_target_evidence(
-        detection,
-        box_w,
-        box_h,
-        true,
-        true,
-        active_had_enemy_evidence);
-    weak.live_score = evidence.live_score;
-    weak.corpse_risk = evidence.corpse_risk;
-    weak.uncertainty = evidence.uncertainty;
     return weak;
 }
 
 void VisionTargetSelector::build_candidates(
     const DetectionBatch& batch,
-    const std::optional<std::pair<float, float>>& last_target_center,
-    const pipeline_contract::UserAimIntent* intent) {
+    const std::optional<std::pair<float, float>>& last_target_center) {
     candidate_scratch_.clear();
     candidate_scratch_.reserve(batch.detections.size());
     for (std::size_t index = 0; index < batch.detections.size(); ++index) {
         const auto candidate = build_candidate(
             batch.detections[index],
             static_cast<std::uint32_t>(index),
-            last_target_center,
-            intent);
+            last_target_center);
         if (candidate.has_value()) {
             candidate_scratch_.push_back(*candidate);
         }
@@ -1539,7 +1418,6 @@ VisionTargetSelector::ScoredCandidate VisionTargetSelector::score_candidate(
     const float norm_dy = (candidate.target_y - screen_center_y_) / half_h;
     float score =
         (-std::hypot(norm_dx, norm_dy) * kDistanceScoreScale)
-        + candidate.color_bonus
         + (candidate.conf * kConfidenceScoreScale);
 
     const float area = rect_width(candidate.body_box) * rect_height(candidate.body_box);
@@ -1549,13 +1427,6 @@ VisionTargetSelector::ScoredCandidate VisionTargetSelector::score_candidate(
     const float normalized_height = rect_height(candidate.body_box) /
         std::max(1.0f, static_cast<float>(frame_height_));
     score += normalized_height * kTargetHeightScoreScale;
-    score += candidate.live_score * kTargetValidityScoreScale;
-    score -= candidate.corpse_risk * kCorpseRiskScoreScale;
-    score -= candidate.uncertainty * kTargetValidityScoreScale;
-    if (source_equals(candidate.source, "weak_observed")) {
-        score -= kWeakObservedScorePenalty;
-    }
-
     const std::optional<float> distance = tracking_distance(
         candidate.target_x,
         candidate.target_y,
@@ -1636,7 +1507,8 @@ bool VisionTargetSelector::boxes_match(const Rect& lhs, const Rect& rhs) const {
 }
 
 bool VisionTargetSelector::targets_match(const TargetState& lhs, const TargetState& rhs) const {
-    if (boxes_match(lhs.candidate.body_box, rhs.candidate.body_box)) {
+    if (lhs.candidate.has_body_geometry && rhs.candidate.has_body_geometry &&
+        boxes_match(lhs.candidate.body_box, rhs.candidate.body_box)) {
         return true;
     }
     return point_distance(
@@ -1649,7 +1521,8 @@ bool VisionTargetSelector::active_target_matches_candidate(const Candidate& cand
         return false;
     }
 
-    if (boxes_match(selection_.active()->candidate.body_box, candidate.body_box)) {
+    if (selection_.active()->candidate.has_body_geometry && candidate.has_body_geometry &&
+        boxes_match(selection_.active()->candidate.body_box, candidate.body_box)) {
         return true;
     }
 
@@ -1664,17 +1537,13 @@ bool VisionTargetSelector::candidate_has_enemy_evidence(const Candidate& candida
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::confirm_pickup(
     const TargetState& target,
-    bool allow_marked_single_frame_pickup) {
-    const bool safe_marked_pickup = allow_marked_single_frame_pickup &&
+    bool allow_single_frame_pickup) {
+    const bool credible_person_pickup = allow_single_frame_pickup &&
         source_equals(target.candidate.source, "observed") &&
-        candidate_has_enemy_evidence(target.candidate) &&
-        target.candidate.conf >= kPickupEnemyConfidenceThreshold &&
-        target.candidate.live_score >= 0.80f &&
-        target.candidate.corpse_risk < kWeakObservedRiskThreshold &&
-        target.candidate.uncertainty <= 0.35f;
+        target.candidate.conf >= pipeline_contract::PersonTargetPolicy::single_frame_confidence;
     return selection_.confirm(target,
         selection_.pending().has_value() && targets_match(*selection_.pending(), target),
-        safe_marked_pickup, kPickupConfirmFrames);
+        credible_person_pickup, kPickupConfirmFrames);
 }
 
 void VisionTargetSelector::clear_pending() {
@@ -1683,7 +1552,7 @@ void VisionTargetSelector::clear_pending() {
 
 std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_target(
     const TargetState& target,
-    bool allow_marked_single_frame_pickup) {
+    bool allow_single_frame_pickup) {
     const bool begins_new_generation = !selection_.has_identity() ||
         !targets_match(*selection_.active(), target);
     if (begins_new_generation &&
@@ -1695,7 +1564,7 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::commit_ta
 
     std::optional<TargetState> committed = target;
     if (!selection_.has_identity()) {
-        committed = confirm_pickup(target, allow_marked_single_frame_pickup);
+        committed = confirm_pickup(target, allow_single_frame_pickup);
         if (!committed.has_value()) {
             diagnostics_.outcome="pickup_confirmation_pending";
             return std::nullopt;
@@ -1748,8 +1617,7 @@ std::optional<VisionTargetSelector::TargetState> VisionTargetSelector::select_si
     }
     TargetState selected = target_from_candidate(
         candidate,
-        candidate.color_bonus +
-            (candidate.conf * kConfidenceScoreScale));
+        candidate.conf * kConfidenceScoreScale);
     const auto intent_score = score_intent(
         candidate,
         screen_center_x_,
@@ -2330,7 +2198,7 @@ VisionResult VisionTargetSelector::select_impl(
             // without passing person-only confidence or receiving authority.
             const Detection* proposal=nullptr;bool ambiguous=false;
             for(const auto& d:batch.detections) {
-                if(d.class_id!=0 || d.is_friendly || d.conf<kPickupEnemyConfidenceThreshold ||
+                if(d.class_id!=0 || d.is_friendly || d.conf<kPickupConfidenceThreshold ||
                     !passes_geometry_gate(d.x2-d.x1,d.y2-d.y1,false))continue;
                 Candidate c;c.body_box=to_rect(d);const auto p=target_point(c.body_box);
                 c.target_x=p.first;c.target_y=p.second;
@@ -2382,6 +2250,18 @@ VisionResult VisionTargetSelector::select_impl(
     return result;
 }
 
+std::pair<float,float> VisionTargetSelector::cue_reference_translation(const CueBodyReference& reference) const {
+    // A cue-held anatomical point may differ from the latest fragment's box
+    // point. Only compare corresponding domains when predicting cue location.
+    if (selection_.active() && source_equals(selection_.active()->candidate.source,"cue_hold")) {
+        const auto& active=selection_.active()->candidate;
+        return {active.cue_x-reference.cue.x,active.cue_y-reference.cue.y};
+    }
+    if (last_target_center_) return {last_target_center_->first-reference.target.candidate.target_x,
+        last_target_center_->second-reference.target.candidate.target_y};
+    return {};
+}
+
 VisionResult VisionTargetSelector::select_impl_core(
     const DetectionBatch& batch,
     const ColorFrameView* frame,
@@ -2389,7 +2269,7 @@ VisionResult VisionTargetSelector::select_impl_core(
     selection_.begin_frame();
     const float boxes_seen = static_cast<float>(batch.detections.size());
     const auto last_target_center = last_target_center_;
-    build_candidates(batch, last_target_center, intent);
+    build_candidates(batch, last_target_center);
     const auto& candidates = candidate_scratch_;
     diagnostics_.admitted=static_cast<std::uint32_t>(candidates.size());
     if (candidates.empty()) {
@@ -2478,9 +2358,9 @@ VisionResult VisionTargetSelector::select_impl_core(
             if(recent_geometry && (!recent_geometry->last_person_ns ||
                 batch.captured_at_ns<recent_geometry->last_person_ns ||
                 batch.captured_at_ns-recent_geometry->last_person_ns>kCueHoldMaxDurationNs))recent_geometry.reset();
-            if(recent_geometry && last_target_center_) {
-                const float dx=last_target_center_->first-recent_geometry->target.candidate.target_x;
-                const float dy=last_target_center_->second-recent_geometry->target.candidate.target_y;
+            if(recent_geometry) {
+                const auto shift=cue_reference_translation(*recent_geometry);
+                const float dx=shift.first,dy=shift.second;
                 auto& c=recent_geometry->target.candidate;
                 c.target_x+=dx;c.target_y+=dy;
                 for(auto* box:{&c.body_box,&c.aim_region,&c.fire_zone}){box->left+=dx;box->right+=dx;box->top+=dy;box->bottom+=dy;}
@@ -2497,7 +2377,12 @@ VisionResult VisionTargetSelector::select_impl_core(
         return result;
     }
 
-    const auto selected = select_candidate_targets(candidates, last_target_center, intent);
+    auto selected = select_candidate_targets(candidates, last_target_center, intent);
+    // Current weak evidence belongs to the owned identity even when another
+    // person passes admission. Feed it to the same handover decision instead
+    // of letting an unrelated challenger conceal that observation.
+    if (!selected.second) selected.second = select_weak_association(batch);
+    if (!selected.first) selected.first = selected.second;
     if (!selected.first.has_value()) {
         diagnostics_.outcome="pickup_or_score_gate";
         selection_.mark_missing();

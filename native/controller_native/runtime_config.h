@@ -25,6 +25,7 @@ struct VisionRuntimeConfig {
     std::string friendly_marker_color = "#00FFFF";
     float target_height_ratio = 0.40f;
     float target_wide_low_height_ratio = 0.65f;
+    float cue_pickup_offset_y_px = 40.0f;
     bool dynamic_viewport_enabled = false;
     int viewport_precision_width = 320;
     int viewport_precision_height = 256;

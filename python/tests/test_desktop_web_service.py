@@ -131,6 +131,23 @@ class WebServiceTests(unittest.TestCase):
         bad = deepcopy(reopened); bad['values'][enabled] = 'false'
         self.assertFalse(self.service.dispatch('save', bad)['ok'])
 
+    def test_cue_offset_schema_persistence_and_native_validation(self):
+        path = 'runtime.vision.cue_pickup_offset_y_px'
+        field = next(f for f in self.call('bootstrap')['fields'] if f['path'] == path)
+        self.assertEqual(field['group'], '目标与识别')
+        self.assertEqual(field['unit'], 'px')
+        self.assertFalse(field['hot_reload'])
+        draft = self.call('reload', {'id': self.profile['id']})
+        self.assertEqual(draft['values'][path], 40)
+        for value in (10, 72.5, 512):
+            draft['values'][path] = value
+            saved = self.call('save', draft)['profile']
+            draft = self.call('reload', {'id': saved['id']})
+            self.assertEqual(draft['values'][path], value)
+        for value in (-1, 0, 9.99, 513, float('nan')):
+            bad = deepcopy(draft); bad['values'][path] = value
+            self.assertFalse(self.service.dispatch('save', bad)['ok'])
+
     def test_marker_palette_schema_persistence_and_native_validation(self):
         fields = {f['path']: f for f in self.call('bootstrap')['fields']}
         enemy = 'runtime.vision.enemy_marker_color'

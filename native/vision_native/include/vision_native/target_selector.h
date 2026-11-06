@@ -50,6 +50,7 @@ public:
     // Set before the worker starts. COD dev uses independent person acquisition
     // plus cue/body association and same-identity cue motion continuation.
     void set_cue_identity_enabled(bool enabled) { reset(); cue_identity_enabled_ = enabled; }
+    void set_cue_pickup_offset_y(float pixels);
     // Vision worker only, between frames. Does not create a new identity.
     void set_detection_policy(bool friendly, float height, float wide_height);
     VisionResult select(const DetectionBatch& batch);
@@ -85,9 +86,7 @@ public:
         Rect body_box;
         Rect aim_region;
         Rect fire_zone;
-        float live_score = 1.0f;
-        float corpse_risk = 0.0f;
-        float uncertainty = 0.0f;
+        bool has_body_geometry = true;
         const char* source = "observed";
     };
 
@@ -130,7 +129,12 @@ private:
         CueObservation calibrated_cue;
         std::uint64_t last_person_ns = 0;
         bool simultaneous_pair = true;
+        // Anatomical displacement is calibrated separately from the latest
+        // person/cue correspondence used to search after a marker gap.
+        std::pair<float,float> aim_offset{};
+        std::pair<float,float> aim_reference_size{};
     };
+    std::pair<float,float> cue_reference_translation(const CueBodyReference& reference) const;
     std::optional<CueBodyReference> cue_body_reference_;
     // Recent image evidence awaiting its first marker, not an output hold.
     // A later unique cue may establish an aim-only provisional reference;
@@ -156,6 +160,7 @@ private:
     bool friendly_filter_enabled_ = true;
     float target_height_ratio_ = 0.40f;
     float target_wide_low_height_ratio_ = 0.65f;
+    float cue_pickup_offset_y_px_ = 40.0f;
     DetectionBatch apply_detection_policy(const DetectionBatch& batch) const;
     VisionResult empty_result(float boxes_seen) const;
     VisionResult result_from_target(const TargetState& target, float boxes_seen) const;
@@ -187,20 +192,17 @@ private:
     bool update_auto_fire(const TargetState* target);
 
     bool passes_geometry_gate(float box_w, float box_h, bool tracking_candidate) const;
-    bool passes_confidence_gate(float conf, bool tracking_candidate, bool enemy_colored) const;
 
     std::optional<Candidate> build_candidate(
         const Detection& detection,
         std::uint32_t source_detection_index,
-        const std::optional<std::pair<float, float>>& last_target_center,
-        const pipeline_contract::UserAimIntent* intent) const;
+        const std::optional<std::pair<float, float>>& last_target_center) const;
     std::optional<Candidate> build_weak_association_candidate(
         const Detection& detection,
         std::uint32_t source_detection_index) const;
     void build_candidates(
         const DetectionBatch& batch,
-        const std::optional<std::pair<float, float>>& last_target_center,
-        const pipeline_contract::UserAimIntent* intent);
+        const std::optional<std::pair<float, float>>& last_target_center);
     std::optional<TargetState> select_weak_association(const DetectionBatch& batch) const;
 
     float crosshair_distance(float x, float y) const;
@@ -227,11 +229,11 @@ private:
     bool candidate_has_enemy_evidence(const Candidate& candidate) const;
     std::optional<TargetState> confirm_pickup(
         const TargetState& target,
-        bool allow_marked_single_frame_pickup);
+        bool allow_single_frame_pickup);
     void clear_pending();
     std::optional<TargetState> commit_target(
         const TargetState& target,
-        bool allow_marked_single_frame_pickup);
+        bool allow_single_frame_pickup);
 
     std::optional<TargetState> select_single_candidate(
         const Candidate& candidate,

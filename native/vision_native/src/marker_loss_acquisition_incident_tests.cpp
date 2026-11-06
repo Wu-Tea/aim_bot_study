@@ -56,14 +56,14 @@ Counts run_cases(std::ofstream& out) {
                 }
             }
             // Superseding user contract: flat/corpse-like people are aimable;
-            // uncertain pose evidence still cannot grant synthetic fire.
+            // November 6: marker absence does not downgrade observed authority.
             const float flat_x=(d.x1+d.x2)*.5f;
             const float flat_y=d.y1+(d.y2-d.y1)*.35f;
             d.x1=flat_x-50;d.x2=flat_x+50;
             d.y1=flat_y-26.f;d.y2=d.y1+40;d.conf=.92f;
             batch.detections={d};batch.captured_at_ns+=step;
             const auto flat=selector.select(batch);
-            if(!flat.has_target || !flat.aim_authority || flat.fire_authority)++total.controls_failed;
+            if(!flat.has_target || !flat.aim_authority || !flat.fire_authority)++total.controls_failed;
             // Removing all history is a counterfactual, never the proposed fix.
             selector.reset();d.x1=300;d.x2=340;d.y1=228;d.y2=308;
             batch.detections={d};selector.select(batch);batch.captured_at_ns+=step;

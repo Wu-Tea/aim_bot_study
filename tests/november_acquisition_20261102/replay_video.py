@@ -1,11 +1,15 @@
 """Original logged detections plus nearest SDR video frame; never live output."""
-import json,pickle,struct,subprocess,csv,statistics,sys
+import argparse,json,pickle,struct,subprocess,csv,statistics
 from pathlib import Path
 import cv2
-ROOT=Path(__file__).resolve().parents[2];R=ROOT/'runs/incident-20261102';O=R/'fix';O.mkdir(exist_ok=True)
+ROOT=Path(__file__).resolve().parents[2];R=ROOT/'runs/incident-20261102'
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output',type=Path,default=R/'fix')
+parser.add_argument('versions',nargs='*',default=['before','after'])
+args=parser.parse_args();O=args.output;O.mkdir(parents=True,exist_ok=True)
 M=json.loads((R/'manifest.json').read_text(encoding='utf-8'));D=pickle.load((R/'index.pkl').open('rb'))
 windows=[('E15',96.8,99.4),('E17',105.8,107.8),('E27',183.5,185.4),('E76',545.8,548.2),('E41',284.8,286.3),('E36',257.5,260.2),('E04',35.8,37.5)]
-versions=sys.argv[1:] or ['before','after'];summary=[]
+versions=args.versions or ['before','after'];summary=[]
 for name,a,b in windows:
  rows=[r for r in D['selection'] if a<=r['_video_s']-.1375<=b]
  rows.sort(key=lambda r:r['vision_capture_ns'])

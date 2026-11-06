@@ -150,6 +150,8 @@ void apply_runtime_vision_value(
         config.target_height_ratio = parse_float_value(value);
     } else if (key == "target_wide_low_height_ratio") {
         config.target_wide_low_height_ratio = parse_float_value(value);
+    } else if (key == "cue_pickup_offset_y_px") {
+        config.cue_pickup_offset_y_px = parse_float_value(value);
     } else if (key == "color_readback_mode") {
         config.color_readback_mode = parse_string_value(value);
     } else if (key == "model_path") {
@@ -177,7 +179,7 @@ void apply_runtime_vision_value(
 bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> runtime_keys{"profile"};
     static const std::unordered_set<std::string> vision_keys{
-        "friendly_filter_enabled", "enemy_marker_color", "friendly_marker_color", "target_height_ratio", "target_wide_low_height_ratio",
+        "friendly_filter_enabled", "enemy_marker_color", "friendly_marker_color", "target_height_ratio", "target_wide_low_height_ratio", "cue_pickup_offset_y_px",
         "crop_width", "capture_width", "crop_height", "capture_height",
         "tensor_width", "tensor_height", "require_isotropic_resize", "capture_fps",
         "dynamic_viewport_enabled", "viewport_precision_width",
@@ -771,6 +773,9 @@ void mark_environment_sources(RuntimeConfig& config) {
 }
 
 void validate_runtime_config(RuntimeConfig& config) {
+    if (!std::isfinite(config.vision.cue_pickup_offset_y_px) ||
+        config.vision.cue_pickup_offset_y_px < 10 || config.vision.cue_pickup_offset_y_px > 512)
+        throw std::runtime_error("cue_pickup_offset_y_px must be within 10..512 pixels");
     auto invalid = [](const std::string& key, const std::string& range) {
         throw std::runtime_error(
             "invalid user override for " + key + "; accepted range: " + range);

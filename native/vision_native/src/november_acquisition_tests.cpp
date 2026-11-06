@@ -59,10 +59,10 @@ void distant_body(){
  s.selector.reset();s.clear();s.box(308,230,2,3);check(!s.run().has_target,"subpixel/noise geometry is not a person");
  s.clear();s.box(308,230,19,24);s.run();s.clear();s.box(308,230,19,24);
  check(!s.run().has_target,"head fragments must retain the existing tracking geometry floor");
- // A moderate-confidence body is insufficient alone. A later marker can
- // corroborate it, including screen motion during ADS, with confirmation.
- Scene moving;moving.box(270,230,24,40,.50f);check(!moving.run().has_target,"unconfirmed body has no authority");
- moving.clear();moving.box(278,230,24,40,.50f);check(!moving.run().has_target,"motion does not boost confidence");
+ // November 6: a moderate-confidence body has the same admission as a
+ // marked person. Later cue evidence still bridges the detector gap.
+ Scene moving;moving.box(270,230,24,40,.50f);check(moving.run().has_target,"unmarked body has equal admission authority");
+ moving.clear();moving.box(278,230,24,40,.50f);check(moving.run().has_target,"moving unmarked person retains authority");
  for(int i=0;i<3;++i){moving.clear();check(!moving.run().has_target,"prediction alone cannot actuate");}
  moving.clear();moving.cue(322,212);auto first=moving.run();
  moving.clear();moving.cue(322,212);auto paired=moving.run();
@@ -74,8 +74,10 @@ void distant_body(){
 void body_reference_refresh(){
  Scene s;
  const auto step=[&](float x,float y,float w,float h,int cx,int cy){s.clear();s.box(x,y,w,h,.9f);s.cue(cx,cy);return s.run();};
- step(303,223.333f,27,48.334f,312,231);step(303,223.333f,27,48.334f,312,231);
- step(311.667f,224.333f,23.833f,40.334f,320,232);step(310,207.167f,28.167f,62,321,212);
+ // Keep the initial anatomical point outside the 11 px marker. The former
+ // cy=231/232 fixture aimed inside its marker and is now rejected explicitly.
+ step(303,223.333f,27,48.334f,312,220);step(303,223.333f,27,48.334f,312,220);
+ step(311.667f,224.333f,23.833f,40.334f,320,221);step(310,207.167f,28.167f,62,321,212);
  auto r=step(308.167f,216,26.833f,52.333f,318,198);
  check(r.has_selected_detection && std::abs(r.target_y-(216+.25f*52.333f))<.01f,"same-size current body must replace outdated cue offset");
  s.clear();s.cue(320,200);auto held=s.run();check(held.has_target&&!held.fire_authority&&std::abs(held.target_y-r.target_y-2)<.01f,"updated body owns following cue-only point");

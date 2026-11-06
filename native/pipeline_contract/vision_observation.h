@@ -72,6 +72,9 @@ struct VisionObservationBatch {
     // without fabricating a detector observation id. The coordinator must
     // validate the existing identity/generation before consuming it.
     bool selector_cue_continuation = false;
+    // Explicit selector-owned unpaired cue acquisition. Its configured point
+    // has no body geometry and never grants fire authority.
+    bool selector_cue_acquisition = false;
     bool roi_fallback = false;
     bool fire_requested = false;
     bool observed_fire_eligible = false;
