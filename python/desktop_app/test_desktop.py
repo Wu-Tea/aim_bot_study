@@ -11,6 +11,7 @@ import subprocess
 import sys
 import uuid
 import codecs
+import threading
 
 
 class StartupInfo(ctypes.Structure):
@@ -48,7 +49,9 @@ def require_isolated_gui():
         raise RuntimeError('Run GUI checks with: python -m desktop_app.test_desktop; interactive desktop tests are disabled.')
 
 
-def run_isolated(arguments, *, cwd=None):
+def run_isolated(arguments, *, cwd=None, timeout=None):
+    if timeout is not None and timeout <= 0:
+        raise ValueError('timeout must be positive')
     if sys.platform != 'win32':
         raise OSError('GUI isolation requires Windows.')
     user = ctypes.WinDLL('user32', use_last_error=True)
@@ -79,6 +82,8 @@ def run_isolated(arguments, *, cwd=None):
         if not kernel.CreatePipe(ctypes.byref(reader), ctypes.byref(writer), ctypes.byref(security), 0):
             raise ctypes.WinError(ctypes.get_last_error())
         process = ProcessInfo()
+        watchdog = None
+        expired = threading.Event()
         environment = os.environ.copy()
         environment['AIM_GUI_TEST_DESKTOP'] = name
         environment['PYTHONIOENCODING'] = 'utf-8'
@@ -96,6 +101,16 @@ def run_isolated(arguments, *, cwd=None):
             if not kernel.CreateProcessW(sys.executable, command, None, None, True,
                 0x08000000 | 0x00000400, block, str(cwd) if cwd else None, ctypes.byref(startup), ctypes.byref(process)):
                 raise ctypes.WinError(ctypes.get_last_error())
+            if timeout is not None:
+                def terminate_expired_child():
+                    # The parent owns this test process. A failed WebView2
+                    # bootstrap never invokes the child's page-ready callback.
+                    if kernel.WaitForSingleObject(process.process, 0) == 258:
+                        if kernel.TerminateProcess(process.process, 1):
+                            expired.set()
+                watchdog = threading.Timer(timeout, terminate_expired_child)
+                watchdog.daemon = True
+                watchdog.start()
             kernel.CloseHandle(writer); writer = w.HANDLE()
             decoder = codecs.getincrementaldecoder('utf-8')()
             buffer, size = ctypes.create_string_buffer(4096), w.DWORD()
@@ -105,6 +120,11 @@ def run_isolated(arguments, *, cwd=None):
                 raise ctypes.WinError(ctypes.get_last_error())
             sys.stdout.write(decoder.decode(b'', final=True))
             kernel.WaitForSingleObject(process.process, 0xffffffff)
+            if watchdog:
+                watchdog.cancel()
+                watchdog.join()
+            if expired.is_set():
+                raise subprocess.TimeoutExpired([sys.executable, *arguments], timeout)
             result = w.DWORD()
             if not kernel.GetExitCodeProcess(process.process, ctypes.byref(result)):
                 raise ctypes.WinError(ctypes.get_last_error())
@@ -115,6 +135,9 @@ def run_isolated(arguments, *, cwd=None):
                 kernel.WaitForSingleObject(process.process, 5000)
             raise
         finally:
+            if watchdog:
+                watchdog.cancel()
+                watchdog.join()
             for owned in (writer, reader, process.thread, process.process):
                 if owned:kernel.CloseHandle(owned)
     finally:

@@ -171,7 +171,7 @@ Fusion 在“运行反馈”独立打开和关闭。启动主程序不自动打�
 
 可用 `python/tools/benchmarks/desktop_ui_interactions.py --profile --output output/desktop-ui-performance/check.json` 复测，运行前设置 `PYTHONPATH=python`。脚本只使用临时配置库，不启动原生输出；记录每次交互耗时，包括 Tk 刷新。修复后参数修改中位数为 2.68 ms，曲线编辑为 5.15 ms。这些数值受系统负载影响，表示界面交互耗时，不能换算成游戏帧率或证明 Aim 性能提升。
 
-GUI 测试和交互耗时脚本现在在独立 Windows 桌面运行，不切换你正在使用的桌面。真实窗口、菜单聚焦和键盘事件仍被检查；直接在当前桌面启动 Tk 测试会报错，提示使用隔离入口。统一命令为 `D:\env\python\python.exe python/tools/check_app.py`；参数 `--scope config` 只做快速配置检查，`--scope gui` 只运行隔离桌面检查，`--build` 先构建原生 Release。增加参数与验证方法见 [配置项与检查工作流](CONFIGURATION_AND_CHECKS.md)。
+GUI 测试和交互耗时脚本现在在独立 Windows 桌面运行，不切换你正在使用的桌面。真实窗口、菜单聚焦和键盘事件仍被检查；直接在当前桌面启动 Tk 测试会报错，提示使用隔离入口。统一命令为 `D:\env\python\python.exe python/tools/check_app.py`；参数 `--scope config` 只做快速配置检查，`--scope gui` 只运行隔离桌面检查，`--build` 先构建原生 Release。增加参数与验证方法见 [配置项与检查工作流](CONFIGURATION_AND_CHECKS.md)。 完整原生检查默认按现有 CTest 套件并发 3，`--jobs 1` 可做串行对照；构建、原生、桌面、WebView2 和总耗时分别输出。隔离桌面／WebView2 超时会明确报失败并结束测试子进程。测量与边界见 [验收耗时及 Vision 拦截审查](../research/ACCEPTANCE_TIMING_VISION_GATES_20261111.md)。
 
 ## 2026-10-06 参数语义重建
 

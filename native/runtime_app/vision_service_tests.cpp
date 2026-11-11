@@ -1277,6 +1277,17 @@ void register_vision_service_tests(native_test::Registry& registry) {
             delivered = relay.submit(ai, sample, 0, {}).output.delivered;
         }
         REQUIRE(delivered);
+        // A fresh visual deadline alone does not admit output: even unchanged
+        // physical values receive a newer relay sample sequence each period.
+        const auto newer = relay.wait_next(sample.sequence);
+        REQUIRE(newer.physical.right_x == sample.physical.right_x &&
+                newer.physical.left_trigger == sample.physical.left_trigger &&
+                newer.scope_revision == sample.scope_revision);
+        const double fresh_deadline = std::chrono::duration<double>(
+            std::chrono::steady_clock::now().time_since_epoch()).count() + .040;
+        const auto superseded = relay.submit(ai, sample, fresh_deadline, {});
+        REQUIRE(superseded.visual_fresh && !superseded.input_current &&
+                !superseded.request_accepted && !superseded.output.delivered);
         const auto before = writes.load();
         // No further algorithm deliveries for 60 ms; manual sampling and
         // sending must continue, including release of synthetic fire.

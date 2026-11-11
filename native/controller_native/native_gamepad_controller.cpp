@@ -409,8 +409,15 @@ pipeline_contract::VisionObservationBatch NativeGamepadController::observation_b
     if (!batch.selector_cue_continuation) {
         const auto limit = std::min<std::size_t>(
             snapshot.candidates.size(), pipeline_contract::kMaxVisionCandidates);
+        // Capacity bounds transport, not selector ownership. If the selected
+        // person is beyond the retained prefix, reserve its final slot instead
+        // of dropping the only candidate that owns current control geometry.
+        const auto selected_tail = std::find_if(
+            snapshot.candidates.begin() + limit, snapshot.candidates.end(),
+            [&](const auto& value) { return value.id == snapshot.selected_observation_id; });
         for (std::size_t index = 0; index < limit; ++index) {
-            const auto& source = snapshot.candidates[index];
+            const auto& source = index + 1 == limit && selected_tail != snapshot.candidates.end()
+                ? *selected_tail : snapshot.candidates[index];
             if (!source.valid || source.is_friendly) continue;
             auto& destination = batch.candidates[batch.count++];
             destination.source_id = source.id;

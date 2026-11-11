@@ -1,6 +1,8 @@
 import contextlib
 import io
 import os
+import subprocess
+import time
 import unittest
 from unittest.mock import patch
 
@@ -8,6 +10,15 @@ from desktop_app.test_desktop import desktop_name, require_isolated_gui, run_iso
 
 
 class DesktopIsolationTests(unittest.TestCase):
+    def test_stalled_child_times_out_and_releases_private_desktop(self):
+        original = desktop_name()
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run_isolated(['-c', 'import time; time.sleep(60)'], timeout=.2)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(desktop_name(), original)
+        self.assertEqual(run_isolated(['-c', 'raise SystemExit(7)'], timeout=5), 7)
+
     def test_unisolated_gui_is_rejected_before_creating_windows(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, 'desktop_app.test_desktop'):

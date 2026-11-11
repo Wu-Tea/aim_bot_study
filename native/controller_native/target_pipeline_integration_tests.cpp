@@ -1182,6 +1182,47 @@ void test_production_recoil_never_opens_retired_profile_paths() {
 
 void register_target_pipeline_integration_tests(
     native_test::Registry& registry) {
+    registry.add_case("BaseEndToEnd", "selected_person_survives_candidate_capacity", [] {
+        const auto capacity = pipeline_contract::kMaxVisionCandidates;
+        for (bool held : {false,true})
+        for (std::size_t selected_index : {std::size_t(0),capacity-1,capacity,capacity+20})
+        for (int rejected = 0; rejected < 4; ++rejected) {
+            auto config = current_config();
+            double now = 10;
+            NativeGamepadController controller(config,&now);
+            if (held) {
+                controller.submit_vision_snapshot(observed_snapshot(1,now,10,0,999,7));
+                controller.build_output(physical_input());
+                now += .005;
+            }
+            auto snapshot = observed_snapshot(2,now,20,0,999,7);
+            snapshot.enemy_cue_current = snapshot.enemy_identity_confirmed = true;
+            auto chosen = snapshot.candidates.front();
+            chosen.color_classified = chosen.has_cue_point = true;
+            chosen.cue_score = 1;
+            chosen.is_friendly = rejected == 1;
+            chosen.valid = rejected != 2;
+            chosen.has_aim_point = rejected != 3;
+            snapshot.candidates.clear();
+            for (std::size_t i = 0; i < capacity+21; ++i) {
+                auto clutter = candidate(i+1,80,0);
+                clutter.has_aim_point = false; // Vision selected only 999.
+                snapshot.candidates.push_back(i == selected_index ? chosen : clutter);
+            }
+            controller.submit_vision_snapshot(snapshot);
+            const auto output = controller.build_output(physical_input());
+            const auto& plan = controller.last_target_plan();
+            if (rejected == 0) {
+                require(plan.direct_person_observation && plan.source_observation_id == 999 &&
+                    plan.aim_authority > 0 && output.right_x > 0,
+                    "fresh selected person lost at bounded candidate transport; index="+std::to_string(selected_index));
+                require_near(plan.error_px.x,20.f,.001f,"current selected geometry must reach the solver");
+            } else {
+                require(!plan.direct_person_observation && plan.aim_authority == 0,
+                    "capacity preservation must not admit an invalid or friendly selected person");
+            }
+        }
+    });
     registry.add_case("BaseEndToEnd", "source_point_reaches_native_output", test_source_point_reaches_native_output);
     registry.add_case("BaseEndToEnd", "no_target_is_physical_passthrough", test_no_target_is_physical_passthrough);
     registry.add_case("BaseEndToEnd", "gamepad_shared_arbitration_deadzone", test_gamepad_deadzone_is_shared_by_intent_and_final_arbitration);
