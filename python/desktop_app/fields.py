@@ -53,10 +53,10 @@ COMMON_FIELDS = [
 ]
 
 CHOICE_LABELS = {
-    'power': '死区 / 幂函数', 'cod_linear_legacy_lut': 'COD Linear（旧版参考）',
+    'power': '死区 / 幂函数', 'cod_linear_legacy_lut': 'COD 线性',
     'legacy': '原生默认',
     'custom_lut': '自定义曲线',
-    'linear': '线性（Linear）', 'cod_dynamic_legacy_lut': 'COD 动态曲线',
+    'linear': '线性 1:1', 'cod_dynamic_legacy_lut': 'COD 动态',
     'both': 'RT 或 RB', 'balanced': '均衡', 'performance': '性能优先',
     'low_latency': '低延迟', 'pascal_balanced': 'Pascal 显卡均衡',
 }

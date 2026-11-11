@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "normalized_stick_response",
-  "name": "COD Linear · 旧版实测",
+  "name": "COD 线性",
   "interpolation": "piecewise_linear",
   "points": [
     [

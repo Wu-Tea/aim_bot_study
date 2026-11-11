@@ -10,7 +10,7 @@ bridge="""window.rpcCalls=[]; window.pywebview={api:{dispatch:async(command,payl
 window.rpcCalls.push(command);
 const r=await fetch('/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command,payload})});return await r.json();}}};"""
 errors=[]
-created='Linear → Dynamic '+str(time.time_ns())[-6:]
+created='COD 线性 → COD 动态 '+str(time.time_ns())[-6:]
 with sync_playwright() as p:
  browser=p.chromium.launch(channel='msedge',headless=True)
  page=browser.new_page(viewport={'width':1360,'height':1000})
@@ -38,8 +38,8 @@ with sync_playwright() as p:
  ai=page.get_by_label('AI 输出解算曲线',exact=True)
  expect(inputs.locator('option')).to_have_count(4)
  expect(ai.locator('option')).to_have_count(4)
- expect(inputs.locator('option[value="builtin:cod_standard_legacy.json"]')).to_have_text('COD Standard · 旧版实测')
- expect(ai.locator('option[value="builtin:cod_standard_legacy.json"]')).to_have_text('COD Standard · 旧版实测')
+ expect(inputs.locator('option[value="builtin:cod_standard_legacy.json"]')).to_have_text('COD 标准')
+ expect(ai.locator('option[value="builtin:cod_standard_legacy.json"]')).to_have_text('COD 标准')
  assert 'curve_compose' not in page.evaluate('window.rpcCalls')
  page.get_by_role('button',name='曲线库',exact=True).click()
  page.get_by_role('button',name='制作融合曲线',exact=True).click()
@@ -72,7 +72,7 @@ with sync_playwright() as p:
  expect(page.locator('.save-state')).to_have_text('已保存')
  page.reload();expect(page.locator('.save-state')).to_have_text('已保存');curves()
  expect(inputs.locator('option:checked')).to_have_text(created)
- expect(ai.locator('option:checked')).to_contain_text('Dynamic')
+ expect(ai.locator('option:checked')).to_contain_text('COD 动态')
  expect(initial).to_have_value('8000')
  expect(inputs).to_be_enabled()
  for w,h in [(1348,928),(1360,1000),(1024,768),(800,640)]:
@@ -98,7 +98,7 @@ with sync_playwright() as p:
  page.reload();expect(page.locator('.save-state')).to_have_text('已保存');curves()
  expect(page.locator('.run-state')).to_have_text('运行中')
  inputs.select_option('builtin:linear.json')
- expect(ai.locator('option:checked')).to_contain_text('Dynamic')
+ expect(ai.locator('option:checked')).to_contain_text('COD 动态')
  expect(page.locator('.curve-preview-values')).to_contain_text('50.00%')
  assert page.locator('#aiPreviewCurve').get_attribute('d')==preview_before
  expect(page.locator('.save-state')).to_have_text('未保存')
@@ -117,7 +117,7 @@ with sync_playwright() as p:
  dispatch('stop')
  page.reload();expect(page.locator('.save-state')).to_have_text('已保存');curves()
  expect(inputs.locator('option:checked')).to_contain_text('1:1')
- expect(ai.locator('option:checked')).to_contain_text('Dynamic')
+ expect(ai.locator('option:checked')).to_contain_text('COD 动态')
  expect(page.get_by_role('checkbox',name='转译用户输入',exact=True)).to_have_count(0)
  # Legacy opt-out must display its effective 1:1 behavior, not a dormant LUT.
  current_id=page.locator('.profile-select').input_value()
@@ -137,7 +137,7 @@ with sync_playwright() as p:
  persisted=next(p for p in dispatch('bootstrap')['profiles'] if p['id']==current_id)
  assert persisted['values']['gamepad.follow_response_curve'] is True
  page.reload();expect(page.locator('.save-state')).to_have_text('已保存');curves()
- expect(inputs.locator('option:checked')).to_contain_text('Dynamic')
+ expect(inputs.locator('option:checked')).to_contain_text('COD 动态')
  # Deadzones are persistent settings, independent of the two curve choices.
  inputs.select_option('builtin:linear.json')
  start=page.get_by_role('spinbutton',name='起点死区',exact=True)

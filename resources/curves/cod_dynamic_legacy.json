@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "normalized_stick_response",
-  "name": "COD Dynamic · 旧版实测",
+  "name": "COD 动态",
   "interpolation": "piecewise_linear",
   "points": [
     [
