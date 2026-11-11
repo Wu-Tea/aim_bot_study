@@ -1,4 +1,4 @@
-"""Independent profile documents; TOML is a projection for the native loader."""
+"""JSON owns saved profiles; runtime TOML is a disposable, generated snapshot."""
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
@@ -93,6 +93,7 @@ class ProfileRepository:
     def __init__(self, root, curve_source=None):
         self.root = Path(root)
         self.folder = self.root / 'profiles/library'
+        self.runtime_folder = self.root / 'runs/desktop/runtime-profiles'
         self.curve_source = Path(curve_source or root)
         self.errors = []
 
@@ -102,7 +103,34 @@ class ProfileRepository:
         return self.folder / (identifier + '.json')
 
     def runtime_path(self, profile):
+        return self.runtime_folder / self.path(profile['id']).with_suffix('.toml').name
+
+    def legacy_runtime_path(self, profile):
         return self.path(profile['id']).with_suffix('.toml')
+
+    def prepare_runtime(self, profile):
+        """Publish a saved profile for explicit start/apply, never on plain Save.
+
+        Old sidecar TOMLs remain untouched. A generated snapshot cannot veto a
+        JSON save or become a second editable source of profile data.
+        """
+        source, expected = self.read(self.path(profile['id']))
+        if source != profile:
+            raise ValueError('配置已变化，请重新载入后再启动或应用。')
+        self.runtime_folder.mkdir(parents=True, exist_ok=True)
+        handle, filename = tempfile.mkstemp(prefix='.candidate-', suffix='.toml', dir=self.runtime_folder)
+        candidate = Path(filename)
+        try:
+            with os.fdopen(handle, 'w', encoding='utf-8', newline='\n') as stream:
+                stream.write(toml_text(projection(source)))
+                stream.flush()
+                os.fsync(stream.fileno())
+            if self.path(profile['id']).read_bytes() != expected:
+                raise ValueError('配置已被外部修改，请重新载入后再启动或应用。')
+            os.replace(candidate, self.runtime_path(profile))
+            return self.runtime_path(profile)
+        finally:
+            candidate.unlink(missing_ok=True)
 
     def read(self, path):
         raw = Path(path).read_bytes()
@@ -172,15 +200,10 @@ class ProfileRepository:
     def save(self, data, expected, validate=None):
         self.check(data)
         path = self.path(data['id'])
-        runtime_path = self.runtime_path(data)
         self.folder.mkdir(parents=True, exist_ok=True)
         def unchanged():
             if (path.read_bytes() if path.exists() else None) != expected:
                 raise ValueError('配置已被外部修改，请重新载入后再保存。')
-            if expected is not None and runtime_path.exists():
-                old = json.loads(expected.decode('utf-8-sig'))
-                if runtime_path.read_text(encoding='utf-8-sig') != toml_text(projection(old)):
-                    raise ValueError('运行配置 TOML 被外部修改；请先将它导入为新配置。')
         unchanged()
         handle, filename = tempfile.mkstemp(prefix='.candidate-', suffix='.toml', dir=self.folder)
         candidate = Path(filename)
@@ -200,27 +223,24 @@ class ProfileRepository:
             writer = UiPreferences(self.root)
             writer.path = path
             writer.write(data)
-            os.replace(candidate, runtime_path)
             return path.read_bytes()
         finally:
             candidate.unlink(missing_ok=True)
 
     def delete(self, profile, expected):
-        """Remove from the library while retaining a recoverable JSON/TOML pair."""
+        """Archive the JSON, any old sidecar and any generated runtime snapshot."""
         path = self.path(profile['id'])
         runtime = self.runtime_path(profile)
         if path.read_bytes() != expected:
             raise ValueError('配置已被外部修改，请重新载入后再删除。')
-        saved = json.loads(expected.decode('utf-8-sig'))
-        if runtime.exists() and runtime.read_text(encoding='utf-8-sig') != toml_text(projection(saved)):
-            raise ValueError('运行配置 TOML 被外部修改；请先导入后再删除。')
         archive = self.root / 'runs/desktop/deleted-profiles' / (profile['id'] + '-' + uuid.uuid4().hex)
         archive.mkdir(parents=True)
         moved = []
         try:
-            for source in (runtime, path):
+            for source, destination in ((self.legacy_runtime_path(profile), archive / path.with_suffix('.toml').name),
+                                        (runtime, archive / 'runtime' / runtime.name), (path, archive / path.name)):
                 if source.exists():
-                    destination = archive / source.name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
                     source.rename(destination)
                     moved.append((source, destination))
         except OSError:

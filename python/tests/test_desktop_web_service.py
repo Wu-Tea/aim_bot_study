@@ -414,6 +414,45 @@ class WebServiceTests(unittest.TestCase):
         r=self.call('save',{**r['profile'],'apply':True})
         self.assertIn('error',r);self.assertIn('profile',r)
 
+    def test_saved_and_applied_profiles_have_distinct_storage_lifecycles(self):
+        p=deepcopy(self.profile);p['values']['runtime.vision.model_path']='test.engine'
+        p=self.call('start',p)['profile']
+        runtime_path=self.service.repo.runtime_path(p)
+        previous=runtime_path.read_bytes()
+        p['values']['gamepad.ai_aim.ads_free_initial_scale']=3400.
+        p=self.call('save',p)['profile']
+        self.assertEqual(runtime_path.read_bytes(),previous)
+        with patch.object(self.service.repo,'prepare_runtime',side_effect=OSError('CACHE_FAILED')):
+            result=self.call('save',{**p,'apply':True})
+        self.assertIn('配置已保存，尚未应用',result['error'])
+        self.assertEqual(result['profile']['values']['gamepad.ai_aim.ads_free_initial_scale'],3400.)
+        self.assertEqual(runtime_path.read_bytes(),previous)
+        applied=self.call('save',{**result['profile'],'apply':True})
+        self.assertEqual(applied['reload']['status'],2)
+        self.assertNotEqual(runtime_path.read_bytes(),previous)
+
+    def test_legacy_running_profile_requires_restart_without_overwriting_sidecar(self):
+        p=deepcopy(self.profile);p['values']['runtime.vision.model_path']='test.engine'
+        p=self.call('save',p)['profile']
+        legacy=self.service.repo.legacy_runtime_path(p)
+        legacy.write_bytes(b'preserved legacy runtime')
+        self.runtime.record=dict(game=p['game'],profile_id=p['id'],config_path=str(legacy),
+                                 process_id=123,process_created=133333333333333337)
+        p['values']['gamepad.ai_aim.ads_free_initial_scale']=3400.
+        result=self.call('save',{**p,'apply':True})
+        self.assertEqual(result['reload']['status'],3)
+        self.assertEqual(legacy.read_bytes(),b'preserved legacy runtime')
+        self.assertFalse(self.service.dispatch('delete',result['profile'])['ok'])
+        identity=[123,'133333333333333337']
+        with patch.object(self.service.repo,'prepare_runtime',side_effect=OSError('CACHE_FAILED')):
+            failed=self.call('start',{**result['profile'],'confirmed_runtime':identity})
+        self.assertIn('配置已保存，启动失败',failed['error'])
+        self.assertEqual(self.runtime.stops,0)
+        started=self.call('start',{**failed['profile'],'confirmed_runtime':identity})
+        self.assertEqual(self.runtime.stops,1)
+        self.assertEqual(Path(started['status']['record']['config_path']),self.service.repo.runtime_path(p))
+        self.assertEqual(legacy.read_bytes(),b'preserved legacy runtime')
+
     def test_model_failure_does_not_stop_or_save(self):
         self.runtime.record={'game':'custom','process_id':1,'process_created':133333333333333337,'config_path':'other.toml'}
         p=deepcopy(self.profile);p['values']['runtime.vision.model_path']='broken.engine'

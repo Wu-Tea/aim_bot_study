@@ -44,7 +44,7 @@ class IndependentStorageTests(unittest.TestCase):
             arbitrary=repo.create('另一个场景','training_range_42',validate=lambda path:manager.validate(path,['training_range_42']))
             self.assertEqual(repo.read(repo.path(arbitrary['id']))[0]['game'],'training_range_42')
 
-    def test_import_choices_come_from_file_and_delete_rejects_external_changes(self):
+    def test_import_choices_and_delete_archive_both_toml_generations(self):
         with tempfile.TemporaryDirectory() as folder:
             repo=ProfileRepository(folder,curve_source=PROJECT)
             legacy=Path(folder)/'legacy.toml'
@@ -53,10 +53,14 @@ class IndependentStorageTests(unittest.TestCase):
             p=repo.create('自由配置')
             self.assertEqual(repo.import_choices(repo.path(p['id'])),['custom'])
             expected=repo.path(p['id']).read_bytes()
-            repo.runtime_path(p).write_text('# external',encoding='utf-8')
-            with self.assertRaises(ValueError):repo.delete(p,expected)
-            self.assertEqual(repo.path(p['id']).read_bytes(),expected)
-            self.assertEqual(repo.runtime_path(p).read_text(encoding='utf-8'),'# external')
+            runtime = repo.prepare_runtime(p)
+            legacy = repo.legacy_runtime_path(p)
+            legacy.write_text('# external',encoding='utf-8')
+            runtime.write_text('# generated snapshot',encoding='utf-8')
+            archive = repo.delete(p,expected)
+            self.assertEqual((archive/legacy.name).read_text(encoding='utf-8'),'# external')
+            self.assertEqual((archive/'runtime'/runtime.name).read_text(encoding='utf-8'),'# generated snapshot')
+            self.assertEqual((archive/repo.path(p['id']).name).read_bytes(),expected)
 
     def test_new_game_defaults_roundtrip_with_coherent_vision_geometry(self):
         from desktop_app.workspace import FIELDS
@@ -81,7 +85,7 @@ class IndependentStorageTests(unittest.TestCase):
                         expected=lookup(document,path)
                         if field[2] is float:self.assertAlmostEqual(actual[path],expected,places=5)
                         else:self.assertEqual(actual[path],expected)
-                manager.validate(repo.runtime_path(profile),[game])
+                manager.validate(repo.prepare_runtime(profile),[game])
 
     def test_every_editable_numeric_field_roundtrips_native_without_replacement(self):
         from desktop_app.workspace import FIELDS,put
@@ -176,7 +180,7 @@ class IndependentStorageTests(unittest.TestCase):
         points=[[0,0],[.2,.08],[.5,.37],[1,1]]
         p['curve']={'algorithm':'custom_lut','definition':curve_document('精调',points)}
         self.repo.save(p,expected,lambda path:RuntimeManager(PROJECT).validate(path,['apex']))
-        doc=tomllib.loads(self.repo.runtime_path(p).read_text(encoding='utf-8'))
+        doc=tomllib.loads(self.repo.prepare_runtime(p).read_text(encoding='utf-8'))
         self.assertNotIn('games',doc)
         self.assertEqual(effective(doc,'apex')['gamepad']['aim_response_curve']['custom_points'],encode_points(points))
         result=subprocess.run([str(PRODUCTION),'--config',str(self.repo.runtime_path(p)),'--game','apex','--dump-effective-config'],
@@ -213,11 +217,51 @@ class IndependentStorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'外部修改'):self.repo.save(p,expected)
         self.assertEqual(self.repo.path(p['id']).read_bytes(),expected+b' ')
 
-    def test_modified_projection_is_reported_instead_of_overwritten(self):
-        p=self.repo.create('配置','apex');_,expected=self.repo.read(self.repo.path(p['id']))
-        path=self.repo.runtime_path(p);path.write_text('# user change\n',encoding='utf-8')
-        with self.assertRaisesRegex(ValueError,'外部修改'):self.repo.save(p,expected)
-        self.assertEqual(path.read_text(encoding='utf-8'),'# user change\n')
+    def test_upgrade_does_not_confuse_old_projection_with_external_edits(self):
+        p=self.repo.create('旧配置','apex');_,expected=self.repo.read(self.repo.path(p['id']))
+        old = projection(p)
+        for key in ('input_start','input_end','output_start','output_end'):
+            old['gamepad']['aim_response_curve'].pop(key)
+        legacy=self.repo.legacy_runtime_path(p)
+        legacy.write_text(toml_text(old),encoding='utf-8')
+        previous=legacy.read_bytes()
+        p['config']['gamepad']['ai_aim']['ads_free_initial_scale']=3400.
+        self.repo.save(p,expected,lambda path:RuntimeManager(PROJECT).validate(path,['apex']))
+        self.assertEqual(legacy.read_bytes(),previous)
+        self.assertEqual(self.repo.read(self.repo.path(p['id']))[0],p)
+        self.assertFalse(self.repo.runtime_path(p).exists())
+        generated=self.repo.prepare_runtime(p)
+        self.assertNotEqual(generated.parent,self.repo.folder)
+        self.assertEqual(tomllib.loads(generated.read_text(encoding='utf-8')),projection(p))
+        # Generated files are replaceable; manual changes to the old sidecar
+        # stay available for explicit import, without blocking JSON saves.
+        legacy.write_text('# user change\n',encoding='utf-8')
+        generated.write_bytes(b'broken runtime snapshot')
+        _,expected=self.repo.read(self.repo.path(p['id']))
+        self.repo.save(p,expected)
+        self.repo.prepare_runtime(p)
+        self.assertEqual(legacy.read_text(encoding='utf-8'),'# user change\n')
+        self.assertEqual(tomllib.loads(generated.read_text(encoding='utf-8')),projection(p))
+
+    def test_save_has_one_commit_and_runtime_generation_cannot_change_it(self):
+        p=self.repo.create('单一原件','apex');_,expected=self.repo.read(self.repo.path(p['id']))
+        generated=self.repo.prepare_runtime(p);old=generated.read_bytes()
+        p['config']['gamepad']['ai_aim']['ads_free_initial_scale']=3400.
+        with patch('desktop_app.settings.os.replace',side_effect=OSError('WRITE_FAILED')):
+            with self.assertRaisesRegex(OSError,'WRITE_FAILED'):self.repo.save(p,expected)
+        self.assertEqual(self.repo.path(p['id']).read_bytes(),expected)
+        self.assertEqual(generated.read_bytes(),old)
+        saved=self.repo.save(p,expected)
+        self.assertEqual(generated.read_bytes(),old)  # Plain Save is not Apply.
+        with patch('desktop_app.workspace.os.replace',side_effect=OSError('CACHE_FAILED')):
+            with self.assertRaisesRegex(OSError,'CACHE_FAILED'):self.repo.prepare_runtime(p)
+        self.assertEqual(self.repo.path(p['id']).read_bytes(),saved)
+        self.assertEqual(generated.read_bytes(),old)
+        self.assertEqual(list(generated.parent.glob('.candidate-*')),[])
+        self.repo.prepare_runtime(p)
+        self.assertNotEqual(generated.read_bytes(),old)
+        stale=deepcopy(p);stale['name']='未保存草稿'
+        with self.assertRaisesRegex(ValueError,'配置已变化'):self.repo.prepare_runtime(stale)
 
     def test_corrupt_entry_does_not_hide_valid_profiles(self):
         p=self.repo.create('配置','apex')

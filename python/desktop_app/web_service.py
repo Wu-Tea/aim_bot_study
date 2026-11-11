@@ -141,8 +141,10 @@ class WorkspaceService:
         return self._view(doc, revision)
 
     def _owns(self, doc, record):
-        return bool(record and record.get('game') == doc['game'] and
-            Path(record.get('config_path', self.root / 'config.toml')).resolve() == self.repo.runtime_path(doc).resolve())
+        if not record or record.get('game') != doc['game']: return False
+        if record.get('profile_id'): return record['profile_id'] == doc['id']
+        return Path(record.get('config_path', self.root / 'config.toml')).resolve() in (
+            self.repo.runtime_path(doc).resolve(), self.repo.legacy_runtime_path(doc).resolve())
 
     def _choose(self, mode, name='', filters=()):
         if self.dialogs is None: raise ValueError('文件选择器尚未就绪。')
@@ -155,7 +157,7 @@ class WorkspaceService:
         # Export cannot bypass repository optimistic-write or active-config ownership.
         active = self.manager.active()
         active_path = Path(active['config_path']).resolve() if active and active.get('config_path') else None
-        if path.is_relative_to(self.root / 'profiles') or path == self.root / 'config.toml' or path == active_path:
+        if path.is_relative_to(self.root / 'profiles') or path.is_relative_to(self.repo.runtime_folder) or path == self.root / 'config.toml' or path == active_path:
             raise ValueError('请导出到配置库以外的位置，避免覆盖受管理的配置。')
         writer = UiPreferences(self.root)
         writer.path = path
@@ -253,20 +255,26 @@ class WorkspaceService:
                     current_identity = [current.get('process_id'), str(current.get('process_created'))] if current else None
                     if current_identity != identity:
                         raise ValueError('运行实例在校验期间发生变化，请重新确认启动。')
+                    runtime_path = self.repo.prepare_runtime(doc)
                     if active:
                         self.manager.stop()
                         deadline = time.monotonic() + 8
                         while self.manager.active():
                             if time.monotonic() > deadline: raise ValueError('已请求正常退出，但旧程序尚未退出。请查看日志。')
                             time.sleep(.05)
-                    record = self.manager.start(doc['game'], projection(doc), self.repo.runtime_path(doc), doc['id'])
+                    record = self.manager.start(doc['game'], projection(doc), runtime_path, doc['id'])
                     return {'profile': saved, 'status': {'phase': 'starting', 'record': record},
                         'message': '启动请求已提交，正在等待程序和手柄就绪。'}
                 except Exception as error:
                     return {'profile': saved, 'error': '配置已保存，启动失败：' + str(error)}
             saved = self._save(doc, expected)
-            if p.get('apply') and self._owns(doc, self.manager.active()):
-                try: return {'profile': saved, 'reload': self.manager.reload_config()}
+            active = self.manager.active()
+            if p.get('apply') and self._owns(doc, active):
+                try:
+                    if Path(active['config_path']).resolve() != self.repo.runtime_path(doc).resolve():
+                        return {'profile': saved, 'reload': {'status': 3, 'message': '配置已保存，请重启助手以使用新版配置存储。'}}
+                    self.repo.prepare_runtime(doc)
+                    return {'profile': saved, 'reload': self.manager.reload_config()}
                 except Exception as error: return {'profile': saved, 'error': '配置已保存，尚未应用：' + str(error)}
             return {'profile': saved, 'message': '配置已保存，将在下次启动时生效。'}
         if command == 'rename':
