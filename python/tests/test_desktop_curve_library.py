@@ -12,7 +12,7 @@ class CurveLibraryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             library = CurveLibrary(root, PROJECT_ROOT)
             entries = library.catalog()['entries']
-            self.assertEqual(len(entries), 3)
+            self.assertEqual(len(entries), 4)
             base = next(e for e in entries if e['id'] == 'builtin:cod_linear_legacy.json')
             target = next(e for e in entries if e['id'] == 'builtin:cod_dynamic_legacy.json')
             self.assertEqual(base['points'], seed_points('cod_linear_legacy_lut', PROJECT_ROOT))
@@ -30,7 +30,7 @@ class CurveLibraryTests(unittest.TestCase):
             library.archive(path.name)
             self.assertFalse(path.exists())
             self.assertEqual(len(list((Path(root)/'profiles/curves/archive').glob('*.json'))), 1)
-            self.assertEqual(len(library.catalog()['entries']), 3)
+            self.assertEqual(len(library.catalog()['entries']), 4)
             for identifier in ('../x.json', 'builtin:linear.json'):
                 with self.assertRaises(ValueError): library.update(identifier, saved)
 
