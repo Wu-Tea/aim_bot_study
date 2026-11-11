@@ -301,7 +301,9 @@ class RuntimeManager:
             if not identity:
                 self.child.wait(timeout=1)
                 raise ValueError(tail(stderr) or '程序启动后立即退出，请查看日志。')
+            from .curve_binding import runtime_curve_binding
             record = {'process_id': self.child.pid, 'process_created': identity['created'], 'game': game,
+                      'curve_binding': runtime_curve_binding(document, game),
                       'executable_path': str(self.executable), 'config_path': str(config_path), 'profile_id': profile_id,
                       'stdout_path': str(stdout), 'stderr_path': str(stderr),
                       'fusion_session': env['FUSION_SESSION'], 'fusion_channel_enabled': True,

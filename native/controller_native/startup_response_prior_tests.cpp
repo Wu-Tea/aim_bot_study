@@ -74,18 +74,18 @@ void cold_prior(const native_test::TestContext& context) {
             "untrained prior must not be replaced by a stronger fallback command");
 }
 
-void four_region_snapshot_priors() {
+void physical_camera_snapshot_priors() {
     const auto path = std::filesystem::temp_directory_path()/"cod_four_region_priors.toml";
     { std::ofstream file(path); file << "[gamepad.ai_aim]\naim_response_initial_scale=650\n"
-        "body_free_initial_scale=1363.69\nbody_slow_initial_scale=1008.82\n"
-        "ads_free_initial_scale=1656.79\nads_slow_initial_scale=1397.20\n"; }
+        "body_free_initial_scale=8136.69\nbody_slow_initial_scale=6008.82\n"
+        "ads_free_initial_scale=12656.79\nads_slow_initial_scale=9397.20\n"; }
     const auto loaded = load_runtime_config(path);
     std::filesystem::remove(path);
     require(loaded.diagnostics.empty(), "four region priors must be recognized configuration");
-    const float expected[] = {1363.69f, 1008.82f, 1656.79f, 1397.20f};
+    const float expected[] = {8136.69f, 12656.79f};
     auto check = [&](const NativeGamepadController& controller) {
         const auto snapshot = controller.learning_snapshot();
-        for (int index=0; index<4; ++index) {
+        for (int index=0; index<2; ++index) {
             require(std::fabs(snapshot[index].scale_px_per_stick_second-expected[index])<.01f,
                 "cold or cleared runtime must use each configured region prior");
             require(snapshot[index].confidence==0 && snapshot[index].accepted_samples==0,
@@ -109,21 +109,18 @@ void four_region_snapshot_priors() {
     }
     const auto& plan = ads.last_target_plan();
     require(plan.mode==pipeline_contract::ControlMode::AdsAcquire, "prior fixture must exercise active ADS");
-    const float weight = aim_response_slow_zone_weight(plan.error_px, plan.ads_target_size_px);
-    require(std::fabs(plan.response_scale-(expected[2]+weight*(expected[3]-expected[2])))<.01f &&
+    require(std::fabs(plan.response_scale-expected[1])<.01f &&
         plan.response_confidence==0, "ADS control must consume its own cold priors without inventing confidence");
     const auto target_id = plan.target_id;
     require(target_id!=0, "active prior fixture must own a real target");
-    active.ai_aim.ads_free_initial_scale = 1500;
-    active.ai_aim.ads_slow_initial_scale = 1100;
+    active.ai_aim.ads_free_initial_scale = 15000;
     ads.apply_hot_config(active);
     ads.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, 3, now, 80, 0));
     ads.build_output(incident_fixture::ads_input());
     const auto& reloaded = ads.last_target_plan();
-    const float reloaded_weight = aim_response_slow_zone_weight(reloaded.error_px, reloaded.ads_target_size_px);
     require(reloaded.target_id==target_id && reloaded.mode==pipeline_contract::ControlMode::AdsAcquire,
         "changing priors must preserve active target and ADS lifecycle ownership");
-    require(std::fabs(reloaded.response_scale-(1500+reloaded_weight*(1100-1500)))<.01f,
+    require(std::fabs(reloaded.response_scale-15000)<.01f,
         "hot prior must reach the active plan on the next tick");
     auto released_input = incident_fixture::ads_input(.21f,-.13f);
     released_input.left_trigger = 0;
@@ -325,7 +322,7 @@ void reload_learning_replay(const native_test::TestContext& context) {
     require(bool(csv), "reload replay trace open failed");
     csv << std::setprecision(17);
     csv << "seed,ticks,scenario,tick,id,mode,epoch,motion_valid,motion_x,motion_y,aligned_x,aligned_y,response,confidence,output_x,output_y,event,retain,haptics,rejected";
-    for (int region = 0; region < 4; ++region) csv << ",scale" << region << ",learned" << region << ",confidence" << region << ",samples" << region;
+    for (int region = 0; region < 2; ++region) csv << ",scale" << region << ",learned" << region << ",confidence" << region << ",samples" << region;
     csv << '\n';
     for (unsigned seed : {23017u, 981731u}) for (int ticks : {160, 1600})
     for (int scenario = 0; scenario < 9; ++scenario) {
@@ -397,9 +394,7 @@ void reload_learning_replay(const native_test::TestContext& context) {
                 if (scenario == 3 || scenario == 5) {
                     auto& aim = candidate.gamepad.ai_aim;
                     tune("gamepad.ai_aim.body_free_initial_scale", aim.body_free_initial_scale, alternate ? 700.f : 600.f);
-                    tune("gamepad.ai_aim.body_slow_initial_scale", aim.body_slow_initial_scale, alternate ? 650.f : 550.f);
                     tune("gamepad.ai_aim.ads_free_initial_scale", aim.ads_free_initial_scale, alternate ? 800.f : 700.f);
-                    tune("gamepad.ai_aim.ads_slow_initial_scale", aim.ads_slow_initial_scale, alternate ? 750.f : 650.f);
                 }
                 if (scenario == 4) tune("gamepad.recoil.feedback_amount", candidate.gamepad.recoil.feedback_amount, alternate ? .7f : .6f);
                 if (scenario == 7) {
@@ -462,7 +457,7 @@ void delivery_history_replay(const native_test::TestContext& context) {
     require(bool(csv), "history replay trace open failed");
     csv << std::setprecision(17);
     csv << "seed,ticks,scenario,tick,id,mode,motion_valid,motion_x,motion_y,aligned_x,aligned_y,confidence,output_x,output_y,event";
-    for (int region = 0; region < 4; ++region) csv << ",scale" << region << ",learned" << region << ",confidence" << region << ",samples" << region;
+    for (int region = 0; region < 2; ++region) csv << ",scale" << region << ",learned" << region << ",confidence" << region << ",samples" << region;
     csv << '\n';
     for (unsigned seed : {23017u, 981731u}) for (int ticks : {160, 1600})
     for (int scenario = 0; scenario < 9; ++scenario) {
@@ -656,6 +651,44 @@ void high_rate_source_keeps_response_learning(const native_test::TestContext& co
 }
 
 void register_startup_response_prior_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "physical_scope_uses_one_response_at_every_target_position", [] {
+        for (unsigned seed : {41u,2089u,81173u,971903u}) for (int ticks : {300,12000}) {
+            auto config=incident_fixture::base_config(100,200);
+            config.ai_aim.normalized_assist_parameters=true;
+            config.ai_aim.body_free_initial_scale=1700;
+            config.ai_aim.ads_free_initial_scale=2500;
+            config.ai_aim.ads_completion_fresh_frames=1;
+            config.ai_aim.aim_response_learning_enabled=false;
+            config.auto_fire.manual_fire_input="RB";
+            double now=10; NativeGamepadController controller(config,&now);
+            incident_fixture::TargetSpec spec;
+            spec.observation_id=spec.selector_generation=1; spec.has_enemy_cue=true;
+            int hip=0,ads=0,scoped_follow=0;
+            for (int tick=0;tick<ticks;++tick) {
+                seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;
+                const bool scoped=(tick/75)%2==0;
+                auto physical=incident_fixture::ads_input();
+                physical.left_trigger=scoped ? 1.f:0.f; physical.rb=!scoped;
+                physical.right_x=((int)(seed%100)-50)*.001f;
+                now+=.005;
+                // Both near and far observations consume the same user prior.
+                controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,tick+1,now,
+                    (tick%75<25 ? 2.f:80.f)*std::sin(tick*.17f),3.f*std::cos(tick*.13f)));
+                controller.build_output(physical);
+                const auto& plan=controller.last_target_plan();
+                if (plan.target_id) {
+                    require(std::fabs(plan.response_scale-(scoped?2500:1700))<.01f,
+                        "physical hipfire/ADS owns response regardless of target proximity or controller phase");
+                    if(scoped) {++ads;scoped_follow+=plan.mode==pipeline_contract::ControlMode::BodyLockFollow;} else ++hip;
+                }
+                for(const auto& model:controller.learning_snapshot()) require(model.accepted_samples==0 && model.confidence==0,
+                    "manual calibration does not invent learned evidence");
+                require(!controller.last_output_components().camera_alignment_valid,
+                    "disabled automatic calibration cannot replace the user prior");
+            }
+            require(hip>0 && ads>0 && scoped_follow>0,"fixture must exercise both physical cameras and scoped follow");
+        }
+    });
     registry.add_context_case("BaseBodyLock", "reload_learning_replay", reload_learning_replay);
     registry.add_context_case("BaseBodyLock", "delivery_history_replay", delivery_history_replay);
     registry.add_case("BaseRuntimeFreshness", "input_discontinuity_revokes_target_without_reusing_ads_epoch", [] {
@@ -977,7 +1010,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
             controller.apply_hot_config(config, true);
             advance(160, 1000);
             auto paused = controller.learning_snapshot();
-            for (int region = 0; region < 4; ++region) require(paused[region].accepted_samples == learned[region].accepted_samples &&
+            for (int region = 0; region < 2; ++region) require(paused[region].accepted_samples == learned[region].accepted_samples &&
                 paused[region].learned_scale == learned[region].learned_scale && paused[region].confidence == learned[region].confidence,
                 "disabled learning must preserve every region without accepting samples");
             config.ai_aim.aim_response_learning_enabled = true;
@@ -988,7 +1021,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
                 "re-enabled learning must resume actual native samples");
         }
     });
-    registry.add_case("BaseBodyLock","four_region_snapshot_priors",four_region_snapshot_priors);
+    registry.add_case("BaseBodyLock","physical_camera_snapshot_priors",physical_camera_snapshot_priors);
     registry.add_context_case("BaseBodyLock","high_rate_camera_observation",high_rate_source_keeps_camera_observation);
     registry.add_context_case("BaseBodyLock","high_rate_response_learning",high_rate_source_keeps_response_learning);
     registry.add_case("BaseBodyLock","unpublished_commands_cannot_train_motion",undelivered_commands_cannot_train_motion);

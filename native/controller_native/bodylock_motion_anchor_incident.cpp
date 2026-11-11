@@ -32,8 +32,8 @@ Result run(unsigned seed, int axis, int duration, int vision_ms, float noise,
     config.ai_aim.aim_response_learning_enabled=learning;
     config.ai_aim.aim_response_effect_delay_ms=0;
     config.ai_aim.aim_response_initial_scale=1000;
-    config.ai_aim.body_free_initial_scale=config.ai_aim.body_slow_initial_scale=1000;
-    config.ai_aim.ads_free_initial_scale=config.ai_aim.ads_slow_initial_scale=1000;
+    config.ai_aim.body_free_initial_scale=1000;
+    config.ai_aim.ads_free_initial_scale=1000;
     config.ai_aim.visual_authority_enabled=false;
     config.ai_aim.ads_completion_fresh_frames=2;
     config.aim_response_curve.algorithm=curve;

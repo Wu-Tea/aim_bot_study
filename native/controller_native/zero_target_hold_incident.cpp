@@ -71,8 +71,8 @@ void centered_native_hold(const native_test::TestContext& context) {
             auto config=controller_native::incident_fixture::base_config(100,200);
             config.ai_aim.aim_response_learning_enabled=false;
             config.ai_aim.aim_response_initial_scale=gain;
-            config.ai_aim.body_free_initial_scale=config.ai_aim.body_slow_initial_scale=gain;
-            config.ai_aim.ads_free_initial_scale=config.ai_aim.ads_slow_initial_scale=gain;
+            config.ai_aim.body_free_initial_scale=gain;
+            config.ai_aim.ads_free_initial_scale=gain;
             config.ai_aim.aim_response_effect_delay_ms=delay_ms;
             config.aim_response_curve.algorithm=(index/2)%2
                 ? controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut
@@ -235,8 +235,8 @@ void native_hold_restarts_on_target_motion(const native_test::TestContext& conte
             auto config = controller_native::incident_fixture::base_config(100, 200);
             config.ai_aim.aim_response_learning_enabled = false;
             config.ai_aim.aim_response_initial_scale = gain;
-            config.ai_aim.body_free_initial_scale = config.ai_aim.body_slow_initial_scale = gain;
-            config.ai_aim.ads_free_initial_scale = config.ai_aim.ads_slow_initial_scale = gain;
+            config.ai_aim.body_free_initial_scale = gain;
+            config.ai_aim.ads_free_initial_scale = gain;
             config.ai_aim.aim_response_effect_delay_ms = delay_ms;
             config.aim_response_curve.algorithm = (index / 2) % 2
                 ? controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut

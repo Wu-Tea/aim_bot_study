@@ -299,9 +299,9 @@ int main(int argc,char** argv) {
                 auto fixture_config=config;
                 fixture_config.ai_aim.aim_response_initial_scale=control==2?spec.response:650.f;
                 fixture_config.ai_aim.body_free_initial_scale=0;
-                fixture_config.ai_aim.body_slow_initial_scale=0;
+
                 fixture_config.ai_aim.ads_free_initial_scale=0;
-                fixture_config.ai_aim.ads_slow_initial_scale=0;
+
                 if(written++) out<<',';
                 const auto m=closed_loop(spec,fixture_config,out,trace.is_open()?&trace:nullptr,quantized_receipt);
                 if(m.body<8000 || m.observer<8000)

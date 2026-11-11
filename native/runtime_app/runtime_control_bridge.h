@@ -28,8 +28,8 @@ public:
     RuntimeControlBridge& operator=(const RuntimeControlBridge&) = delete;
 
     std::shared_ptr<const controller_native::RuntimeConfig> take_prepared();
-    void complete(const std::array<controller_native::AimResponseEstimate, 4>& values = {}, bool preserved = false) noexcept;
-    void offer_learning(const std::array<controller_native::AimResponseEstimate, 4>& values) noexcept;
+    void complete(const std::array<controller_native::AimResponseEstimate, 2>& values = {}, bool preserved = false) noexcept;
+    void offer_learning(const std::array<controller_native::AimResponseEstimate, 2>& values) noexcept;
     void offer_frame_rates(const FrameRateCounts& counts) noexcept;
     void finish_frame_rates(const FrameRateCounts& counts) noexcept;
 private:
@@ -56,8 +56,8 @@ private:
     std::unique_ptr<RuntimeFrameRateMemory, FrameRateViewUnmapper> frame_rate_memory_;
     RuntimeFrameRateSnapshot frame_rate_state_{};
     RuntimeControlSnapshot state_{};
-    RuntimeLearningRegion learning_[4]{};
-    RuntimeLearningRegion cleared_learning_[4]{};
+    RuntimeLearningRegion learning_[2]{};
+    RuntimeLearningRegion cleared_learning_[2]{};
     bool learning_preserved_ = false;
     std::uint64_t learning_at_ = 0;
     std::shared_ptr<const controller_native::RuntimeConfig> current_, candidate_;

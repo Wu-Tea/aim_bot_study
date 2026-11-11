@@ -390,7 +390,7 @@ void test_profiles_default_idle_vision_to_60_hz() {
 }
 
 void test_response_prior_config_boundaries() {
-    for (const float value : {0.0f, 80.0f, 650.0f, 4000.0f}) {
+    for (const float value : {0.0f, 80.0f, 650.0f, 4000.0f, 8000.0f, 25000.0f}) {
         TempConfig file("cod_response_prior_valid.toml",
             "[gamepad.ai_aim]\naim_response_initial_scale = " + std::to_string(value) + "\n");
         const auto config = controller_native::load_runtime_config(file.path());
@@ -398,7 +398,7 @@ void test_response_prior_config_boundaries() {
         require(config.gamepad.ai_aim.aim_response_initial_scale == value,
                 "response prior must preserve its configured value");
     }
-    for (const char* value : {"-1", "79", "4001", "nan", "inf"}) {
+    for (const char* value : {"-1", "79", "nan", "inf"}) {
         TempConfig file("cod_response_prior_invalid.toml",
             std::string("[gamepad.ai_aim]\naim_response_initial_scale = ") + value + "\n");
         bool rejected = false;
@@ -409,9 +409,16 @@ void test_response_prior_config_boundaries() {
 }
 
 void test_region_prior_config_boundaries() {
-    for (const char* key : {"body_free_initial_scale", "body_slow_initial_scale",
-                            "ads_free_initial_scale", "ads_slow_initial_scale"}) {
-        for (const char* value : {"0", "80", "1363.69", "4000"}) {
+    {
+        TempConfig retired("cod_retired_slow_priors.toml", "[gamepad.ai_aim]\nbody_slow_initial_scale=123\nads_slow_initial_scale=456\n");
+        TempConfig empty("cod_retired_slow_empty.toml", "[gamepad.ai_aim]\n");
+        const auto old=controller_native::load_runtime_config(retired.path());
+        const auto normal=controller_native::load_runtime_config(empty.path());
+        require(old.diagnostics.empty() && old.effective_values==normal.effective_values,
+            "retired slowdown values are readable but have no control or reload effect");
+    }
+    for (const char* key : {"body_free_initial_scale", "ads_free_initial_scale"}) {
+        for (const char* value : {"0", "80", "1363.69", "4000", "8000", "25000"}) {
             TempConfig file("cod_region_prior_valid.toml", std::string("[gamepad.ai_aim]\n")+key+"="+value+"\n");
             const auto config = controller_native::load_runtime_config(file.path());
             require(config.diagnostics.empty(), "region priors must parse without unknown-key diagnostics");
@@ -419,7 +426,7 @@ void test_region_prior_config_boundaries() {
             require(runtime_app::hot_reload_restrictions(controller_native::load_runtime_config(empty.path()), config).empty(),
                 "region priors must be eligible for hot reload");
         }
-        for (const char* value : {"-1", "79", "4001", "nan", "inf", "wrong", "123junk", "\"900\""}) {
+        for (const char* value : {"-1", "79", "nan", "inf", "wrong", "123junk", "\"900\""}) {
             TempConfig file("cod_region_prior_invalid.toml", std::string("[gamepad.ai_aim]\n")+key+"="+value+"\n");
             bool rejected = false;
             try { (void)controller_native::load_runtime_config(file.path()); } catch (const std::exception&) { rejected = true; }
@@ -552,6 +559,18 @@ void test_game_blocks_resolve_before_deriving_gains() {
 }
 
 void test_game_output_transfer_config() {
+    TempConfig generic("generic_transfer.toml", "[gamepad.output_transfer]\nenabled=true\nresponse_model=\"custom_lut\"\ncustom_points=\"0:0;0.5:0.25;1:1\"\ncurve_name=\"measured A\"\ndeadzone=0\n");
+    const auto generic_config = controller_native::load_runtime_config(generic.path());
+    require(generic_config.diagnostics.empty() && generic_config.gamepad.output_transfer.curve.custom_count == 3,
+        "generic curve must reach native output transfer without diagnostics");
+    require(std::fabs(controller_native::game_stick_magnitude(.25f, generic_config.gamepad.output_transfer, false) - .5f)<1e-6f,
+        "native output must invert the configured curve data");
+    for (const char* points : {"", "0:0;0.5:0.7;0.6:0.4;1:1"}) {
+        TempConfig invalid("generic_invalid.toml", std::string("[gamepad.output_transfer]\nresponse_model=\"custom_lut\"\ncustom_points=\"")+points+"\"\n");
+        bool rejected=false;
+        try { (void)controller_native::load_runtime_config(invalid.path()); } catch(const std::exception&) { rejected=true; }
+        require(rejected,"missing or noninvertible base curve must fail validation");
+    }
     TempConfig defaults("cod_output_transfer_default.toml", "");
     require(!controller_native::load_runtime_config(defaults.path()).gamepad.output_transfer.enabled,
         "existing profiles must not enable output transfer");
@@ -561,6 +580,18 @@ void test_game_output_transfer_config() {
     require(config.diagnostics.empty() && config.gamepad.output_transfer.enabled &&
         config.gamepad.output_transfer.axial && config.gamepad.output_transfer.deadzone == .18f &&
         config.gamepad.output_transfer.game_exponent == 2.0f, "output adapter keys must parse");
+    require(config.gamepad.output_transfer.response_model == controller_native::GameStickResponseModel::Power,
+        "old output compensation retains its power model");
+    TempConfig reference("cod_linear_reference.toml",
+        "[gamepad.output_transfer]\nenabled=true\ndeadzone=0\nresponse_model=\"cod_linear_legacy_lut\"\n");
+    const auto calibrated = controller_native::load_runtime_config(reference.path());
+    require(calibrated.diagnostics.empty() && calibrated.gamepad.output_transfer.response_model ==
+        controller_native::GameStickResponseModel::CodLinearLegacyLut, "explicit reference model parses");
+    TempConfig unknown("cod_linear_unknown.toml", "[gamepad.output_transfer]\nresponse_model=\"mw4_exact\"\n");
+    bool rejected_model=false;
+    try { (void)controller_native::load_runtime_config(unknown.path()); }
+    catch (const std::runtime_error&) { rejected_model=true; }
+    require(rejected_model, "unknown game models cannot silently become linear");
     for (const auto* key : {"deadzone", "game_exponent"}) {
         for (const auto* value : {"-0.01", "3.01", "nan", "inf"}) {
             TempConfig invalid("cod_output_transfer_invalid.toml",
@@ -672,6 +703,22 @@ void test_hipfire_ai_and_response_learning_config() {
 }
 
 void test_custom_curve_config_and_roundtrip() {
+    for (bool enabled : {false, true}) {
+        TempConfig setting("cod_follow_response_curve.toml",
+            std::string("[gamepad]\nfollow_response_curve=") + (enabled ? "true\n" : "false\n"));
+        const auto loaded = controller_native::load_runtime_config(setting.path());
+        require(loaded.diagnostics.empty() && loaded.gamepad.follow_response_curve == enabled,
+            "translation switch must reach the native runtime");
+        controller_native::RuntimeConfig before;
+        before.effective_values["gamepad.follow_response_curve"] = enabled ? "false" : "true";
+        require(runtime_app::hot_reload_restrictions(before, loaded).find("gamepad.follow_response_curve") != std::string::npos,
+            "changing translation requires restart so game response learning is not reused");
+        TempConfig invalid("cod_invalid_follow_response_curve.toml", "[gamepad]\nfollow_response_curve=\"true\"\n");
+        bool rejected = false;
+        try { (void)controller_native::load_runtime_config(invalid.path()); }
+        catch (const std::exception&) { rejected = true; }
+        require(rejected, "translation switch rejects quoted boolean");
+    }
     TempConfig file("cod_custom_curve.toml", "[gamepad.aim_response_curve]\nalgorithm=\"custom_lut\"\ncustom_points=\"0:0;0.25:0.1;0.5:0.3;1:1\"\n");
     auto config = controller_native::load_runtime_config(file.path());
     require(config.diagnostics.empty() && config.gamepad.aim_response_curve.custom_count == 4, "custom curve reaches native config");

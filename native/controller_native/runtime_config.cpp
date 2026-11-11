@@ -209,7 +209,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> aim_response_curve_keys{
         "algorithm", "calibration_reference_stick", "custom_points"};
     static const std::unordered_set<std::string> output_transfer_keys{
-        "enabled", "axial", "deadzone", "game_exponent"};
+        "enabled", "axial", "deadzone", "game_exponent", "response_model", "custom_points", "curve_name"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "activation_radius_px",
         "pickup_base_radius_px",
@@ -267,6 +267,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         return output_transfer_keys.count(key) != 0;
     if (section == "gamepad.ads") return ads_keys.count(key) != 0;
     if (section == "gamepad.bodylock") return bodylock_keys.count(key) != 0;
+    if (section == "gamepad") return key == "follow_response_curve";
     if (section == "runtime.gamepad") return gamepad_keys.count(key) != 0;
     if (section == "gamepad.enemy_mark") return enemy_mark_keys.count(key) != 0;
     if (section == "gamepad.detection_haptics") return key == "enabled";
@@ -305,7 +306,11 @@ void apply_runtime_gamepad_value(
     GamepadRuntimeConfig& config,
     const std::string& key,
     const std::string& value) {
-    if (key == "auto_fire_output") {
+    if (key == "follow_response_curve") {
+        if (value != "true" && value != "false")
+            throw std::runtime_error("gamepad.follow_response_curve must be true or false");
+        config.follow_response_curve = parse_bool_value(value);
+    } else if (key == "auto_fire_output") {
         config.auto_fire_output = parse_string_value(value);
         config.auto_fire.fire_output = config.auto_fire_output;
     } else if (key == "rb_counts_as_aiming") {
@@ -365,8 +370,8 @@ void apply_gamepad_aim_response_curve_value(
         if (text.empty() || text.back() == ';') throw std::runtime_error("invalid custom curve points");
         while (std::getline(points, pair, ';')) {
             const auto separator = pair.find(':');
-            if (separator == std::string::npos || config.custom_count == 32)
-                throw std::runtime_error("custom curve requires 2..32 x:y points");
+            if (separator == std::string::npos || config.custom_count == config.custom_stick.size())
+                throw std::runtime_error("custom curve requires 2..128 x:y points");
             std::size_t used_x = 0, used_y = 0;
             float x = 0, y = 0;
             try {
@@ -452,13 +457,12 @@ void apply_gamepad_ai_aim_value(
         config.aim_response_effect_delay_ms = parse_float_value(value);
     } else if (key == "aim_response_initial_scale") {
         config.aim_response_initial_scale = parse_float_value(value);
-    } else if (key == "body_free_initial_scale" || key == "body_slow_initial_scale" ||
-               key == "ads_free_initial_scale" || key == "ads_slow_initial_scale") {
-        const float scale = parse_float_value(value);
-        if (key == "body_free_initial_scale") config.body_free_initial_scale = scale;
-        else if (key == "body_slow_initial_scale") config.body_slow_initial_scale = scale;
-        else if (key == "ads_free_initial_scale") config.ads_free_initial_scale = scale;
-        else config.ads_slow_initial_scale = scale;
+    } else if (key == "body_free_initial_scale") {
+        config.body_free_initial_scale = parse_float_value(value);
+    } else if (key == "ads_free_initial_scale") {
+        config.ads_free_initial_scale = parse_float_value(value);
+    } else if (key == "body_slow_initial_scale" || key == "ads_slow_initial_scale") {
+        // Retired: old profile data is accepted but never used for control.
     } else if (key == "desired_point_traversal_ms") {
         config.desired_point_traversal_ms =
             parse_float_value(value);
@@ -680,10 +684,22 @@ void apply_value(
         else if (key == "axial") transfer.axial = parse_bool_value(value);
         else if (key == "deadzone") transfer.deadzone = parse_float_value(value);
         else if (key == "game_exponent") transfer.game_exponent = parse_float_value(value);
+        else if (key == "custom_points") {
+            if (parse_string_value(value).empty()) transfer.curve.custom_count = 0;
+            else apply_gamepad_aim_response_curve_value(transfer.curve, key, value);
+        } else if (key == "curve_name") config.gamepad.output_curve_name = parse_string_value(value);
+        else if (key == "response_model") {
+            const auto name = parse_string_value(value);
+            if (name == "power") transfer.response_model = GameStickResponseModel::Power;
+            else if (name == "cod_linear_legacy_lut") transfer.response_model = GameStickResponseModel::CodLinearLegacyLut;
+            else if (name == "custom_lut") transfer.response_model = GameStickResponseModel::CustomLut;
+            else if (name == "output_lut") transfer.response_model = GameStickResponseModel::OutputLut;
+            else throw std::runtime_error("expected power|cod_linear_legacy_lut|custom_lut|output_lut");
+        }
     } else if (section == "gamepad.aim_response_curve") {
         apply_gamepad_aim_response_curve_value(
             config.gamepad.aim_response_curve, key, value);
-    } else if (section == "runtime.gamepad") {
+    } else if (section == "gamepad" || section == "runtime.gamepad") {
         apply_runtime_gamepad_value(config.gamepad, key, value);
     } else if (section == "gamepad.ads") {
         auto& ads = config.gamepad.ai_aim;
@@ -858,16 +874,14 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("gamepad.ai_aim.hipfire_multiplier", "finite 0..3");
     const float initial_response = config.gamepad.ai_aim.aim_response_initial_scale;
     if (!std::isfinite(initial_response) ||
-        (initial_response != 0.0f && (initial_response < 80.0f || initial_response > 4000.0f)))
-        invalid("gamepad.ai_aim.aim_response_initial_scale", "0 inherits calibration; otherwise 80..4000");
+        (initial_response != 0.0f && initial_response < 80.0f))
+        invalid("gamepad.ai_aim.aim_response_initial_scale", "0 inherits calibration; otherwise finite >=80");
     for (const auto& prior : {
             std::make_pair("body_free_initial_scale", config.gamepad.ai_aim.body_free_initial_scale),
-            std::make_pair("body_slow_initial_scale", config.gamepad.ai_aim.body_slow_initial_scale),
-            std::make_pair("ads_free_initial_scale", config.gamepad.ai_aim.ads_free_initial_scale),
-            std::make_pair("ads_slow_initial_scale", config.gamepad.ai_aim.ads_slow_initial_scale)}) {
+            std::make_pair("ads_free_initial_scale", config.gamepad.ai_aim.ads_free_initial_scale)}) {
         if (!std::isfinite(prior.second) ||
-            (prior.second != 0.0f && (prior.second < 80.0f || prior.second > 4000.0f)))
-            invalid(std::string("gamepad.ai_aim.") + prior.first, "0 inherits legacy policy; otherwise 80..4000");
+            (prior.second != 0.0f && prior.second < 80.0f))
+            invalid(std::string("gamepad.ai_aim.") + prior.first, "0 inherits legacy policy; otherwise finite >=80");
     }
     if (!std::isfinite(config.mouse.speed) || config.mouse.speed < 0.5f || config.mouse.speed > 3.0f)
         invalid("mouse.speed", "0.5..3");
@@ -1028,19 +1042,22 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid(
             "gamepad.aim_response_curve.calibration_reference_stick",
             "0.05..1");
-    const auto& curve = config.gamepad.aim_response_curve;
-    if (curve.algorithm == AimResponseCurveAlgorithm::CustomLut || curve.custom_count != 0) {
-        if (curve.custom_count < 2 || curve.custom_count > 32 ||
+    const auto validate_curve = [&](const AimResponseCurveConfig& curve, bool required, const char* path) {
+    if (required || curve.custom_count != 0) {
+        if (curve.custom_count < 2 || curve.custom_count > curve.custom_stick.size() ||
             curve.custom_stick[0] != 0 || curve.custom_response[0] != 0 ||
             curve.custom_stick[curve.custom_count - 1] != 1 || curve.custom_response[curve.custom_count - 1] != 1)
-            invalid("gamepad.aim_response_curve.custom_points", "2..32 points with (0,0) and (1,1) endpoints");
+            invalid(path, "2..128 points with (0,0) and (1,1) endpoints");
         for (std::size_t i = 0; i < curve.custom_count; ++i) {
             const float x = curve.custom_stick[i], y = curve.custom_response[i];
             if (!std::isfinite(x) || !std::isfinite(y) || x < 0 || x > 1 || y < 0 || y > 1 ||
-                (i && (x - curve.custom_stick[i - 1] < 1e-5f || y - curve.custom_response[i - 1] < 1e-5f)))
-                invalid("gamepad.aim_response_curve.custom_points", "finite strictly increasing input and response");
+                (i && (x <= curve.custom_stick[i - 1] || y <= curve.custom_response[i - 1])))
+                invalid(path, "finite strictly increasing input and response");
         }
     }
+    };
+    validate_curve(config.gamepad.aim_response_curve, config.gamepad.aim_response_curve.algorithm == AimResponseCurveAlgorithm::CustomLut, "gamepad.aim_response_curve.custom_points");
+    validate_curve(transfer.curve, transfer.response_model == GameStickResponseModel::CustomLut || transfer.response_model == GameStickResponseModel::OutputLut, "gamepad.output_transfer.custom_points");
     if (config.gamepad.xinput_user_index > 3)
         invalid("runtime.input.controller_index", "0..3");
     if (!std::isfinite(config.gamepad.tracker.max_observation_age_ms) ||
@@ -1155,8 +1172,13 @@ RuntimeConfig load_runtime_config(
         resolved.push_back(std::move(entry));
     }
     entries = std::move(resolved);
-    for (const auto& entry : entries)
+    for (const auto& entry : entries) {
+        // Retired profile data is readable but is not effective configuration,
+        // including for reload policy comparisons.
+        if (entry.section == "gamepad.ai_aim" &&
+            (entry.key == "body_slow_initial_scale" || entry.key == "ads_slow_initial_scale")) continue;
         config.effective_values[entry.section + "." + entry.key] = entry.value;
+    }
 
     if (!profile_override.empty()) {
         apply_profile(config, profile_override);

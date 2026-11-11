@@ -44,14 +44,12 @@ bool AdsResponseEstimator::eligible(
         std::isfinite(interval.average_final_stick.x) &&
         std::isfinite(interval.average_final_stick.y) &&
         std::isfinite(interval.observed_error_rate_px_per_sec.x) &&
-        std::isfinite(interval.observed_error_rate_px_per_sec.y) &&
-        std::isfinite(interval.slow_zone_weight);
+        std::isfinite(interval.observed_error_rate_px_per_sec.y);
 }
 
 bool AdsResponseEstimator::update_region(
     RegionState& region,
-    const AimResponseInterval& interval,
-    bool slowdown_region) noexcept {
+    const AimResponseInterval& interval) noexcept {
     const float minimum_excitation = config_.minimum_command_delta *
         config_.minimum_command_delta;
     std::array<float, kExcitationHistoryCapacity> candidate_scales{};
@@ -64,27 +62,9 @@ bool AdsResponseEstimator::update_region(
         auto regression_rate = control_coordinates(subtract(
             interval.observed_error_rate_px_per_sec,
             anchor.observed_error_rate_px_per_sec));
-        float response_offset = 0.0f;
-        if (slowdown_region) {
-            const float current_weight = std::clamp(
-                interval.slow_zone_weight, 0.0f, 1.0f);
-            const float anchor_weight = std::clamp(
-                anchor.slow_zone_weight, 0.0f, 1.0f);
-            regression_command = subtract(
-                {interval.average_final_stick.x * current_weight,
-                 interval.average_final_stick.y * current_weight},
-                {anchor.average_final_stick.x * anchor_weight,
-                 anchor.average_final_stick.y * anchor_weight});
-            response_offset = estimate(0.0f).scale_px_per_stick_second;
-            regression_rate = {
-                regression_rate.x + response_offset * delta_stick.x,
-                regression_rate.y + response_offset * delta_stick.y,
-            };
-        }
-
         const float excitation = dot(regression_command, regression_command);
         if (excitation < minimum_excitation) continue;
-        const float candidate_scale = response_offset -
+        const float candidate_scale = -
             dot(regression_rate, regression_command) / excitation;
         if (std::isfinite(candidate_scale) &&
             candidate_scale >= config_.minimum_scale &&
@@ -136,81 +116,31 @@ bool AdsResponseEstimator::update_region(
     return true;
 }
 
-bool AdsResponseEstimator::update(
-    const AimResponseInterval& interval) noexcept {
-    if (interval.target_id != target_id_) {
-        begin_target(interval.target_id);
-    }
-    if (!eligible(interval)) {
-        clear_histories();
-        has_previous_region_ = false;
-        return false;
-    }
-
-    // Start endpoint identification as soon as the spatial response blend is
-    // nonzero; waiting for a 0.5 region switch discards most ADS arrival data.
-    const bool slow = std::clamp(
-        interval.slow_zone_weight, 0.0f, 1.0f) > 0.0f;
-    RegionState& region = slow ? slow_region_ : free_region_;
-    if (!has_previous_region_ || slow != previous_region_was_slow_) {
-        region.history_count = 0;
-        region.history_next = 0;
-    }
-    previous_region_was_slow_ = slow;
-    has_previous_region_ = true;
-    return update_region(region, interval, slow);
+bool AdsResponseEstimator::update(const AimResponseInterval& interval) noexcept {
+    if (interval.target_id != target_id_) begin_target(interval.target_id);
+    if (!eligible(interval)) { clear_histories(); return false; }
+    return update_region(free_region_, interval);
 }
 
 void AdsResponseEstimator::begin_target(std::uint64_t target_id) noexcept {
     target_id_ = target_id;
     clear_histories();
-    has_previous_region_ = false;
 }
 
-AimResponseEstimate AdsResponseEstimator::estimate(
-    float slow_zone_weight) const noexcept {
-    const float free_confidence = std::clamp(
-        free_region_.confidence, 0.0f, 1.0f);
-    const float free_scale = config_.fallback_scale + free_confidence *
-        (free_region_.learned_scale - config_.fallback_scale);
-    const float slow_confidence = std::clamp(
-        slow_region_.confidence, 0.0f, 1.0f);
-    const float slow_prior = config_.slow_fallback_scale > 0.0f
-        ? config_.slow_fallback_scale : free_scale;
-    const float slow_scale = slow_prior + slow_confidence *
-        (slow_region_.learned_scale - slow_prior);
-    const float weight = std::clamp(slow_zone_weight, 0.0f, 1.0f);
-    const float confidence = free_confidence + weight *
-        (std::max(free_confidence, slow_confidence) - free_confidence);
-    return {
-        free_scale + weight * (slow_scale - free_scale),
-        confidence,
-        free_region_.accepted_samples + slow_region_.accepted_samples,
-    };
-}
-
-AimResponseEstimate AdsResponseEstimator::learning_region(bool slow) const noexcept {
-    const auto& region = slow ? slow_region_ : free_region_;
-    return {estimate(slow ? 1.0f : 0.0f).scale_px_per_stick_second,
-        region.confidence, region.accepted_samples, region.learned_scale};
+AimResponseEstimate AdsResponseEstimator::estimate() const noexcept {
+    const float confidence = std::clamp(free_region_.confidence, 0.0f, 1.0f);
+    return {config_.fallback_scale + confidence * (free_region_.learned_scale - config_.fallback_scale),
+        confidence, free_region_.accepted_samples, free_region_.learned_scale};
 }
 
 void AdsResponseEstimator::reset() noexcept {
     free_region_ = {};
-    slow_region_ = {};
     free_region_.learned_scale = config_.fallback_scale;
-    slow_region_.learned_scale = config_.slow_fallback_scale > 0.0f
-        ? config_.slow_fallback_scale : config_.fallback_scale;
     target_id_ = 0;
-    previous_region_was_slow_ = false;
-    has_previous_region_ = false;
 }
 
 void AdsResponseEstimator::clear_histories() noexcept {
-    free_region_.history_count = 0;
-    free_region_.history_next = 0;
-    slow_region_.history_count = 0;
-    slow_region_.history_next = 0;
+    free_region_.history_count = free_region_.history_next = 0;
 }
 
-}  // namespace controller_native
+} // namespace controller_native

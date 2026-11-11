@@ -29,8 +29,7 @@ AimResponseInterval interval(
     std::uint64_t target_id,
     float stick_x,
     float response,
-    float target_rate = 75.0f,
-    float slow_zone_weight = 0.0f) {
+    float target_rate = 75.0f) {
     AimResponseInterval sample;
     sample.target_id = target_id;
     sample.average_final_stick = {stick_x, 0.0f};
@@ -38,20 +37,18 @@ AimResponseInterval interval(
         target_rate - response * stick_x, 0.0f};
     sample.dt_seconds = 0.010f;
     sample.reliability = 0.95f;
-    sample.slow_zone_weight = slow_zone_weight;
     sample.observed = true;
     return sample;
 }
 
 template <typename Estimator>
-void train_zone(
+void train_samples(
     Estimator& estimator,
     float response,
-    float slow_zone_weight,
     int samples = 80) {
     for (int index = 0; index < samples; ++index) {
         const float stick = index % 2 == 0 ? 0.20f : 0.55f;
-        estimator.update(interval(7, stick, response, 75.0f, slow_zone_weight));
+        estimator.update(interval(7, stick, response, 75.0f));
     }
 }
 
@@ -63,6 +60,15 @@ void train(AimResponseEstimator& estimator, float response, int samples = 80) {
 }
 
 void test_fallback_and_convergence_across_response_scales() {
+    for (float gain : {8000.f, 25000.f}) {
+        AimResponseEstimatorConfig config;
+        config.fallback_scale = gain * .8f;
+        AimResponseEstimator estimator(config);
+        train(estimator, gain, 160);
+        require_near(estimator.estimate().scale_px_per_stick_second, gain, gain * .04f,
+            "high response must remain identifiable above 4000");
+    }
+
     AimResponseEstimator slow;
     require_near(slow.estimate().scale_px_per_stick_second, 500.0f, 1e-6f,
                  "untrained fallback");
@@ -99,38 +105,29 @@ void test_persists_across_targets_and_adapts_to_slowdown() {
         estimator.update(interval(99, stick, 250.0f));
     }
     require_near(estimator.estimate().scale_px_per_stick_second, 250.0f, 20.0f,
-                 "online estimate adapts inside slowdown");
+                 "online estimate adapts to a new normal sensitivity");
 }
 
-void test_keeps_free_and_slow_zone_response_separate() {
-    AimResponseEstimator estimator;
-    train_zone(estimator, 600.0f, 0.0f);
-    train_zone(estimator, 330.0f, 1.0f);
-
-    const auto free = estimator.estimate(0.0f);
-    const auto slowed = estimator.estimate(1.0f);
-    const auto boundary = estimator.estimate(0.5f);
-    require_near(free.scale_px_per_stick_second, 600.0f, 25.0f,
-                 "free-space response must survive slowdown-zone learning");
-    require_near(slowed.scale_px_per_stick_second, 330.0f, 25.0f,
-                 "slowdown zone must retain its measured angular response");
-    require(boundary.scale_px_per_stick_second < free.scale_px_per_stick_second &&
-                boundary.scale_px_per_stick_second > slowed.scale_px_per_stick_second,
-            "zone boundary must interpolate measured response continuously");
+void test_single_response_model_updates_without_region_selection() {
+    AimResponseEstimator hip; AdsResponseEstimator ads;
+    train_samples(hip,600); train_samples(ads,600);
+    train_samples(hip,330,160); train_samples(ads,330,160);
+    require_near(hip.estimate().scale_px_per_stick_second,330,25,"new evidence updates the one hipfire response");
+    require_near(ads.estimate().scale_px_per_stick_second,330,25,"new evidence updates the one ADS response");
 }
 
 void test_smooth_arrival_accumulates_enough_excitation_to_learn() {
     AdsResponseEstimator estimator;
     for (int index = 0; index < 160; ++index) {
         const float stick = 0.55f - static_cast<float>(index) * 0.0025f;
-        estimator.update(interval(7, stick, 200.0f, 0.0f, 1.0f));
+        estimator.update(interval(7, stick, 200.0f, 0.0f));
     }
 
-    const auto learned = estimator.estimate(1.0f);
+    const auto learned = estimator.estimate();
     require(learned.accepted_samples >= 8,
             "smooth arrival must accumulate response-identifying excitation");
     require(learned.scale_px_per_stick_second < 300.0f,
-            "smooth arrival must learn the material slowdown response");
+            "smooth clear-camera samples must identify response");
     require(learned.confidence >= 0.70f,
             "repeated smooth evidence must build usable confidence");
 }
@@ -139,58 +136,48 @@ void test_default_estimator_preserves_adjacent_pair_policy() {
     AimResponseEstimator estimator;
     for (int index = 0; index < 160; ++index) {
         const float stick = 0.55f - static_cast<float>(index) * 0.0025f;
-        estimator.update(interval(7, stick, 200.0f, 0.0f, 1.0f));
+        estimator.update(interval(7, stick, 200.0f, 0.0f));
     }
 
-    const auto estimate = estimator.estimate(1.0f);
+    const auto estimate = estimator.estimate();
     require(estimate.accepted_samples == 0,
             "BodyLock's legacy estimator must retain adjacent-pair excitation");
     require_near(estimate.scale_px_per_stick_second, 500.0f, 1.0e-6f,
                  "BodyLock's default response behavior must remain unchanged");
 }
 
-void test_weighted_slowdown_transition_identifies_the_endpoint() {
+void test_ads_sensitivity_change_updates_the_same_model() {
     AdsResponseEstimator estimator;
-    train_zone(estimator, 500.0f, 0.0f, 40);
-    for (int index = 0; index < 100; ++index) {
-        const float weight =
-            static_cast<float>(index + 1) / 100.0f;
-        const float response = 500.0f + weight * (200.0f - 500.0f);
-        const float stick = 0.55f - static_cast<float>(index) * 0.0035f;
-        estimator.update(interval(7, stick, response, 0.0f, weight));
-    }
-
-    const auto learned = estimator.estimate(1.0f);
-    require_near(learned.scale_px_per_stick_second, 200.0f, 35.0f,
-                 "spatial response blend must learn its slow endpoint");
-    require(learned.confidence >= 0.70f,
-            "weighted transition must provide usable endpoint confidence");
+    train_samples(estimator,500,80);
+    train_samples(estimator,200,160);
+    require_near(estimator.estimate().scale_px_per_stick_second,200,25,"automatic learning changes the shared ADS response");
+    require(estimator.estimate().confidence>.7f,"consistent evidence builds confidence");
 }
 
 void test_ads_epoch_boundary_clears_anchors_but_keeps_response() {
     AdsResponseEstimator estimator;
-    train_zone(estimator, 200.0f, 1.0f, 100);
-    const auto learned = estimator.estimate(1.0f);
+    train_samples(estimator, 200.0f, 100);
+    const auto learned = estimator.estimate();
     require(learned.accepted_samples > 0,
             "ADS fixture must establish response evidence");
 
     estimator.begin_target(7);
-    require_near(estimator.estimate(1.0f).scale_px_per_stick_second,
+    require_near(estimator.estimate().scale_px_per_stick_second,
                  learned.scale_px_per_stick_second, 1e-6f,
                  "ADS epoch boundary must retain learned weapon response");
-    require(!estimator.update(interval(7, 0.42f, 200.0f, 0.0f, 1.0f)),
+    require(!estimator.update(interval(7, 0.42f, 200.0f, 0.0f)),
             "first sample of a new ADS epoch must only prime anchors");
 }
 
-void test_slow_zone_weight_is_geometric_and_continuous() {
-    const pipeline_contract::Vec2f target_size{60.0f, 140.0f};
-    const float center = aim_response_slow_zone_weight({0.0f, 0.0f}, target_size);
-    const float boundary = aim_response_slow_zone_weight({30.0f, 0.0f}, target_size);
-    const float outside = aim_response_slow_zone_weight({80.0f, 0.0f}, target_size);
-    require_near(center, 1.0f, 1.0e-6f, "target center is fully inside slowdown region");
-    require(boundary > 0.0f && boundary < center,
-            "target edge must blend between slowdown and free response");
-    require_near(outside, 0.0f, 1.0e-6f, "far reticle uses free response");
+void test_camera_models_keep_independent_learning() {
+    AimResponseEstimator hip;
+    AdsResponseEstimator ads;
+    train_samples(hip,1700,160);
+    const auto before=hip.estimate();
+    train_samples(ads,2500,160);
+    require_near(ads.estimate().scale_px_per_stick_second,2500,30,"ADS learns its own sensitivity");
+    require(hip.estimate().learned_scale==before.learned_scale && hip.estimate().accepted_samples==before.accepted_samples,
+        "ADS evidence cannot rewrite the hipfire camera model");
 }
 
 void test_rejects_ambiguous_and_invalid_intervals() {
@@ -226,7 +213,7 @@ void check_configured_prior_learning() {
                  "configured cold prior");
     require(estimator.estimate().confidence == 0.0f,
             "a prior is not measured confidence");
-    train_zone(estimator, 300.0f, 0.0f, 160);
+    train_samples(estimator, 300.0f, 160);
     const auto learned = estimator.estimate();
     require(std::isfinite(learned.scale_px_per_stick_second) && learned.accepted_samples > 0,
             "configured prior must still admit real response samples");
@@ -258,61 +245,32 @@ void test_reset_clears_learned_response() {
 }
 
 template <typename Estimator>
-void check_independent_region_priors() {
-    // Fixed independent seeds, bounds, short/long sample counts and oracles.
-    // This checks estimator policy, not a calibrated live-game plant.
-    for (std::uint32_t seed : {20260930u, 7311985u}) {
-        auto random = [&]() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
-            return static_cast<float>(seed % 100000u) / 100000.0f; };
-        for (int scenario=0; scenario<256; ++scenario) {
-            AimResponseEstimatorConfig config;
-            config.fallback_scale = 80.0f + 3920.0f*random();
-            config.slow_fallback_scale = 80.0f + 3920.0f*random();
-            const float free_plant = 100.0f + 3800.0f*random();
-            const float slow_plant = 100.0f + 3800.0f*random();
-            const int samples = scenario % 2 ? 160 : 8;
+void check_single_response_learning() {
+    for (std::uint32_t seed : {20260930u,7311985u,91837u,716993u}) {
+        auto random=[&]() { seed^=seed<<13; seed^=seed>>17; seed^=seed<<5; return (seed%100000u)/100000.f; };
+        for(int scenario=0;scenario<256;++scenario) {
+            AimResponseEstimatorConfig config; config.fallback_scale=80+25000*random();
             Estimator estimator(config);
-            require_near(estimator.estimate(1).scale_px_per_stick_second,
-                config.slow_fallback_scale, .001f, "cold slow region uses its own prior");
-            require(estimator.estimate(.5f).confidence==0 && estimator.estimate().accepted_samples==0,
-                "configured endpoints carry no learned evidence");
-            train_zone(estimator, free_plant, 0, samples);
-            require(estimator.learning_region(false).accepted_samples>0,
-                "randomized free scenario must execute learning");
-            require_near(estimator.estimate(1).scale_px_per_stick_second,
-                config.slow_fallback_scale, .001f, "free learning cannot overwrite an explicit slow prior");
-            train_zone(estimator, slow_plant, 1, samples);
-            const auto free = estimator.learning_region(false), slow = estimator.learning_region(true);
-            require(slow.accepted_samples>0, "randomized slow scenario must execute learning");
-            const float expected_free = config.fallback_scale + free.confidence*(free.learned_scale-config.fallback_scale);
-            const float expected_slow = config.slow_fallback_scale + slow.confidence*(slow.learned_scale-config.slow_fallback_scale);
-            for (int index=0; index<=16; ++index) {
-                const float weight = index/16.0f;
-                require_near(estimator.estimate(weight).scale_px_per_stick_second,
-                    expected_free+weight*(expected_slow-expected_free), .001f,
-                    "spatial blend must preserve independent endpoint semantics");
-            }
-            if (samples==160) {
-                require_near(expected_free, free_plant, 30, "long free scenario must converge");
-                require_near(expected_slow, slow_plant, 30, "long slow scenario must converge");
-            }
+            const float gain=100+24000*random(), next_gain=100+24000*random();
+            const int count=scenario%2 ? 160 : 8;
+            train_samples(estimator,gain,count);
+            const auto before=estimator.estimate();
+            require(before.accepted_samples>0,"random scenario must exercise learning");
+            train_samples(estimator,next_gain,count);
+            const auto after=estimator.estimate();
+            require(after.accepted_samples>before.accepted_samples && std::isfinite(after.scale_px_per_stick_second),
+                "automatic learning updates one shared response without region switches");
+            if(count==160) require_near(after.scale_px_per_stick_second,next_gain,35,"long sequences converge to the latest sensitivity");
             estimator.begin_target(99);
-            require_near(estimator.estimate(1).scale_px_per_stick_second, expected_slow, .001f,
-                "target handover preserves learned regional response");
+            require_near(estimator.estimate().scale_px_per_stick_second,after.scale_px_per_stick_second,0,"handover preserves learned response");
             estimator.reset();
-            require_near(estimator.estimate().scale_px_per_stick_second, config.fallback_scale, .001f,
-                "reset restores free prior");
-            require_near(estimator.estimate(1).scale_px_per_stick_second, config.slow_fallback_scale, .001f,
-                "reset restores slow prior");
-            require(estimator.estimate(1).accepted_samples==0 && estimator.estimate(1).confidence==0,
-                "reset must clear new evidence");
+            require_near(estimator.estimate().scale_px_per_stick_second,config.fallback_scale,.001f,"reset restores user prior");
         }
     }
 }
-
-void test_independent_region_priors() {
-    check_independent_region_priors<AimResponseEstimator>();
-    check_independent_region_priors<AdsResponseEstimator>();
+void test_single_response_learning() {
+    check_single_response_learning<AimResponseEstimator>();
+    check_single_response_learning<AdsResponseEstimator>();
 }
 
 }  // namespace
@@ -345,16 +303,16 @@ void register_aim_response_estimator_tests(native_test::Registry& registry) {
         require(estimator.estimate().confidence<.2f,
             "mutually inconsistent positive and negative response evidence must not become confident learning");
     });
-    registry.add_case("BaseBodyLock", "independent_region_priors_randomized", test_independent_region_priors);
+    registry.add_case("BaseBodyLock", "single_response_learning_randomized", test_single_response_learning);
     registry.add_case("BaseBodyLock", "configured_prior_retains_learning", test_configured_prior_retains_learning);
     registry.add_case("BaseBodyLock", "response_fallback_and_convergence", test_fallback_and_convergence_across_response_scales);
-    registry.add_case("BaseBodyLock", "response_persists_and_adapts_to_slowdown", test_persists_across_targets_and_adapts_to_slowdown);
-    registry.add_case("BaseBodyLock", "free_and_slow_zone_response_are_separate", test_keeps_free_and_slow_zone_response_separate);
+    registry.add_case("BaseBodyLock", "response_persists_and_adapts_to_sensitivity", test_persists_across_targets_and_adapts_to_slowdown);
+    registry.add_case("BaseBodyLock", "single_response_without_region_selection", test_single_response_model_updates_without_region_selection);
     registry.add_case("BaseAds", "response_smooth_arrival_accumulates_excitation", test_smooth_arrival_accumulates_enough_excitation_to_learn);
     registry.add_case("BaseBodyLock", "default_response_preserves_adjacent_pair_policy", test_default_estimator_preserves_adjacent_pair_policy);
-    registry.add_case("BaseAds", "response_weighted_slowdown_learns_endpoint", test_weighted_slowdown_transition_identifies_the_endpoint);
+    registry.add_case("BaseAds", "sensitivity_change_updates_same_model", test_ads_sensitivity_change_updates_the_same_model);
     registry.add_case("BaseAds", "response_epoch_boundary_clears_anchors", test_ads_epoch_boundary_clears_anchors_but_keeps_response);
-    registry.add_case("BaseBodyLock", "slow_zone_weight_is_continuous", test_slow_zone_weight_is_geometric_and_continuous);
+    registry.add_case("BaseBodyLock", "camera_models_keep_independent_learning", test_camera_models_keep_independent_learning);
     registry.add_case("BaseBodyLock", "ambiguous_intervals_are_rejected", test_rejects_ambiguous_and_invalid_intervals);
     registry.add_case("BaseBodyLock", "response_reset_clears_learning", test_reset_clears_learned_response);
 }

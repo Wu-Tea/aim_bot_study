@@ -91,7 +91,7 @@ class IndependentStorageTests(unittest.TestCase):
             path,label,kind,default,limits=field
             if kind not in (int,float):continue
             lo,hi=limits
-            for value in (lo,default,hi):
+            for value in (lo,default,hi if hi is not None else 25000):
                 with self.subTest(path=path,value=value):
                     document={}
                     put(document,'gamepad.ads.activation_trigger',0.)
@@ -107,7 +107,7 @@ class IndependentStorageTests(unittest.TestCase):
                     actual=manager.inspect_defaults('default',toml_text(document))
                     self.assertIn(path,actual)
                     self.assertAlmostEqual(actual[path],value,delta=max(1e-6,abs(value)*1e-6))
-            for value in (lo-1,hi+1):
+            for value in ((lo-1,hi+1) if hi is not None else (lo-1,float('inf'))):
                 with self.subTest(path=path,invalid=value), self.assertRaises(ValueError):field_value(field,value)
 
 

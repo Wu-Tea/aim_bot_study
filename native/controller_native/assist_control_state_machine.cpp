@@ -222,7 +222,8 @@ pipeline_contract::Vec2f AssistControlStateMachine::cooperative_output(
         // Adaptive input is bias-centered; gamepad input is unmodified raw.
         // Its continuous weight below removes neutral intent from arbitration
         // without filtering the physical passthrough or weighting it twice.
-        const float native_magnitude = std::fabs(intent_axis);
+        const float native_magnitude = std::fabs(config_.use_gamepad_intent_for_arbitration
+            ? native_axis : intent_axis);
         const float damping = std::min(
             native_magnitude * damping_ratio * evidence,
             std::fabs(desired_axis));

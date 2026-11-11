@@ -155,6 +155,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config, std::
     line("runtime.profile", config.profile);
     line("runtime.game", config.game);
     line("gamepad.aim_response_curve.algorithm", controller_native::aim_response_curve_algorithm_name(config.gamepad.aim_response_curve.algorithm));
+    line("gamepad.follow_response_curve", config.gamepad.follow_response_curve);
     line("gamepad.auto_fire.manual_fire_input", config.gamepad.auto_fire.manual_fire_input);
     line("runtime.provenance.build_commit", config.build_commit);
     line("runtime.provenance.control_architecture_version", config.control_architecture_version);
@@ -222,9 +223,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config, std::
     line("gamepad.bodylock.vertical_strength", aim.body_lock_max_ai_force_y);
     line("gamepad.ai_aim.aim_response_initial_scale", aim.aim_response_initial_scale);
     line("gamepad.ai_aim.body_free_initial_scale", aim.body_free_initial_scale);
-    line("gamepad.ai_aim.body_slow_initial_scale", aim.body_slow_initial_scale);
     line("gamepad.ai_aim.ads_free_initial_scale", aim.ads_free_initial_scale);
-    line("gamepad.ai_aim.ads_slow_initial_scale", aim.ads_slow_initial_scale);
     line(
         "gamepad.ai_aim.cue_hold_full_force_min_target_height_ratio",
         aim.cue_hold_full_force_min_target_height_ratio);
@@ -244,6 +243,15 @@ void dump_effective_config(const controller_native::RuntimeConfig& config, std::
     line("gamepad.auto_fire.manual_takeover_resume_delay_seconds", fire.manual_takeover_resume_delay_seconds);
     const auto& transfer = config.gamepad.output_transfer;
     line("gamepad.output_transfer.enabled", transfer.enabled);
+    line("gamepad.output_transfer.response_model", controller_native::game_stick_response_model_name(transfer.response_model));
+    line("gamepad.output_transfer.curve_name", config.gamepad.output_curve_name);
+    std::ostringstream transfer_points;
+    transfer_points << std::setprecision(9);
+    for (std::size_t i = 0; i < transfer.curve.custom_count; ++i) {
+        if (i) transfer_points << ";";
+        transfer_points << transfer.curve.custom_stick[i] << ":" << transfer.curve.custom_response[i];
+    }
+    line("gamepad.output_transfer.custom_points", transfer_points.str());
     line("gamepad.output_transfer.axial", transfer.axial);
     line("gamepad.output_transfer.deadzone", transfer.deadzone);
     line("gamepad.output_transfer.game_exponent", transfer.game_exponent);

@@ -322,12 +322,12 @@ void test_physical_camera_fit_distinguishes_known_manual_from_weapon_disturbance
         cfg.ai_aim.normalized_assist_parameters=true;
         cfg.ai_aim.minimum_position_stick=.5f;cfg.ai_aim.arrival_radius_px=2;
         cfg.ai_aim.ads_response_time_ms=60;
-        cfg.ai_aim.ads_free_initial_scale=cfg.ai_aim.ads_slow_initial_scale=900;
+        cfg.ai_aim.ads_free_initial_scale=900;
         cfg.ai_aim.bodylock_output_limit_x=cfg.ai_aim.bodylock_output_limit_y=1;
         cfg.ai_aim.ads_output_limit_x=cfg.ai_aim.ads_output_limit_y=1;
         cfg.ai_aim.bodylock_response_time_x_ms=cfg.ai_aim.bodylock_response_time_y_ms=10;
         cfg.ai_aim.body_lock_activation_box_px=120;
-        cfg.ai_aim.body_free_initial_scale=2000;cfg.ai_aim.body_slow_initial_scale=1500;
+        cfg.ai_aim.body_free_initial_scale=2000;
         cfg.aim_response_curve.algorithm=AimResponseCurveAlgorithm::CodDynamicLegacyLut;
         cfg.auto_fire.enabled=false;cfg.recoil.enabled=false;
         cfg.output_transfer.enabled=false;

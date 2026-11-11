@@ -404,7 +404,7 @@ void register_response_model_aim_solver_tests(native_test::Registry& registry) {
         cfg.ai_aim.minimum_position_stick=.5f;
         cfg.ai_aim.arrival_radius_px=2;
         cfg.ai_aim.aim_response_learning_enabled=false;
-        cfg.ai_aim.ads_slow_initial_scale=cfg.ai_aim.ads_free_initial_scale=2500;
+        cfg.ai_aim.ads_free_initial_scale=2500;
         double now=10;NativeGamepadController controller(cfg,&now);
         incident_fixture::TargetSpec spec;spec.observation_id=1;spec.selector_generation=7;
         spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
@@ -426,8 +426,8 @@ void register_response_model_aim_solver_tests(native_test::Registry& registry) {
     });
     registry.add_case("BaseAds","handoff_keeps_scoped_camera_prior", [] {
         auto cfg=incident_fixture::base_config(40,190);cfg.ai_aim.normalized_assist_parameters=true;
-        cfg.ai_aim.ads_slow_initial_scale=900;cfg.ai_aim.ads_free_initial_scale=1400;
-        cfg.ai_aim.body_slow_initial_scale=1500;cfg.ai_aim.body_free_initial_scale=2000;
+        cfg.ai_aim.ads_free_initial_scale=1400;
+        cfg.ai_aim.body_free_initial_scale=2000;
         cfg.ai_aim.aim_response_learning_enabled=false;cfg.ai_aim.ads_completion_fresh_frames=3;
         double now=10;NativeGamepadController controller(cfg,&now);incident_fixture::TargetSpec spec;
         spec.observation_id=1;spec.selector_generation=7;spec.has_enemy_cue=true;spec.enemy_identity_confirmed=true;

@@ -64,7 +64,7 @@ public:
             // Unexcited / unexplained data cannot identify camera gain or lag.
             if(uu<.001*count_ || yy<1e-6) continue;
             const double response=-uy/uu;
-            if(response<80 || response>4000) continue;
+            if(!std::isfinite(response) || response<80 || response>std::numeric_limits<float>::max()) continue;
             const double residual=std::max(0.,yy-uy*uy/uu)/yy;
             if(residual<best) {best=residual;fitted={float(response),delay*.001f,true};}
         }

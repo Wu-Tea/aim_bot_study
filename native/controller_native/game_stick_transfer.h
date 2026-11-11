@@ -1,34 +1,55 @@
 #pragma once
 
 #include "../pipeline_contract/control_command.h"
+#include "cod_linear_reference_curve.h"
 
 #include <algorithm>
 #include <cmath>
 
 namespace controller_native {
 
+enum class GameStickResponseModel { Power, CodLinearLegacyLut, CustomLut, OutputLut };
+
+inline const char* game_stick_response_model_name(GameStickResponseModel model) noexcept {
+    return model == GameStickResponseModel::OutputLut ? "output_lut" : model == GameStickResponseModel::CustomLut ? "custom_lut" : model == GameStickResponseModel::CodLinearLegacyLut ? "cod_linear_legacy_lut" : "power";
+}
+
 // A game/output boundary, separate from AI shaping and physical intent.
-// Model: camera magnitude = ((wire - deadzone) / (1 - deadzone))^exponent.
-// Parameters are a user calibration, not a claim about a particular game.
+// Deadzone-normalized wire magnitude goes through either a power function or
+// the historical COD Linear LUT. Neither model claims a current MW4 calibration.
 struct GameStickTransferConfig {
     bool enabled = false;
     bool axial = false;
     float deadzone = 0.16f;
     float game_exponent = 1.0f;
+    GameStickResponseModel response_model = GameStickResponseModel::Power;
+    AimResponseCurveConfig curve;
 };
 
 inline float game_stick_magnitude(float magnitude,
                                  const GameStickTransferConfig& config,
                                  bool decode) noexcept {
     if (magnitude == 0.0f || magnitude >= 1.0f) return magnitude;
+    // A prepared input/output mapping is already C, not a game model A.
+    // The AI model remains independently selected in aim_response_curve.
+    if (config.response_model == GameStickResponseModel::OutputLut)
+        return custom_curve_magnitude(magnitude, config.curve, decode);
     if (decode) {
         const float normalized = std::max(0.0f,
             (magnitude - config.deadzone) / (1.0f - config.deadzone));
+        if (config.response_model == GameStickResponseModel::CustomLut)
+            return custom_curve_magnitude(normalized, config.curve, false);
+        if (config.response_model == GameStickResponseModel::CodLinearLegacyLut)
+            return cod_linear_reference_magnitude(normalized, true);
         return config.game_exponent == 1.0f ? normalized
             : std::pow(normalized, config.game_exponent);
     }
-    const float linearized = config.game_exponent == 1.0f ? magnitude
-        : std::pow(magnitude, 1.0f / config.game_exponent);
+    const float linearized = config.response_model == GameStickResponseModel::CustomLut
+        ? custom_curve_magnitude(magnitude, config.curve, true)
+        : config.response_model == GameStickResponseModel::CodLinearLegacyLut
+        ? cod_linear_reference_magnitude(magnitude, false)
+        : config.game_exponent == 1.0f ? magnitude
+            : std::pow(magnitude, 1.0f / config.game_exponent);
     return config.deadzone + (1.0f - config.deadzone) * linearized;
 }
 

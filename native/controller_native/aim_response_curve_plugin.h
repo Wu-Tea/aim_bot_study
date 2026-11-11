@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pipeline_contract/vision_observation.h"
+#include "curve_library_data.h"
 
 #include <algorithm>
 #include <array>
@@ -24,8 +25,8 @@ struct AimResponseCurveConfig {
     // The scalar response learner is local. Anchor the nonlinear shape here so
     // enabling a plugin does not silently replace the learned sensitivity.
     float calibration_reference_stick = 0.50f;
-    std::array<float, 32> custom_stick{};
-    std::array<float, 32> custom_response{};
+    std::array<float, 128> custom_stick{};
+    std::array<float, 128> custom_response{};
     std::size_t custom_count = 0;
 };
 
@@ -42,21 +43,8 @@ inline float linear_magnitude(float value) noexcept {
     return std::clamp(value, 0.0f, 1.0f);
 }
 
-inline constexpr std::array<float, 20> kCodDynamicLegacyStick{
-    0.00000f, 0.10152f, 0.15032f, 0.20134f, 0.24929f,
-    0.30004f, 0.35003f, 0.40038f, 0.45165f, 0.50182f,
-    0.54907f, 0.59924f, 0.65057f, 0.70370f, 0.75021f,
-    0.80227f, 0.85135f, 0.90277f, 0.94913f, 1.00000f,
-};
-
-// Normalized camera rate for the versioned legacy COD Dynamic seed curve.
-inline constexpr std::array<float, 20> kCodDynamicLegacyResponse{
-    0.000000000f, 0.012697267f, 0.025216655f, 0.042092669f,
-    0.061012139f, 0.084497817f, 0.111752815f, 0.141086402f,
-    0.176631675f, 0.211591033f, 0.253604194f, 0.300000000f,
-    0.344000000f, 0.399586990f, 0.459619953f, 0.525815217f,
-    0.611374408f, 0.710091743f, 0.844978166f, 1.000000000f,
-};
+inline constexpr auto& kCodDynamicLegacyStick = curve_library_data::cod_dynamic_legacy_0;
+inline constexpr auto& kCodDynamicLegacyResponse = curve_library_data::cod_dynamic_legacy_1;
 
 template <std::size_t N>
 inline float interpolate_monotonic(

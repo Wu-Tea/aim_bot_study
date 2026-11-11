@@ -320,7 +320,7 @@ void test_game_transfer_response_feedback() {
         const auto identity = plan.target_id;
         const auto epoch = controller.ads_epoch();
         const auto learned = controller.learning_snapshot();
-        require_true(learned[2].accepted_samples + learned[3].accepted_samples > 0,
+        require_true(learned[1].accepted_samples > 0,
             "reload fixture must have actual ADS learning before clearing");
         auto revised = config;
         revised.ai_aim.ads_snap_max_ai_force = .4f;

@@ -18,9 +18,8 @@ public:
 
     bool update(const AimResponseInterval& interval) noexcept;
     void begin_target(std::uint64_t target_id) noexcept;
-    AimResponseEstimate estimate(float slow_zone_weight = 0.0f) const noexcept;
+    AimResponseEstimate estimate() const noexcept;
     void reset() noexcept;
-    AimResponseEstimate learning_region(bool slow) const noexcept;
 
 private:
     static constexpr std::size_t kExcitationHistoryCapacity = 24;
@@ -37,16 +36,12 @@ private:
     bool eligible(const AimResponseInterval& interval) const noexcept;
     bool update_region(
         RegionState& region,
-        const AimResponseInterval& interval,
-        bool slowdown_region) noexcept;
+        const AimResponseInterval& interval) noexcept;
     void clear_histories() noexcept;
 
     AimResponseEstimatorConfig config_{};
     RegionState free_region_{};
-    RegionState slow_region_{};
     std::uint64_t target_id_ = 0;
-    bool previous_region_was_slow_ = false;
-    bool has_previous_region_ = false;
 };
 
 }  // namespace controller_native

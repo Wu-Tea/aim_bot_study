@@ -5,6 +5,7 @@
 add_executable(cod_native_base_tests
     controller_native/state_machine_replay_tests.cpp
     controller_native/state_machine_contract_tests.cpp
+    controller_native/manual_stick_translation_tests.cpp
     test_support/base_tests_main.cpp
     controller_native/ads_bodylock_september_incident_tests.cpp
     controller_native/runtime_config_tests.cpp
@@ -73,6 +74,7 @@ target_link_libraries(cod_native_base_tests PRIVATE
     gdi32 winmm windowsapp)
 foreach(_suite IN ITEMS
     BaseContracts
+    BaseTranslation
     BaseVisionSelection
     BaseRuntimeFreshness
     BaseAds

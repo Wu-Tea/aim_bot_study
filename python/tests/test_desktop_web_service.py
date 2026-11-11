@@ -31,10 +31,18 @@ class TestRuntime:
         self.starts += 1
         if self.fail_start: raise ValueError('测试启动失败')
         self.record = dict(game=game,config_path=str(path),profile_id=identifier,process_id=123,process_created=133333333333333337)
+        from desktop_app.curve_binding import runtime_curve_binding
+        self.record['curve_binding'] = runtime_curve_binding(document, game)
         return self.record
     def stop(self): self.stops += 1; self.record = None
     def reload_config(self):
         if self.fail_reload: raise ValueError('测试通道故障')
+        if self.record and self.record.get('curve_binding'):
+            import tomllib
+            from desktop_app.curve_binding import runtime_curve_binding
+            document=tomllib.loads(Path(self.record['config_path']).read_text(encoding='utf-8-sig'))
+            if runtime_curve_binding(document,self.record['game']) != self.record['curve_binding']:
+                return {'status':3,'revision':2,'message':'曲线设置需要重启'}
         return {'status':2,'revision':2,'message':'applied'}
     def learning(self): return None
     def frame_rates(self, record): return None
@@ -43,6 +51,128 @@ class TestRuntime:
 
 
 class WebServiceTests(unittest.TestCase):
+    def test_only_physical_camera_priors_are_exposed_and_legacy_slow_values_are_inert(self):
+        draft=deepcopy(self.profile)
+        aim=draft['config'].setdefault('gamepad',{}).setdefault('ai_aim',{})
+        aim.update(body_slow_initial_scale=123,ads_slow_initial_scale=456)
+        draft['values']['gamepad.ai_aim.body_free_initial_scale']=1700
+        draft['values']['gamepad.ai_aim.ads_free_initial_scale']=2500
+        saved=self.call('save',draft)['profile']
+        fields=self.call('bootstrap')['fields']
+        priors=[f for f in fields if f['path'].endswith('_initial_scale')]
+        self.assertEqual([f['label'] for f in priors],['腰射（Hipfire）','开镜（ADS）'])
+        self.assertFalse(any('_slow_initial_scale' in key for key in saved['values']))
+        self.assertEqual(saved['config']['gamepad']['ai_aim']['body_slow_initial_scale'],123)
+        from desktop_app.workspace import projection,toml_text
+        native=self.runtime.inspect_defaults('custom',toml_text(projection(self.service.states[saved['id']][0])))
+        self.assertNotIn('gamepad.ai_aim.body_slow_initial_scale',native)
+        self.assertNotIn('gamepad.ai_aim.ads_slow_initial_scale',native)
+        self.assertEqual(native['gamepad.ai_aim.body_free_initial_scale'],1700)
+        self.assertEqual(native['gamepad.ai_aim.ads_free_initial_scale'],2500)
+
+    def test_independent_prepared_curves_and_running_binding(self):
+        from desktop_app.curves import encode_points
+        draft=deepcopy(self.profile)
+        draft['values'].update({
+            'runtime.vision.model_path':'test.engine',
+            'gamepad.follow_response_curve':True,
+            'gamepad.output_transfer.enabled':True,
+            'gamepad.output_transfer.response_model':'output_lut',
+            'gamepad.output_transfer.custom_points':encode_points([[0,0],[.5,.46],[1,1]]),
+            'gamepad.output_transfer.curve_name':'Prepared C',
+            'gamepad.output_transfer.deadzone':0,
+        })
+        draft['curve']['algorithm']='custom_lut'
+        draft['curve']['definition'].update(name='Target B',points=[[0,0],[.5,.21],[1,1]])
+        saved=self.call('save',draft)['profile']
+        self.assertNotEqual(saved['curve_binding']['ai_points'],saved['curve_binding']['output']['custom_points'])
+        # Non-actuating runtime double records the launch snapshot exactly as
+        # RuntimeManager does; saving cannot rewrite running-state evidence.
+        saved=self.call('start',saved)['profile']
+        running=deepcopy(self.runtime.record['curve_binding'])
+        self.assertEqual(running,saved['curve_binding'])
+        saved['values']['gamepad.output_transfer.custom_points']='0:0;1:1'
+        saved['values']['gamepad.output_transfer.curve_name']='线性 1:1'
+        saved['values']['gamepad.follow_response_curve']=False
+        changed=self.call('save',saved)['profile']
+        self.assertEqual(changed['curve'],saved['curve'])
+        self.assertEqual(self.runtime.record['curve_binding'],running)
+        self.assertNotEqual(changed['curve_binding'],running)
+        reopened=self.call('reload',{'id':saved['id']})
+        self.assertEqual(reopened['curve_binding'],changed['curve_binding'])
+
+    def test_generic_curve_snapshot_survives_library_changes(self):
+        from desktop_app.curves import encode_points
+        from desktop_app.workspace import projection, toml_text
+        a=[[0,0],[.5,.25],[1,1]]
+        b=[[0,0],[.5,.15],[1,1]]
+        library=self.call('curve_library_save', {'name':'A','points':a})
+        identifier=next(e['id'] for e in library['entries'] if e['name']=='A')
+        draft=deepcopy(self.profile)
+        draft['values'].update({
+            'gamepad.follow_response_curve':True,
+            'gamepad.output_transfer.enabled':True,
+            'gamepad.output_transfer.response_model':'custom_lut',
+            'gamepad.output_transfer.custom_points':encode_points(a),
+            'gamepad.output_transfer.curve_name':'A',
+            'gamepad.output_transfer.deadzone':0,
+            'gamepad.ai_aim.body_free_initial_scale':25000,
+        })
+        draft['curve']['algorithm']='custom_lut'
+        draft['curve']['definition'].update(name='B', points=b, translation_name='A to B')
+        saved=self.call('save',draft)['profile']
+        self.call('curve_library_save',{'id':identifier,'name':'A changed','points':[[0,0],[1,1]]})
+        self.call('curve_library_archive',{'id':identifier})
+        reopened=self.call('reload',{'id':saved['id']})
+        self.assertEqual(reopened['values'],saved['values'])
+        self.assertEqual(reopened['curve'],saved['curve'])
+        doc=self.service.states[saved['id']][0]
+        actual=self.runtime.inspect_defaults('custom',toml_text(projection(doc)))
+        self.assertEqual(actual['gamepad.output_transfer.curve_name'],'A')
+        self.assertEqual(actual['gamepad.output_transfer.custom_points'],encode_points(a))
+        self.assertEqual(actual['gamepad.ai_aim.body_free_initial_scale'],25000)
+
+    def test_cod_linear_reference_compensation_roundtrip(self):
+        draft=deepcopy(self.profile)
+        self.assertEqual(draft['values']['gamepad.output_transfer.response_model'], 'power')
+        draft['values'].update({
+            'gamepad.follow_response_curve':True,
+            'gamepad.output_transfer.enabled':True,
+            'gamepad.output_transfer.response_model':'cod_linear_legacy_lut',
+            'gamepad.output_transfer.deadzone':0,
+            'gamepad.output_transfer.axial':False,
+        })
+        saved=self.call('save',draft)['profile']
+        self.assertEqual(saved['curve'],draft['curve'])
+        self.assertEqual(saved['values']['gamepad.output_transfer.response_model'],'cod_linear_legacy_lut')
+        self.assertEqual(saved['values']['gamepad.output_transfer.deadzone'],0)
+        copied=self.call('copy',{**saved,'name':'参考补偿副本'})
+        self.assertEqual(copied['values'],saved['values'])
+        saved['values']['gamepad.output_transfer.response_model']='mw4_exact'
+        self.assertFalse(self.service.dispatch('save',saved)['ok'])
+
+    def test_curve_translation_persists_without_replacing_curve(self):
+        path = 'gamepad.follow_response_curve'
+        draft = deepcopy(self.profile)
+        self.assertFalse(draft['values'][path])
+        boot = self.call('bootstrap')
+        draft = deepcopy(boot['profiles'][0])
+        field = next(f for f in boot['fields'] if f['path'] == path)
+        self.assertFalse(field['hot_reload'])
+        self.assertEqual(field['group'], '响应曲线')
+        draft['curve']['algorithm'] = 'cod_dynamic_legacy_lut'
+        draft['curve']['definition']['points'] = boot['seeds']['cod_dynamic_legacy_lut']
+        for enabled in (True, False, True):
+            draft['values'][path] = enabled
+            saved = self.call('save', draft)['profile']
+            self.assertEqual(saved['values'][path], enabled)
+            self.assertEqual(saved['curve'], draft['curve'])
+            draft = saved
+        reopened = WorkspaceService(self.temp.name, self.runtime, curve_source=PROJECT_ROOT)
+        result = reopened.dispatch('bootstrap')['data']['profiles'][0]
+        self.assertTrue(result['values'][path])
+        self.assertEqual(result['curve'], draft['curve'])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.runtime = TestRuntime()

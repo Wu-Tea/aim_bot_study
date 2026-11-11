@@ -151,7 +151,7 @@ public:
     // Called only at a tick boundary; preserves target identity and ADS lease.
     void apply_hot_config(const GamepadRuntimeConfig& config, bool preserve_learning = false);
     void clear_learning() noexcept;
-    std::array<AimResponseEstimate, 4> learning_snapshot() const noexcept;
+    std::array<AimResponseEstimate, 2> learning_snapshot() const noexcept;
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
     // Application activation is independent of physical ADS/fire and owns no ADS token.
     // Call on the controller thread; deadline uses the same monotonic clock as begin_tick.
@@ -245,10 +245,11 @@ private:
     OperationIntentClassifier operation_intent_classifier_{};
     OperationIntentOutput last_operation_intent_{};
     TargetCoordinator target_coordinator_{};
-    AimResponseEstimator aim_response_estimator_{};
-    CameraResponseAlignment camera_alignment_{};
+    AimResponseEstimator hipfire_response_estimator_{};
+    std::array<CameraResponseAlignment, 2> camera_alignment_{};
+    bool response_ads_ = false;
     CaptureEvidenceFilter capture_evidence_{};
-    AdsResponseEstimator ads_response_estimator_;
+    AimResponseEstimator ads_response_estimator_;
     AdsAcquisitionController ads_controller_{};
     AdsReacquisitionReducer ads_reacquisition_reducer_{};
     BodylockFollowController bodylock_controller_{};
@@ -281,7 +282,6 @@ private:
     std::size_t aim_response_history_count_ = 0;
     std::uint64_t last_aim_response_frame_id_ = 0;
     std::uint64_t last_aim_response_target_id_ = 0;
-    std::uint64_t last_ads_response_epoch_ = 0;
     double last_aim_response_capture_seconds_ = 0.0;
     pipeline_contract::Vec2f last_aim_response_source_error_px_{};
     pipeline_contract::Vec2f last_aim_response_motion_anchor_error_px_{};

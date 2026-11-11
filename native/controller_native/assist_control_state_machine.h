@@ -57,6 +57,12 @@ struct AssistControlStateMachineInput {
     bool firing = false;
     // Physical stick uses XInput coordinates: positive Y is up-stick.
     pipeline_contract::Vec2f manual_stick{};
+    // Optional user-selected curve changes actuation, never intent evidence.
+    pipeline_contract::Vec2f manual_output_stick{};
+    bool manual_output_available = false;
+    pipeline_contract::Vec2f manual_output() const noexcept {
+        return manual_output_available ? manual_output_stick : manual_stick;
+    }
     // Bias-centered raw stick belongs to the adaptive mouse/legacy policy.
     // Production gamepad arbitration blends raw proposals by continuous activity;
     // filtered_manual_stick owns desired-point edits, never raw passthrough.
@@ -127,7 +133,7 @@ public:
 
         if (!pipeline_contract::permits_assist(input.activation)) {
             reset();
-            output.stick = finite_or_zero(input.manual_stick);
+            output.stick = finite_or_zero(input.manual_output());
             output.phase = phase_;
             output.manual_passthrough_x = true;
             output.manual_passthrough_y = true;
@@ -150,7 +156,7 @@ public:
                 // Old-target authority is intentionally ignored while Vision
                 // looks for the alternative. Do not time out back into a snap
                 // toward A during the same held ADS epoch.
-                output.stick = finite_or_zero(input.manual_stick);
+                output.stick = finite_or_zero(input.manual_output());
                 output.phase = phase_;
                 output.handover_requested = true;
                 output.manual_passthrough_x = true;
@@ -159,7 +165,7 @@ public:
             }
         } else if (!input.target_authoritative || input.target_id == 0) {
             reset();
-            output.stick = finite_or_zero(input.manual_stick);
+            output.stick = finite_or_zero(input.manual_output());
             output.phase = phase_;
             output.manual_passthrough_x = true;
             output.manual_passthrough_y = true;
@@ -189,7 +195,7 @@ public:
         if (phase_ == AssistControlPhase::Track &&
             input.manual_exit_requested) {
             phase_ = AssistControlPhase::HandoverSeek;
-            output.stick = finite_or_zero(input.manual_stick);
+            output.stick = finite_or_zero(input.manual_output());
             output.phase = phase_;
             output.handover_requested = true;
             output.manual_passthrough_x = true;
@@ -197,9 +203,9 @@ public:
             return output;
         }
 
-        const auto manual = finite_or_zero(input.manual_stick);
+        const auto manual = finite_or_zero(input.manual_output());
         const auto intent_manual = config_.use_gamepad_intent_for_arbitration
-            ? manual
+            ? finite_or_zero(input.manual_stick)
             : input.centered_manual_available
                 ? finite_or_zero(input.centered_manual_stick)
                 : manual;

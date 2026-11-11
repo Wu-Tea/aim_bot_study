@@ -12,7 +12,8 @@ namespace controller_native {
 struct NativeControllerOutputComponents {
     common_native::Vec2f physical_stick;
     common_native::Vec2f manual_stick;
-    // Target-first diagnostics: M is the physical proposal, while T is the
+    // Target-first diagnostics: M is the manual output proposal (optionally
+    // curve-translated); physical_stick retains the raw sample. T is the
     // single pre-recoil aim output. `ai_correction_stick` is only T-M; it is
     // not a second actuator contribution.
     common_native::Vec2f target_final_stick;

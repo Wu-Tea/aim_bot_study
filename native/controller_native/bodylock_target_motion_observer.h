@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace controller_native {
 
@@ -12,7 +13,7 @@ struct BodylockTargetMotionObserverConfig {
     float minimum_interval_seconds = 0.004f;
     float maximum_interval_seconds = 0.040f;
     float minimum_response_px_per_stick_second = 50.0f;
-    float maximum_response_px_per_stick_second = 4000.0f;
+    float maximum_response_px_per_stick_second = std::numeric_limits<float>::max();
     float maximum_target_motion_stick = 1.25f;
     // Integrate a short capture history before differentiating. Continuous
     // slew limits bound the remaining noise without a start threshold.

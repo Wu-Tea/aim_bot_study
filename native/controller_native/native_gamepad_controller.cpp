@@ -1,4 +1,5 @@
 #include "native_gamepad_controller.h"
+#include "manual_stick_translation.h"
 #include "bodylock_feedback_geometry.h"
 #include "output_composer.h"
 #include "../tracking_native/tracker_authority.h"
@@ -156,7 +157,7 @@ AdsAcquisitionControllerConfig ads_config(const GamepadRuntimeConfig& config) {
         result.force_headroom = 1.0f;
         result.arrival_horizon_seconds = config.ai_aim.ads_response_time_ms / 1000.0f;
     }
-    result.response_curve = config.aim_response_curve;
+    result.response_curve = controller_response_curve(config);
     return result;
 }
 
@@ -182,7 +183,7 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
     result.feedforward_gain = 0.72f;
     if (config.ai_aim.adapter_direct_mouse_manual)
         result.bodylock_point_tolerance_px = config.ai_aim.adapter_bodylock_point_tolerance_px;
-    result.response_curve = config.aim_response_curve;
+    result.response_curve = controller_response_curve(config);
     return result;
 }
 
@@ -201,7 +202,6 @@ AimResponseEstimatorConfig response_estimator_config(const GamepadRuntimeConfig&
     if (!config.ai_aim.adapter_direct_mouse_manual) {
         if (config.ai_aim.body_free_initial_scale > 0.0f)
             result.fallback_scale = config.ai_aim.body_free_initial_scale;
-        result.slow_fallback_scale = config.ai_aim.body_slow_initial_scale;
     }
     return result;
 }
@@ -223,13 +223,9 @@ AimResponseEstimatorConfig ads_response_estimator_config(const GamepadRuntimeCon
     if (!config.ai_aim.adapter_direct_mouse_manual) {
         if (config.ai_aim.ads_free_initial_scale > 0.0f)
             result.fallback_scale = config.ai_aim.ads_free_initial_scale;
-        result.slow_fallback_scale = config.ai_aim.ads_slow_initial_scale;
     }
-    // ADS needs accumulated evidence, but should approach a measured
-    // slowdown conservatively before it is allowed to replace the established
-    // response estimate used by the rest of the controller.
-    result.scale_alpha = 0.04f;
-    result.confidence_alpha = 0.02f;
+    // Both physical cameras use the same robust estimator. A camera state
+    // must not switch fitting algorithms when acquisition becomes follow.
     return result;
 }
 
@@ -271,7 +267,7 @@ NativeGamepadController::NativeGamepadController(
     : config_(config),
       intent_filter_(intent_filter_config(config)),
       target_coordinator_(coordinator_config(config)),
-      aim_response_estimator_(response_estimator_config(config)),
+      hipfire_response_estimator_(response_estimator_config(config)),
       ads_response_estimator_(ads_response_estimator_config(config)),
       ads_controller_(ads_config(config)),
       ads_reacquisition_reducer_({
@@ -346,20 +342,19 @@ void NativeGamepadController::submit_vision_snapshot(const ControllerVisionSnaps
     has_pending_snapshot_ = true;
 }
 
-std::array<AimResponseEstimate, 4> NativeGamepadController::learning_snapshot() const noexcept {
-    return {aim_response_estimator_.learning_region(false), aim_response_estimator_.learning_region(true),
-        ads_response_estimator_.learning_region(false), ads_response_estimator_.learning_region(true)};
+std::array<AimResponseEstimate, 2> NativeGamepadController::learning_snapshot() const noexcept {
+    return {hipfire_response_estimator_.estimate(), ads_response_estimator_.estimate()};
 }
 
 void NativeGamepadController::clear_learning() noexcept {
     capture_evidence_.reset();
-    camera_alignment_.reset();
+    for (auto& alignment : camera_alignment_) alignment.reset();
     aim_response_effect_delay_seconds_=std::clamp(config_.ai_aim.aim_response_effect_delay_ms,0.f,30.f)*.001;
-    aim_response_estimator_.reset();
+    hipfire_response_estimator_.reset();
     ads_response_estimator_.reset();
     aim_response_command_history_ = {};
     aim_response_history_begin_ = aim_response_history_count_ = 0;
-    last_aim_response_frame_id_ = last_aim_response_target_id_ = last_ads_response_epoch_ = 0;
+    last_aim_response_frame_id_ = last_aim_response_target_id_ = 0;
     last_aim_response_capture_seconds_ = 0.0;
     last_aim_response_source_error_px_ = {};
     last_aim_response_motion_anchor_error_px_ = {};
@@ -381,9 +376,7 @@ void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& confi
     intent_filter_.reconfigure(intent_filter_config(config_));
     config_.ai_aim.aim_response_initial_scale = config.ai_aim.aim_response_initial_scale;
     config_.ai_aim.body_free_initial_scale = config.ai_aim.body_free_initial_scale;
-    config_.ai_aim.body_slow_initial_scale = config.ai_aim.body_slow_initial_scale;
     config_.ai_aim.ads_free_initial_scale = config.ai_aim.ads_free_initial_scale;
-    config_.ai_aim.ads_slow_initial_scale = config.ai_aim.ads_slow_initial_scale;
     config_.ai_aim.hipfire_multiplier = config.ai_aim.hipfire_multiplier;
     config_.ai_aim.aim_response_learning_enabled = config.ai_aim.aim_response_learning_enabled;
     config_.ai_aim.ads_snap_max_ai_force = config.ai_aim.ads_snap_max_ai_force;
@@ -401,8 +394,8 @@ void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& confi
     auto_fire_gate_.reconfigure(config_.auto_fire, config_.ai_aim);
     if (!preserve_learning) {
         // Install the new priors and invalidate old evidence as one decision.
-        aim_response_estimator_ = AimResponseEstimator(response_estimator_config(config_));
-        ads_response_estimator_ = AdsResponseEstimator(ads_response_estimator_config(config_));
+        hipfire_response_estimator_ = AimResponseEstimator(response_estimator_config(config_));
+        ads_response_estimator_ = AimResponseEstimator(ads_response_estimator_config(config_));
         clear_learning();
     }
 }
@@ -725,7 +718,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     last_pipeline_traces_.clear();
     NativeControllerOutputComponents components{};
     components.physical_stick = {physical.right_x, physical.right_y};
-    components.manual_stick = {physical.right_x, physical.right_y};
+    const auto manual_stick = translate_manual_stick({physical.right_x, physical.right_y}, config_);
+    components.manual_stick = {manual_stick.x, manual_stick.y};
     components.target_final_stick = components.manual_stick;
     components.final_stick = components.manual_stick;
     components.fire_button = manual_fire_pressed(physical);
@@ -760,7 +754,21 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     control_feedback.previous_delivered_stick = {
         last_output_components_.before_recoil_stick.x,
         last_output_components_.before_recoil_stick.y};
-    const auto aim_response_before_update = aim_response_estimator_.estimate();
+    const bool response_ads = last_tick_preparation_.scope.physical_ads_ready;
+    if (response_ads != response_ads_) {
+        // Camera state, not acquisition/follow stage, owns calibration. A
+        // scope transition cannot join exposure intervals from two cameras.
+        response_ads_ = response_ads;
+        hipfire_response_estimator_.begin_target(0);
+        ads_response_estimator_.begin_target(0);
+        has_last_aim_response_observation_ = false;
+        motion_observation_anchor_ = {};
+        bodylock_target_motion_observer_.begin_target(0);
+        for (auto& alignment : camera_alignment_) alignment.invalidate_evidence();
+        aim_response_effect_delay_seconds_ = std::clamp(config_.ai_aim.aim_response_effect_delay_ms,0.f,30.f)*.001;
+    }
+    auto& camera_alignment = camera_alignment_[response_ads ? 1 : 0];
+    const auto aim_response_before_update = response_ads ? ads_response_estimator_.estimate() : hipfire_response_estimator_.estimate();
     control_feedback.aim_response_px_per_stick_second =
         aim_response_before_update.scale_px_per_stick_second;
     // estimate() already blends toward its safe fallback while confidence is low.
@@ -803,43 +811,13 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         observations, intent, now, control_feedback);
     const bool canonical_gamepad = config_.ai_aim.normalized_assist_parameters &&
         !config_.ai_aim.adapter_direct_mouse_manual;
-    const float aim_response_zone_weight = aim_response_slow_zone_weight(
-        plan.error_px, plan.ads_target_size_px);
     if (plan.target_id != 0) {
-        const auto localized_response = aim_response_estimator_.estimate(
-            aim_response_zone_weight);
-        plan.response_scale = std::max(
-            50.0f, localized_response.scale_px_per_stick_second);
-        plan.response_confidence = localized_response.confidence;
-        if (plan.mode == pipeline_contract::ControlMode::AdsAcquire ||
-            (canonical_gamepad && last_tick_preparation_.scope.physical_ads_ready)) {
-            // Scope state owns camera calibration. Finishing acquisition does
-            // not change the physical scoped camera or invalidate its model.
-            const auto ads_response = ads_response_estimator_.estimate(
-                aim_response_zone_weight);
-            // Do not replace a mature legacy estimate with an ADS model that
-            // has only primed its history. Eight accepted multi-anchor fits
-            // and 0.35 confidence require repeated, mutually consistent
-            // evidence rather than one apparent slowdown transition.
-            constexpr std::uint32_t kMinimumAdsResponseSamples = 8;
-            constexpr float kMinimumAdsResponseConfidence = 0.35f;
-            // Explicit ADS priors select the ADS model from startup; the
-            // confidence still represents only this run's measured evidence.
-            const bool configured_ads_prior = !config_.ai_aim.adapter_direct_mouse_manual &&
-                (config_.ai_aim.ads_free_initial_scale > 0.0f || config_.ai_aim.ads_slow_initial_scale > 0.0f);
-            if (configured_ads_prior || (ads_response.accepted_samples >=
-                    kMinimumAdsResponseSamples &&
-                ads_response.confidence >=
-                    kMinimumAdsResponseConfidence)) {
-                plan.response_scale = std::max(
-                    50.0f, ads_response.scale_px_per_stick_second);
-                plan.response_confidence = ads_response.confidence;
-            }
-        }
+        plan.response_scale = std::max(50.0f, aim_response_before_update.scale_px_per_stick_second);
+        plan.response_confidence = aim_response_before_update.confidence;
     }
-    if (canonical_gamepad && camera_alignment_.estimate().valid) {
-        plan.response_scale = camera_alignment_.estimate().response;
-        aim_response_effect_delay_seconds_ = camera_alignment_.estimate().delay_seconds;
+    if (canonical_gamepad && camera_alignment.estimate().valid) {
+        plan.response_scale = camera_alignment.estimate().response;
+        aim_response_effect_delay_seconds_ = camera_alignment.estimate().delay_seconds;
     }
     if (plan.cue_continuation) {
         // A same-generation cue may continue ADS identity, but must not create
@@ -975,29 +953,19 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             plan.target_id != 0 &&
             plan.target_id == last_aim_response_target_id_;
         if (!same_response_target) {
-            aim_response_estimator_.begin_target(plan.target_id);
+            hipfire_response_estimator_.begin_target(plan.target_id);
             ads_response_estimator_.begin_target(plan.target_id);
         } else {
-            if (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
-                plan.physical_ads_epoch != 0 &&
-                plan.physical_ads_epoch != last_ads_response_epoch_) {
-                // Preserve learned weapon response, but never regress a new
-                // physical ADS event against anchors from an older token or
-                // an intervening BodyLock interval.
-                ads_response_estimator_.begin_target(plan.target_id);
-            }
             const double interval_seconds =
                 capture_seconds - last_aim_response_capture_seconds_;
             // The estimators own a minimum measurement duration. Keep the
             // source anchor until that duration is available; replacing it on
             // every rejected high-rate frame starves estimation indefinitely.
-            // Invalid time and a new ADS epoch must prime a new interval.
+            // Invalid time must prime a new interval; physical scope transitions reset anchors above.
             advance_response_anchor = !std::isfinite(interval_seconds) ||
                 interval_seconds <= 0.0 ||
                 static_cast<float>(interval_seconds) >=
-                    AimResponseEstimatorConfig{}.minimum_interval_seconds ||
-                (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
-                 plan.physical_ads_epoch != last_ads_response_epoch_);
+                    AimResponseEstimatorConfig{}.minimum_interval_seconds;
             pipeline_contract::Vec2f average_stick{};
             pipeline_contract::Vec2f average_tracking_stick{};
             bool manual_ambiguous = false;
@@ -1033,8 +1001,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                         (measured_position.y - previous_position.y) /
                         interval_seconds),
                 };
-                if (config_.ai_aim.aim_response_learning_enabled) {
-                    aim_response_estimator_.update({
+                if (config_.ai_aim.aim_response_learning_enabled && !response_ads) {
+                    hipfire_response_estimator_.update({
                         average_stick,
                         observed_error_rate,
                         plan.target_id,
@@ -1043,14 +1011,13 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                         // Manual/fire ambiguity is rejected by the causally
                         // aligned command ledger instead of target acceleration.
                         0.0f,
-                        aim_response_zone_weight,
                         plan.lifecycle ==
                             pipeline_contract::TargetLifecycle::Observed,
                         manual_ambiguous,
                     });
                 }
                 if (config_.ai_aim.aim_response_learning_enabled &&
-                    plan.mode == pipeline_contract::ControlMode::AdsAcquire) {
+                    response_ads) {
                     ads_response_estimator_.update({
                         average_stick,
                         observed_error_rate,
@@ -1058,7 +1025,6 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                         static_cast<float>(interval_seconds),
                         plan.reliability,
                         0.0f,
-                        aim_response_zone_weight,
                         plan.lifecycle ==
                             pipeline_contract::TargetLifecycle::Observed,
                         manual_ambiguous,
@@ -1067,10 +1033,6 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             }
         }
         last_aim_response_frame_id_ = observations.frame_id;
-        if (plan.mode == pipeline_contract::ControlMode::AdsAcquire &&
-            plan.physical_ads_epoch != 0) {
-            last_ads_response_epoch_ = plan.physical_ads_epoch;
-        }
         if (advance_response_anchor) {
             last_aim_response_target_id_ = plan.target_id;
             last_aim_response_capture_seconds_ = capture_seconds;
@@ -1128,13 +1090,13 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                             capture_seconds-lag*.001, &commands[lag], &unused, &uncertain, &disturbance) &&
                             !disturbance && complete;
                     }
-                    camera_alignment_.begin_target(plan.target_id);
-                    if(complete) camera_alignment_.update(capture_seconds,
+                    camera_alignment.begin_target(plan.target_id);
+                    if(complete) camera_alignment.update(capture_seconds,
                         {float((current.x-previous.x)/motion_interval),
                          float((current.y-previous.y)/motion_interval)}, commands);
-                    if(camera_alignment_.estimate().valid) {
-                        plan.response_scale=camera_alignment_.estimate().response;
-                        aim_response_effect_delay_seconds_=camera_alignment_.estimate().delay_seconds;
+                    if(camera_alignment.estimate().valid) {
+                        plan.response_scale=camera_alignment.estimate().response;
+                        aim_response_effect_delay_seconds_=camera_alignment.estimate().delay_seconds;
                         // Re-align this very observation before estimating target
                         // motion. A calibration update must not mix time domains.
                         average_aim_response_command(
@@ -1306,7 +1268,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
             const auto target=plan.bodylock_target_motion_valid
                 ? plan.bodylock_target_motion_px_per_sec : pipeline_contract::Vec2f{};
             const pipeline_contract::Vec2f sustaining{target.x/response,-target.y/response};
-            const auto tail=dynamics_shaper_.stopping_work(sustaining,config_.aim_response_curve);
+            const auto tail=dynamics_shaper_.stopping_work(sustaining,controller_response_curve(config_));
             plan.position_stopping_reserve_px={
                 (tracking.x-sustaining.x)*response*elapsed+tail.x*response,
                 -(tracking.y-sustaining.y)*response*elapsed-tail.y*response};
@@ -1317,7 +1279,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     components.stopping_reserve_px={plan.position_stopping_reserve_px.x,plan.position_stopping_reserve_px.y};
     components.camera_response_scale=plan.response_scale;
     components.camera_effect_delay_ms=float(aim_response_effect_delay_seconds_*1000);
-    components.camera_alignment_valid=camera_alignment_.estimate().valid;
+    components.camera_alignment_valid=camera_alignment.estimate().valid;
     last_target_plan_ = plan;
     resolved_visual_source_seconds_ = now - static_cast<double>(plan.source_capture_age_ms) * .001;
     last_frame_vision_state_ = vision_state_from_plan(
@@ -1418,8 +1380,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     AssistControlPhase assist_control_phase = AssistControlPhase::Manual;
     bool assist_handover_requested = false;
     bool assist_handover_braking = false;
-    pipeline_contract::Vec2f pre_recoil_stick{
-        physical.right_x, physical.right_y};
+    pipeline_contract::Vec2f pre_recoil_stick = manual_stick;
     // Mode-specific solvers publish one AI-only desired total. Final
     // manual/AI ownership is decided exactly once here. In particular, ADS is
     // target-first rather than manual+AI addition; BodyLock remains the
@@ -1440,8 +1401,9 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     // Preserve the firing/downward invariant across short fire-pulse and
     // controller ordering gaps as well as on the physical fire tick.
     control_input.firing = control_feedback.firing_recently;
-    control_input.manual_stick = {
-        physical.right_x, physical.right_y};
+    control_input.manual_stick = {physical.right_x, physical.right_y};
+    control_input.manual_output_stick = manual_stick;
+    control_input.manual_output_available = true;
     control_input.centered_manual_stick = {
         physical.right_x - intent.right_x.neutral_bias,
         physical.right_y - intent.right_y.neutral_bias};
@@ -1452,7 +1414,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     control_input.ai_stick = {shaped.x, shaped.y};
     if (canonical_gamepad && target_authoritative) {
         control_input.ads_manual_work = ads_controller_.cooperative_manual_work(
-            plan, control_input.manual_stick, shaped);
+            plan, manual_stick, shaped);
     }
     control_input.solver_hold_x = bodylock_diagnostics.position_hold_x;
     control_input.solver_hold_y = bodylock_diagnostics.position_hold_y;
@@ -1465,12 +1427,12 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     auto decision = assist_control_state_machine_.update(control_input);
     if (canonical_gamepad) {
         decision.stick = dynamics_shaper_.shape_ownership(
-            decision.stick, control_input.manual_stick, shaped, dt,
+            decision.stick, manual_stick, shaped, dt,
             target_authoritative && !plan.observation_gap &&
                 !decision.handover_requested && !plan.manual_exit_requested,
             decision.target_changed);
-        decision.manual_passthrough_x = std::fabs(decision.stick.x-physical.right_x) <= 1.e-6f;
-        decision.manual_passthrough_y = std::fabs(decision.stick.y-physical.right_y) <= 1.e-6f;
+        decision.manual_passthrough_x = std::fabs(decision.stick.x-components.manual_stick.x) <= 1.e-6f;
+        decision.manual_passthrough_y = std::fabs(decision.stick.y-components.manual_stick.y) <= 1.e-6f;
     }
     components.mouse_manual_retention = {decision.mouse_x.retention, decision.mouse_y.retention};
     components.mouse_manual_conflict_x = mouse_manual_conflict_name(decision.mouse_x.conflict);
@@ -1686,7 +1648,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
 void NativeGamepadController::reset_after_input_discontinuity() {
     // A lost release/repress is a new control lifecycle, not a continuous
     // held gesture. Preserve calibrated response, never old target authority.
-    const auto response = aim_response_estimator_;
+    const auto response = hipfire_response_estimator_;
     const auto ads_response = ads_response_estimator_;
     const auto epoch = ads_epoch_;
     const auto next_tick = next_controller_tick_id_;
@@ -1695,9 +1657,9 @@ void NativeGamepadController::reset_after_input_discontinuity() {
     ads_epoch_ = epoch;
     next_controller_tick_id_ = next_tick;
     next_command_sequence_ = next_command;
-    aim_response_estimator_ = response;
+    hipfire_response_estimator_ = response;
     ads_response_estimator_ = ads_response;
-    aim_response_estimator_.begin_target(0);
+    hipfire_response_estimator_.begin_target(0);
     ads_response_estimator_.begin_target(0);
 }
 
@@ -1708,8 +1670,9 @@ bool NativeGamepadController::expire_visual_output(
     if (std::isfinite(now) && std::isfinite(deadline) &&
         now >= resolved_visual_source_seconds_ && now < deadline) return false;
     const auto& physical = frame.physical();
+    const auto manual = translate_manual_stick({physical.right_x, physical.right_y}, config_);
     frame.pre_recoil_command() = pipeline_contract::PreRecoilStickCommand::from_stick(
-        {physical.right_x, physical.right_y}, frame.sample_sequence());
+        manual, frame.sample_sequence());
     if (pending_visual_fire_) {
         frame.fire_command() = {};
         if (!manual_fire_pressed(physical)) frame.recoil_contribution() = {};
@@ -1722,7 +1685,7 @@ bool NativeGamepadController::expire_visual_output(
     frame.auxiliary_dpad() = {};
     // Keep delivered-camera learning consistent with the command actually
     // composed. Revoked AI must not be misclassified as recoil compensation.
-    last_output_components_.before_recoil_stick = {physical.right_x, physical.right_y};
+    last_output_components_.before_recoil_stick = {manual.x, manual.y};
     last_output_components_.assist_authority_reason = "visual_output_expired";
     last_acquisition_trace_.shaped_ai = {};
     return true;
@@ -1731,7 +1694,7 @@ bool NativeGamepadController::expire_visual_output(
 void NativeGamepadController::invalidate_delivery_history() noexcept {
     capture_evidence_.reset();
     aim_response_history_begin_ = aim_response_history_count_ = 0;
-    camera_alignment_.invalidate_evidence();
+    for (auto& alignment : camera_alignment_) alignment.invalidate_evidence();
     bodylock_target_motion_observer_.reset();
     motion_observation_anchor_ = {};
     nonfiring_pov_motion_snapshot_ = {};
@@ -1755,10 +1718,10 @@ void NativeGamepadController::observe_delivered_output(
     // This is a compensation baseline, not a measurement of weapon kick;
     // any uncompensated disturbance remains in the observed residual motion.
     const auto camera_response = forward_aim_response_curve(
-        delivered_stick, config_.aim_response_curve);
+        delivered_stick, controller_response_curve(config_));
     const auto recoil_response = forward_aim_response_curve(
         {last_output_components_.recoil_stick.x, last_output_components_.recoil_stick.y},
-        config_.aim_response_curve);
+        controller_response_curve(config_));
     record_aim_response_command(submitted_at_seconds,
         camera_response,
         {camera_response.x - recoil_response.x, camera_response.y - recoil_response.y},

@@ -11,8 +11,9 @@ from .workspace import FIELDS, ProfileRepository, projection, snapshot, toml_tex
 from .fields import field_presentation, field_value, CHOICE_LABELS
 from .parameter_catalog import configured_value
 from .settings import lookup, UiPreferences
-from .curves import CurveLibrary, curve_document, read_curve, seed_points
+from .curves import CurveLibrary, curve_document, read_curve, seed_points, compose_curves, validate_source, decode_points
 from .long_capture import capture_status, set_capture_enabled
+from .curve_binding import runtime_curve_binding
 
 # The preview contract owns both validation and the browser's invalidation keys.
 # Adding a geometry input requires adding it here; unrelated fields stay local.
@@ -35,12 +36,14 @@ def schema():
         meta = field_presentation(path)
         # Keep legacy "both" readable/persistable, but offer only single buttons in the GUI.
         choices = ('RT', 'RB') if path == 'gamepad.auto_fire.manual_fire_input' else limits
-        if path.startswith('runtime.vision.'):
+        if path == 'gamepad.follow_response_curve': group = '响应曲线'
+        elif path.startswith('runtime.vision.'):
             group = '目标与识别' if path.endswith(('friendly_filter_enabled', 'enemy_marker_color', 'friendly_marker_color', 'target_height_ratio', 'target_wide_low_height_ratio', 'cue_pickup_offset_y_px')) else '捕获与模型'
         elif path.startswith('runtime.input.'): group = '输入设备'
         elif path.startswith('runtime.'): group = '诊断记录'
         elif path.startswith('gamepad.enemy_mark.'): group = '目标与识别'
-        elif path.startswith('gamepad.output_transfer.'): group = '手动输出补偿'
+        elif path.startswith('gamepad.output_transfer.'): group = '响应曲线'
+        elif path.endswith('_initial_scale') or path.endswith('aim_response_learning_enabled'): group = '响应标定'
         elif path.startswith(('gamepad.recoil.', 'gamepad.auto_fire.')): group = '开火与压枪'
         elif path.startswith('gamepad.bodylock.'): group = '持续跟随'
         elif path.startswith('gamepad.ads.'): group = '首次瞄准'
@@ -65,7 +68,7 @@ class WorkspaceService:
         self.root = Path(root).resolve()
         self.manager = manager or RuntimeManager(self.root)
         self.repo = ProfileRepository(self.root, curve_source)
-        self.curves = CurveLibrary(self.root)
+        self.curves = CurveLibrary(self.root, self.repo.curve_source)
         self.preferences = UiPreferences(self.root)
         self.dialogs = dialogs
         self.lock = threading.RLock()
@@ -85,9 +88,20 @@ class WorkspaceService:
         return self._view(doc, revision)
 
     def _view(self, doc, revision):
+        # One-time presentation of old profiles as explicit input mappings.
+        # Newly saved settings carry C directly and never recompute it here.
+        input_curve = None
+        transfer = lookup(doc['config'], 'gamepad.output_transfer', {})
+        model = transfer.get('response_model', 'power')
+        if transfer.get('enabled') and transfer.get('deadzone', .16) == 0 and model in ('cod_linear_legacy_lut', 'custom_lut'):
+            a = curve_document(transfer.get('curve_name') or '旧版输入响应', seed_points('cod_linear_legacy_lut', self.repo.curve_source) if model == 'cod_linear_legacy_lut' else decode_points(transfer['custom_points']))
+            b = doc['curve']['definition'] if lookup(doc['config'], 'gamepad.follow_response_curve', False) else curve_document('线性 1:1', seed_points('linear', self.repo.curve_source))
+            input_curve = compose_curves(a, b, '已保存的输入转译曲线')
         return dict(id=doc['id'], name=doc['name'], game=doc['game'], revision=revision,
+            input_curve=input_curve,
             config=deepcopy(doc['config']),
             values={f[0]: configured_value(doc['config'], f[0], f[3]) for f in FIELDS},
+            curve_binding=runtime_curve_binding(projection(doc)),
             curve=deepcopy(doc['curve']), initial=deepcopy(doc['initial']))
 
     def _saved(self, payload):
@@ -181,7 +195,7 @@ class WorkspaceService:
             entries = self.repo.read_entries()
             return dict(profiles=[self._opened(doc, raw) for doc, raw in entries], errors=self.repo.errors,
                 selected=self.preferences.read().get('profile_id'), fields=schema(), geometry_fields=GEOMETRY_PATHS,
-                seeds={key: seed_points(key, self.repo.curve_source) for key in ('linear','cod_dynamic_legacy_lut')})
+                seeds={key: seed_points(key, self.repo.curve_source) for key in ('linear','cod_dynamic_legacy_lut','cod_linear_legacy_lut')})
         if command == 'select':
             doc = self.states[p['id']][0]
             self.preferences.save_profile(doc['id'], doc['game'])
@@ -295,11 +309,18 @@ class WorkspaceService:
         if command == 'curve_import':
             path = self._choose('open','',('响应曲线 (*.json)',))
             return read_curve(path) if path else None
-        if command == 'curve_export': return self._export(curve_document(p['name'],p['points']), export_filename(p['name'],'.json'))
-        if command == 'curve_presets':
-            return {'entries':[dict(id=path.name, **data) for path,data in self.curves.entries()], 'errors':self.curves.errors}
-        if command == 'curve_preset_save':
-            self.curves.create(p['name'],p['points']); return True
+        if command == 'curve_export':
+            data = curve_document(p['name'],p['points'])
+            if 'source' in p: data['source'] = validate_source(p['source'])
+            return self._export(data, export_filename(p['name'],'.json'))
+        if command == 'curve_library': return self.curves.catalog()
+        if command == 'curve_library_save':
+            if p.get('id'): self.curves.update(p['id'], p)
+            else: self.curves.create(p['name'], p['points'], p.get('source', {'kind':'manual'}))
+            return self.curves.catalog()
+        if command == 'curve_library_archive':
+            self.curves.archive(p['id']); return self.curves.catalog()
+        if command == 'curve_compose': return compose_curves(p['base'], p['target'], p['name'])
         if command == 'geometry': return self._geometry(p)
         raise ValueError('不支持的界面操作：' + str(command))
 

@@ -16,7 +16,7 @@ class Snapshot(ctypes.Structure):
     _fields_ = [('pid', w.DWORD), ('status', w.DWORD), ('created', ctypes.c_uint64),
                 ('request_id', ctypes.c_uint64), ('completed_id', ctypes.c_uint64),
                 ('revision', ctypes.c_uint64), ('sampled_at_ms', ctypes.c_uint64),
-                ('regions', Region * 4), ('fire_output', ctypes.c_char * 8),
+                ('regions', Region * 2), ('fire_output', ctypes.c_char * 8),
                 ('manual_fire_input', ctypes.c_char * 8), ('message', ctypes.c_char * 512)]
 
 
@@ -24,7 +24,7 @@ class Memory(ctypes.Structure):
     _fields_ = [('sequence', w.LONG), ('protocol', w.DWORD), ('requested_id', ctypes.c_uint64), ('snapshot', Snapshot)]
 
 
-assert ctypes.sizeof(Snapshot) == 640 and Memory.snapshot.offset == 16
+assert ctypes.sizeof(Snapshot) == 608 and Memory.snapshot.offset == 16
 kernel.OpenFileMappingW.argtypes = [w.DWORD, w.BOOL, w.LPCWSTR]
 kernel.OpenFileMappingW.restype = w.HANDLE
 kernel.MapViewOfFile.argtypes = [w.HANDLE, w.DWORD, w.DWORD, w.DWORD, ctypes.c_size_t]
@@ -59,7 +59,7 @@ class ControlChannel:
             copy = Snapshot.from_buffer_copy(self.memory.snapshot)
             if sequence != self.memory.sequence:
                 continue
-            if self.memory.protocol != 1 or copy.pid != self.record['process_id'] or copy.created != identity['created']:
+            if self.memory.protocol != 2 or copy.pid != self.record['process_id'] or copy.created != identity['created']:
                 raise ValueError('配置通道身份或协议不匹配。')
             return {'status': copy.status, 'revision': copy.revision, 'request_id': copy.request_id,
                     'completed_id': copy.completed_id, 'sampled_at_ms': copy.sampled_at_ms,

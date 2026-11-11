@@ -3,6 +3,7 @@
 #include "pipeline_contract/target_plan.h"
 
 #include <cstdint>
+#include <limits>
 #include <array>
 #include <cstddef>
 
@@ -17,10 +18,6 @@ struct AimResponseInterval {
     float dt_seconds = 0.0f;
     float reliability = 0.0f;
     float target_acceleration_px_per_sec2 = 0.0f;
-    // 0 is outside the target-centered slowdown region and 1 is fully inside.
-    // The estimator, rather than a fixed multiplier, owns the measured response
-    // difference between those regions.
-    float slow_zone_weight = 0.0f;
     bool observed = false;
     bool manual_ambiguous = false;
 };
@@ -32,20 +29,12 @@ struct AimResponseEstimate {
     float learned_scale = 500.0f;
 };
 
-float aim_response_slow_zone_weight(
-    pipeline_contract::Vec2f error_px,
-    pipeline_contract::Vec2f target_size_px) noexcept;
-
 struct AimResponseEstimatorConfig {
     float fallback_scale = 500.0f;
-    // Zero inherits the effective free region. A positive value is an
-    // independent slowdown prior, blended with new local learning evidence.
-    float slow_fallback_scale = 0.0f;
     float minimum_scale = 80.0f;
-    // High-sensitivity games measured in pixels at the capture resolution can
-    // legitimately exceed 2,000 px/(stick*s). The prior 1,200 ceiling made
-    // those plants unidentifiable even with a correctly aligned sample.
-    float maximum_scale = 4000.0f;
+    // No game-specific ceiling. Eligibility and relative evidence checks own
+    // trust; the numeric representation is the only default upper boundary.
+    float maximum_scale = std::numeric_limits<float>::max();
     float minimum_reliability = 0.75f;
     float minimum_command_delta = 0.04f;
     float maximum_target_acceleration = 800.0f;
@@ -62,9 +51,8 @@ public:
 
     bool update(const AimResponseInterval& interval) noexcept;
     void begin_target(std::uint64_t target_id) noexcept;
-    AimResponseEstimate estimate(float slow_zone_weight = 0.0f) const noexcept;
+    AimResponseEstimate estimate() const noexcept;
     void reset() noexcept;
-    AimResponseEstimate learning_region(bool slow) const noexcept;
 
 private:
     struct RegionState {
@@ -90,10 +78,7 @@ private:
 
     AimResponseEstimatorConfig config_{};
     RegionState free_region_{};
-    RegionState slow_region_{};
     std::uint64_t target_id_ = 0;
-    bool previous_region_was_slow_ = false;
-    bool has_previous_region_ = false;
 };
 
 }  // namespace controller_native

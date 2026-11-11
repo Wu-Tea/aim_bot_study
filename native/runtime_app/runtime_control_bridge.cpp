@@ -46,18 +46,18 @@ std::shared_ptr<const controller_native::RuntimeConfig> RuntimeControlBridge::ta
     return candidate_;
 }
 
-void RuntimeControlBridge::complete(const std::array<controller_native::AimResponseEstimate, 4>& values, bool preserved) noexcept {
-    for (int i = 0; i < 4; ++i) cleared_learning_[i] = {values[i].scale_px_per_stick_second,
+void RuntimeControlBridge::complete(const std::array<controller_native::AimResponseEstimate, 2>& values, bool preserved) noexcept {
+    for (int i = 0; i < 2; ++i) cleared_learning_[i] = {values[i].scale_px_per_stick_second,
         values[i].learned_scale, values[i].confidence, values[i].accepted_samples};
     learning_preserved_ = preserved;
     completed_.store(true, std::memory_order_release);
     SetEvent(finished_.get());
 }
 
-void RuntimeControlBridge::offer_learning(const std::array<controller_native::AimResponseEstimate, 4>& values) noexcept {
+void RuntimeControlBridge::offer_learning(const std::array<controller_native::AimResponseEstimate, 2>& values) noexcept {
     std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
     if (!lock.owns_lock()) return;
-    for (int i = 0; i < 4; ++i) learning_[i] = {values[i].scale_px_per_stick_second,
+    for (int i = 0; i < 2; ++i) learning_[i] = {values[i].scale_px_per_stick_second,
         values[i].learned_scale, values[i].confidence, values[i].accepted_samples};
     learning_at_ = GetTickCount64();
 }

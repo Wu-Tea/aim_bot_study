@@ -111,11 +111,9 @@ struct GamepadAiAimConfig {
     // Gamepad-only response prior, in px/(effective stick*s). Zero inherits
     // the adapter calibration. Does not change the BodyLock feedback horizon.
     float aim_response_initial_scale = 0.0f;
-    // Optional independent gamepad region priors; zero keeps legacy inheritance.
+    // Physical hipfire/ADS priors. Historical *_free keys stay readable; zero inherits calibration.
     float body_free_initial_scale = 0.0f;
-    float body_slow_initial_scale = 0.0f;
     float ads_free_initial_scale = 0.0f;
-    float ads_slow_initial_scale = 0.0f;
     // Device adapters with a calibrated linear response disable stick learning.
     bool aim_response_learning_enabled = true;
     // Native device-adapter units; ordinary gamepad configuration keeps 500.
@@ -219,6 +217,8 @@ struct GamepadRuntimeConfig {
     GamepadAutoFireConfig auto_fire;
     GamepadAiAimConfig ai_aim;
     AimResponseCurveConfig aim_response_curve;
+    bool follow_response_curve = false;
+    std::string output_curve_name;
     GameStickTransferConfig output_transfer;
     GamepadRecoilConfig recoil;
 };
