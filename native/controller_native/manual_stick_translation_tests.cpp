@@ -339,6 +339,18 @@ void independent_input_and_ai_curves() {
 }
 
 void endpoint_deadzone_compensation_chain() {
+    auto response = prepared_config(false).output_transfer.curve;
+    response.algorithm = AimResponseCurveAlgorithm::CustomLut;
+    response.input_start = .2f; response.input_end = .1f;
+    for (int i=0; i<=1000; ++i) {
+        const float desired = i/1000.f;
+        const float stick = curve_inverse_magnitude(desired,response);
+        require(near(curve_forward_magnitude(stick,response),desired),
+            "AI curve deadzones use full-scale response for solve and feedback");
+    }
+    require(curve_forward_magnitude(.2f,response)==0 && curve_inverse_magnitude(0,response)==0,
+        "response deadzone and neutral must stay exactly zero");
+
     auto cfg = prepared_config(false);
     cfg.output_transfer.deadzone = .2f;
     require(near(transfer_game_stick({.5f,0},cfg.output_transfer).x,.6f),
@@ -368,13 +380,20 @@ void endpoint_deadzone_compensation_chain() {
         require(near(game_response,curve_forward_magnitude(input,cfg.aim_response_curve)),
             "nonlinear game A composed with endpoint compensation and prepared C must realize target B");
     }
+    for (bool library_owned : {false,true})
     for (unsigned seed : {41u,2089u,81173u,971903u}) for (bool axial : {false,true})
     for (int length : {300,12000}) {
         cfg = prepared_config(true);
         cfg.output_transfer.outer_deadzone = .1f;
         cfg.output_transfer.deadzone = .16f;
         cfg.output_transfer.axial = axial;
+        if (library_owned) {
+            cfg.output_transfer.curve.output_start = cfg.output_transfer.deadzone;
+            cfg.output_transfer.curve.output_end = cfg.output_transfer.outer_deadzone;
+            cfg.output_transfer.deadzone = cfg.output_transfer.outer_deadzone = 0;
+        }
         auto reference = cfg;
+        reference.output_transfer.curve.output_start = reference.output_transfer.curve.output_end = 0;
         reference.output_transfer.outer_deadzone = reference.output_transfer.deadzone = 0;
         double clock = 100;
         NativeGamepadController controller(cfg,&clock), baseline(reference,&clock);

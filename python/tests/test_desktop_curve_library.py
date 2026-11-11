@@ -3,7 +3,7 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
-from desktop_app.curves import CurveLibrary, compose_curves, interpolate, read_curve, seed_points
+from desktop_app.curves import CurveLibrary, compose_curves, interpolate, read_curve, seed_points, evaluate_curve, curve_document
 from project_paths import PROJECT_ROOT
 
 
@@ -60,3 +60,32 @@ class CurveLibraryTests(unittest.TestCase):
             data=json.loads(path.read_text(encoding='utf-8'));data['points'][2][1]=0
             path.write_text(json.dumps(data),encoding='utf-8')
             with self.assertRaises(ValueError):read_curve(path)
+
+    def test_library_deadzone_compensation_is_self_contained(self):
+        standard = read_curve(PROJECT_ROOT/'resources/curves/cod_standard_legacy.json')
+        identity = curve_document('线性 1:1', [[0,0],[1,1]])
+        with tempfile.TemporaryDirectory() as root:
+            library = CurveLibrary(root, PROJECT_ROOT)
+            for seed in (911, 13791, 710393):
+                rng = random.Random(seed)
+                for i in range(12):
+                    base = dict(standard, deadzone=dict(start=rng.uniform(.1,.3), end=rng.uniform(0,.2)))
+                    target = dict(identity, deadzone=dict(start=rng.uniform(0,.2), end=rng.uniform(0,.1))) if i%2 else identity
+                    result = compose_curves(base,target,'标准含死区 → 线性')
+                    saved = read_curve(library.create(result['name'], result['points'], result['source'], result))
+                    self.assertEqual(saved, result)
+                    self.assertEqual(saved['schema_version'], 2)
+                    self.assertEqual(saved['source']['base_deadzone'],base['deadzone'])
+                    self.assertEqual(evaluate_curve(saved,0),0)
+                    self.assertGreater(evaluate_curve(saved,(target.get('deadzone',{}).get('start',0)+1.e-5)),base['deadzone']['start'])
+                    for j in range(1001):
+                        x=j/1000
+                        self.assertAlmostEqual(evaluate_curve(base,evaluate_curve(saved,x)),evaluate_curve(target,x),places=10)
+            base = dict(identity, deadzone=dict(start=.2,end=.1))
+            result = compose_curves(base,identity,'补偿')
+            self.assertAlmostEqual(evaluate_curve(result,.5),.55)
+            self.assertAlmostEqual(evaluate_curve(result,1),.9)
+            # A prepared result cannot produce responses outside its range.
+            with self.assertRaisesRegex(ValueError,'超出'): compose_curves(result,identity,'不可达')
+            for bad in (dict(start=.9,end=.1), dict(start=-.1), dict(start=float('nan'))):
+                with self.assertRaises(ValueError): curve_document('无效',identity['points'],dict(deadzone=bad))

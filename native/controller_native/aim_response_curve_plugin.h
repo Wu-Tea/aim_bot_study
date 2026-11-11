@@ -28,6 +28,9 @@ struct AimResponseCurveConfig {
     std::array<float, 128> custom_stick{};
     std::array<float, 128> custom_response{};
     std::size_t custom_count = 0;
+    // Curve-owned active domain and output range; zero is always neutral.
+    float input_start = 0.f, input_end = 0.f;
+    float output_start = 0.f, output_end = 0.f;
 };
 
 struct AimResponseCurvePlugin {
@@ -133,7 +136,7 @@ inline const AimResponseCurvePlugin& resolve_aim_response_curve_plugin(
 }
 
 // Config loading validates endpoints and strict monotonicity before tick use.
-inline float custom_curve_magnitude(float value, const AimResponseCurveConfig& config, bool inverse) noexcept {
+inline float custom_curve_shape(float value, const AimResponseCurveConfig& config, bool inverse) noexcept {
     const auto& domain = inverse ? config.custom_response : config.custom_stick;
     const auto& range = inverse ? config.custom_stick : config.custom_response;
     value = std::clamp(value, 0.0f, 1.0f);
@@ -144,6 +147,22 @@ inline float custom_curve_magnitude(float value, const AimResponseCurveConfig& c
         }
     }
     return 1.0f;
+}
+
+inline bool curve_has_window(const AimResponseCurveConfig& config) noexcept {
+    return config.input_start != 0.f || config.input_end != 0.f ||
+           config.output_start != 0.f || config.output_end != 0.f;
+}
+
+inline float custom_curve_magnitude(float value, const AimResponseCurveConfig& config, bool inverse) noexcept {
+    if (!curve_has_window(config)) return custom_curve_shape(value, config, inverse);
+    if (value <= 0.f || (!inverse && value <= config.input_start)) return 0.f;
+    if (inverse) {
+        const float normalized = (value-config.output_start)/(1.f-config.output_start-config.output_end);
+        return config.input_start + (1.f-config.input_start-config.input_end)*custom_curve_shape(normalized, config, true);
+    }
+    const float normalized = (value-config.input_start)/(1.f-config.input_start-config.input_end);
+    return config.output_start + (1.f-config.output_start-config.output_end)*custom_curve_shape(normalized, config, false);
 }
 
 inline float curve_forward_magnitude(float value, const AimResponseCurveConfig& config) noexcept {

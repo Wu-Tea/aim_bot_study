@@ -8,13 +8,13 @@ out=PROJECT_ROOT/'output/playwright/curve-selection'
 out.mkdir(parents=True,exist_ok=True)
 bridge="""window.rpcCalls=[]; window.pywebview={api:{dispatch:async(command,payload={})=>{
 window.rpcCalls.push(command);
-const r=await fetch('/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command,payload})});return await r.json();}}};"""
+const r=await fetch('/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command,payload})});const result=await r.json();if(!result.ok)console.error(command,result.error);return result;}}};"""
 errors=[]
 created='COD 线性 → COD 动态 '+str(time.time_ns())[-6:]
 with sync_playwright() as p:
  browser=p.chromium.launch(channel='msedge',headless=True)
  page=browser.new_page(viewport={'width':1360,'height':1000})
- page.add_init_script(bridge);page.on('pageerror',lambda e:errors.append(str(e)))
+ page.add_init_script(bridge);page.on('pageerror',lambda e:errors.append(str(e)));page.on('console',lambda m:print(m.text) if m.type=='error' else None)
  page.goto('http://127.0.0.1:8877')
  expect(page.locator('.save-state')).to_have_text('已保存')
  def curves(): page.get_by_role('navigation').get_by_role('button',name='响应曲线',exact=True).click()
@@ -138,14 +138,61 @@ with sync_playwright() as p:
  assert persisted['values']['gamepad.follow_response_curve'] is True
  page.reload();expect(page.locator('.save-state')).to_have_text('已保存');curves()
  expect(inputs.locator('option:checked')).to_contain_text('COD 动态')
- # Deadzones are persistent settings, independent of the two curve choices.
- inputs.select_option('builtin:linear.json')
+ # Upgrade an old profile snapshot without changing its effective mapping.
+ legacy=next(p for p in dispatch('bootstrap')['profiles'] if p['id']==current_id)
+ legacy['values'].update({'gamepad.output_transfer.custom_points':'0:0;1:1',
+  'gamepad.output_transfer.curve_name':'旧版含死区配置',
+  'gamepad.output_transfer.deadzone':.2,'gamepad.output_transfer.outer_deadzone':.1})
+ dispatch('save',{**legacy,'apply':False})
+ page.reload();expect(page.locator('.save-state')).to_have_text('已保存');curves()
+ expect(page.locator('.curve-readout dd').first).to_have_text('55.00%')
+ ai.select_option('builtin:linear.json')
+ expect(page.locator('.curve-readout dd').first).to_have_text('55.00%')
+ page.get_by_role('button',name='保存配置',exact=True).click()
+ expect(page.locator('.save-state')).to_have_text('已保存')
+ upgraded=next(p for p in dispatch('bootstrap')['profiles'] if p['id']==current_id)
+ assert upgraded['values']['gamepad.output_transfer.deadzone']==0
+ assert upgraded['values']['gamepad.output_transfer.output_start']==.2
+ assert upgraded['values']['gamepad.output_transfer.output_end']==.1
+ # Bootstrap issues fresh optimistic-write revisions; sync the test page too.
+ page.reload();expect(page.locator('.save-state')).to_have_text('已保存');curves()
+ # Deadzones belong to a library entry; preparation produces a standalone C.
+ expect(page.get_by_role('spinbutton',name='起点死区',exact=True)).to_have_count(0)
+ page.get_by_role('button',name='曲线库',exact=True).click()
+ page.get_by_role('row').filter(has=page.get_by_role('cell',name='线性 1:1',exact=True)).get_by_role('button',name='查看 / 编辑').click()
  start=page.get_by_role('spinbutton',name='起点死区',exact=True)
  end=page.get_by_role('spinbutton',name='终点死区',exact=True)
- expect(start).to_have_value('0');expect(end).to_have_value('0')
  start.fill('20');end.fill('10')
- ai.select_option('builtin:linear.json');ai.select_option('builtin:cod_dynamic_legacy.json')
- expect(start).to_have_value('20');expect(end).to_have_value('10')
+ expect(page.get_by_label('选择控制点').locator('.select-current-label')).to_have_text('2：27% → 10%')
+ expect(page.get_by_label('控制点输入 %',exact=True)).to_have_value('27')
+ source_name='线性 · 起点20% / 终点10%'
+ page.get_by_label('库中曲线名称',exact=True).fill(source_name)
+ page.set_viewport_size({'width':1348,'height':928})
+ page.screenshot(path=str(out/'library-deadzone-editor.png'),full_page=True)
+ start.fill('90')
+ expect(page.get_by_role('button',name='保存为副本',exact=True)).to_be_disabled()
+ expect(page.get_by_role('alert')).to_contain_text('必须小于 100%')
+ start.fill('20')
+ page.get_by_role('button',name='保存为副本',exact=True).click()
+ row=page.get_by_role('row').filter(has_text=source_name)
+ expect(row).to_contain_text('20% / 10%')
+ page.get_by_role('button',name='制作融合曲线',exact=True).click()
+ page.get_by_label('基准曲线 A',exact=True).select_option(label=source_name+"（死区 20% / 10%）")
+ page.get_by_label('目标曲线 B',exact=True).select_option('builtin:linear.json')
+ page.get_by_role('button',name='计算转译曲线',exact=True).click()
+ expect(page.locator('.curve-readout')).to_contain_text('55.00%')
+ expect(page.locator('.curve-readout')).to_contain_text('0.000')
+ page.screenshot(path=str(out/'library-deadzone-composition.png'),full_page=True)
+ result_name='线性含死区 → 线性 1:1'
+ page.get_by_label('计算结果名称',exact=True).fill(result_name)
+ page.get_by_role('button',name='存入曲线库',exact=True).click()
+ expect(page.get_by_role('row').filter(has_text=result_name)).to_be_visible()
+ page.get_by_role('button',name='转译设置',exact=True).click()
+ inputs.select_option(label=result_name)
+ ai.select_option(label=source_name+"（死区 20% / 10%）")
+ expect(page.locator('.curve-readout dd').nth(1)).to_have_text('42.86%')
+ ai.select_option('builtin:linear.json')
+ expect(page.locator('.curve-readout dd').nth(1)).to_have_text('50.00%')
  for probe,expected in [('0','0.00%'),('1','20.70%'),('10','27.00%'),('50','55.00%'),('100','90.00%')]:
   page.get_by_label('输入位置',exact=False).fill(probe)
   expect(page.locator('.curve-readout dd').first).to_have_text(expected)
@@ -153,24 +200,18 @@ with sync_playwright() as p:
  page.get_by_role('button',name='保存配置',exact=True).click()
  expect(page.locator('.save-state')).to_have_text('已保存')
  page.reload();expect(page.locator('.save-state')).to_have_text('已保存');curves()
- expect(start).to_have_value('20');expect(end).to_have_value('10')
- page.get_by_label('输入位置',exact=False).fill('50')
+ expect(inputs.locator('option:checked')).to_have_text(result_name)
+ expect(page.locator('.curve-readout dd').first).to_have_text('55.00%')
+ persisted=next(p for p in dispatch('bootstrap')['profiles'] if p['id']==current_id)
+ assert persisted['values']['gamepad.output_transfer.deadzone']==0
+ assert persisted['values']['gamepad.output_transfer.output_start']==.2
  for w,h in [(1348,928),(1024,768),(800,640)]:
   page.set_viewport_size({'width':w,'height':h})
   assert not page.evaluate('document.documentElement.scrollWidth>innerWidth')
   if w==1348:assert page.locator('.workspace-fields').evaluate('(e)=>e.scrollHeight<=e.clientHeight')
+  expect(start).to_have_count(0)
   page.screenshot(path=str(out/f'deadzones-{w}.png'),full_page=True)
- end.fill('51');page.get_by_role('button',name='保存配置',exact=True).click()
- expect(end).to_be_focused();expect(end).to_have_attribute('aria-invalid','true')
- persisted=next(p for p in dispatch('bootstrap')['profiles'] if p['id']==current_id)
- assert persisted['values']['gamepad.output_transfer.deadzone']==.2
- end.fill('50');start.fill('50')
- page.get_by_role('button',name='保存配置',exact=True).click()
- expect(end).to_be_focused();expect(page.locator('.curve-readout dd').first).to_have_text('—')
- expect(page.locator('.notice')).to_contain_text('起点死区与终点死区之和必须小于 100%')
- end.fill('0');start.fill('0')
- expect(page.locator('.curve-readout dd').first).to_have_text('50.00%')
  assert not errors,errors
- (out/'result.json').write_text(json.dumps({'passed':True,'checks':['library preparation and three curves','independent C and B','identity input with Dynamic AI','no runtime base selector or composition','snapshot deduplication','single global save state','saved versus actual running binding','restart pending','8000 initial response','four viewport sizes','endpoint deadzone preview and persistence','invalid endpoint ranges rejected','zero page errors']},ensure_ascii=False,indent=2),encoding='utf-8')
+ (out/'result.json').write_text(json.dumps({'passed':True,'checks':['library preparation and three curves','independent C and B','identity input with Dynamic AI','no runtime base selector or composition','snapshot deduplication','single global save state','saved versus actual running binding','restart pending','8000 initial response','four viewport sizes','curve library deadzone preparation, native projection and persistence','invalid endpoint ranges rejected','zero page errors']},ensure_ascii=False,indent=2),encoding='utf-8')
  print('PASS curve selection UI')
  browser.close()

@@ -9,7 +9,7 @@ import tempfile
 import tomllib
 import uuid
 
-from .curves import curve_document, decode_points, encode_points, seed_points
+from .curves import curve_document, decode_points, encode_points, seed_points, curve_runtime_mapping
 from .fields import COMMON_FIELDS, GAME_FIELDS, field_value, validate_fields
 from .parameter_catalog import configured_value, LEGACY_PATHS
 from .settings import effective, literal, lookup, UiPreferences
@@ -58,6 +58,8 @@ def projection(profile):
     put(data, 'gamepad.aim_response_curve.algorithm', algorithm)
     if algorithm == 'custom_lut':
         put(data, 'gamepad.aim_response_curve.custom_points', encode_points(profile['curve']['definition']['points']))
+    for key, value in curve_runtime_mapping(profile['curve']['definition']).items():
+        put(data, 'gamepad.aim_response_curve.' + key, value)
     validate_fields(data, [profile['game']])
     return data
 
@@ -80,8 +82,11 @@ def snapshot(config, game, project, defaults=None):
         points = decode_points(lookup(data, 'gamepad.aim_response_curve.custom_points', ''))
     else:
         points = seed_points(algorithm, project)
+    mapping = lookup(data, 'gamepad.aim_response_curve', {})
+    metadata = dict(deadzone=dict(start=mapping.get('input_start', 0), end=mapping.get('input_end', 0)),
+                    compensation=dict(start=mapping.get('output_start', 0), end=mapping.get('output_end', 0)))
     data.get('gamepad', {}).pop('aim_response_curve', None)
-    return {'config': data, 'curve': {'algorithm': algorithm, 'definition': curve_document('响应曲线', points)}}
+    return {'config': data, 'curve': {'algorithm': algorithm, 'definition': curve_document('响应曲线', points, metadata)}}
 
 
 class ProfileRepository:
@@ -140,9 +145,9 @@ class ProfileRepository:
             if curve['algorithm'] not in ('linear', 'cod_dynamic_legacy_lut', 'custom_lut'):
                 raise ValueError('曲线类型无效。')
             definition = curve['definition']
-            if not isinstance(definition,dict) or type(definition.get('schema_version')) is not int or definition.get('schema_version') != 1 or definition.get('kind') != 'normalized_stick_response' or definition.get('interpolation') != 'piecewise_linear':
+            if not isinstance(definition,dict) or type(definition.get('schema_version')) is not int or definition.get('schema_version') not in (1, 2) or definition.get('kind') != 'normalized_stick_response' or definition.get('interpolation') != 'piecewise_linear':
                 raise ValueError('曲线格式无效。')
-            curve_document(definition['name'], definition['points'])
+            curve_document(definition['name'], definition['points'], definition)
             if curve['algorithm'] != 'custom_lut' and definition['points'] != seed_points(curve['algorithm'], self.curve_source):
                 raise ValueError('预设曲线的点位与原生算法不一致。')
             toml_text(projection(dict(data, config=state['config'], curve=curve)))

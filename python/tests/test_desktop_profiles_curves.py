@@ -61,7 +61,7 @@ class ProfileCurveStorageTests(unittest.TestCase):
             for points in ([[0,0],[1,.9]], [[0,0],[.5,.8],[.7,.4],[1,1]], [[0,0],[.5,.2],[.5,.8],[1,1]], [[0,0],[float('nan'),.5],[1,1]], [[0,False],[1,1]]):
                 with self.assertRaises(ValueError):
                     validate_points(points)
-            data['schema_version']=2
+            data['schema_version']=99
             path.write_text(json.dumps(data),encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'版本'):
                 read_curve(path)

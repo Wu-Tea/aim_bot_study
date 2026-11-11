@@ -91,7 +91,9 @@ class IndependentStorageTests(unittest.TestCase):
             path,label,kind,default,limits=field
             if kind not in (int,float):continue
             lo,hi=limits
-            for value in (lo,default,hi if hi is not None else 25000):
+            window = path.startswith('gamepad.output_transfer.') and path.rsplit('.',1)[-1] in ('input_start','input_end','output_start','output_end')
+            # These coordinates have an open upper bound and require a LUT.
+            for value in (lo,default,.999 if window else hi if hi is not None else 25000):
                 with self.subTest(path=path,value=value):
                     document={}
                     put(document,'gamepad.ads.activation_trigger',0.)
@@ -103,6 +105,9 @@ class IndependentStorageTests(unittest.TestCase):
                     put(document,'gamepad.ai_aim.manual_intent_full',1.)
                     put(document,'gamepad.auto_fire.pulse_width_ms',1.)
                     put(document,'gamepad.auto_fire.pulse_period_ms',5000.)
+                    if window:
+                        put(document,'gamepad.output_transfer.response_model','output_lut')
+                        put(document,'gamepad.output_transfer.custom_points','0:0;1:1')
                     put(document,path,field_value(field,value))
                     actual=manager.inspect_defaults('default',toml_text(document))
                     self.assertIn(path,actual)

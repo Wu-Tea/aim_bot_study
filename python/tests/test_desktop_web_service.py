@@ -175,6 +175,36 @@ class WebServiceTests(unittest.TestCase):
             invalid['values']['gamepad.output_transfer.'+key]=.5
         self.assertFalse(self.service.dispatch('save',invalid)['ok'])
 
+    def test_library_windows_survive_profile_projection_and_export(self):
+        from desktop_app.curves import curve_document, curve_runtime_mapping, encode_points, read_curve
+        from desktop_app.workspace import projection, toml_text
+        a = curve_document('游戏响应', [[0,0],[.5,.2],[1,1]], dict(deadzone=dict(start=.2,end=.1)))
+        b = curve_document('目标', [[0,0],[1,1]], dict(deadzone=dict(start=.05,end=.02)))
+        c = self.call('curve_compose', dict(base=a,target=b,name='补偿结果'))
+        entries = self.call('curve_library_save', c)['entries']
+        saved_curve = next(e for e in entries if e['name']==c['name'])
+        self.assertEqual(saved_curve['compensation'], c['compensation'])
+        export = Path(self.temp.name)/'curve.json'
+        with patch.object(self.service,'_choose',return_value=str(export)):
+            self.call('curve_export',c)
+            self.assertEqual(self.call('curve_import'),read_curve(export))
+        draft=deepcopy(self.profile)
+        draft['curve']=dict(algorithm='custom_lut',definition=b)
+        draft['values'].update({'gamepad.follow_response_curve':True,
+            'gamepad.output_transfer.enabled':True,'gamepad.output_transfer.response_model':'output_lut',
+            'gamepad.output_transfer.custom_points':encode_points(c['points']),
+            'gamepad.output_transfer.curve_name':c['name'],'gamepad.output_transfer.deadzone':0,
+            **{'gamepad.output_transfer.'+key:value for key,value in curve_runtime_mapping(c).items()}})
+        saved=self.call('save',draft)['profile']
+        doc=self.service.states[saved['id']][0]
+        native=self.runtime.inspect_defaults('custom',toml_text(projection(doc)))
+        for key,value in curve_runtime_mapping(c).items():
+            self.assertAlmostEqual(native['gamepad.output_transfer.'+key],value,places=6)
+        self.assertEqual(saved['curve_binding']['ai_mapping']['input_start'],.05)
+        reopened=self.call('reload',dict(id=saved['id']))
+        self.assertEqual(reopened['curve'],saved['curve'])
+        self.assertEqual(reopened['curve_binding'],saved['curve_binding'])
+
     def test_cod_linear_reference_compensation_roundtrip(self):
         draft=deepcopy(self.profile)
         self.assertEqual(draft['values']['gamepad.output_transfer.response_model'], 'power')

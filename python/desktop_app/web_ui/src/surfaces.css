@@ -81,7 +81,7 @@ select:disabled { opacity: .65; }
   @media (forced-colors: none) {
     select, .stack select, select::picker(select) { appearance: base-select; }
     select > button { all: unset; display: block; flex: 1; min-width: 0; }
-    select selectedcontent { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    select .select-current-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     select::picker-icon { display: none; }
     select::picker(select) {
       color: var(--ink);

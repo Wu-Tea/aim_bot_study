@@ -1,4 +1,12 @@
-"""Versioned, normalized, strictly monotonic response curves."""
+"""Versioned response curves with strictly monotonic active-segment LUTs.
+
+Version 1 stores normalized shape only. Version 2 adds optional deadzone
+(input start/end fractions) and compensation (output start/end fractions).
+For x > input_start, evaluate output_start + output_span * shape(
+(x-input_start)/input_span), clamping the shape domain. At/below input_start
+return exact zero. This retains physical deadzones and compensation jumps
+without approximating either with near-duplicate knots.
+"""
 from __future__ import annotations
 import json
 import math
@@ -11,6 +19,35 @@ KIND = 'normalized_stick_response'
 MAX_POINTS = 128
 
 
+def curve_window(data, key):
+    window = data.get(key, {})
+    if not isinstance(window, dict) or set(window) - {'start', 'end'}:
+        raise ValueError('曲线死区格式无效。')
+    start, end = window.get('start', 0.), window.get('end', 0.)
+    if any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 or v >= 1 for v in (start, end)) or start + end >= 1:
+        raise ValueError('起点与终点之和必须小于 100%，请保留有效区间。')
+    f32 = lambda v: struct.unpack('f', struct.pack('f', v))[0]
+    if f32(f32(start) + f32(end)) >= 1:
+        raise ValueError('有效区间过小，无法用手柄精度表示。')
+    return float(start), float(end)
+
+
+def evaluate_curve(curve, value, inverse=False):
+    start, end = curve_window(curve, 'deadzone')
+    lower, upper = curve_window(curve, 'compensation')
+    if inverse:
+        if value <= 0: return 0.
+        return start + (1-start-end) * interpolate(curve['points'], (value-lower)/(1-lower-upper), True)
+    if value <= start: return 0.
+    return lower + (1-lower-upper) * interpolate(curve['points'], (value-start)/(1-start-end))
+
+
+def curve_runtime_mapping(curve):
+    start, end = curve_window(curve, 'deadzone')
+    lower, upper = curve_window(curve, 'compensation')
+    return dict(input_start=start, input_end=end, output_start=lower, output_end=upper)
+
+
 def validate_source(source):
     if not isinstance(source, dict): raise ValueError('曲线来源格式无效。')
     result = {}
@@ -21,6 +58,11 @@ def validate_source(source):
             result[key] = source[key]
     for key in ('base_points', 'target_points'):
         if key in source: result[key] = validate_points(source[key])
+    for prefix in ('base_', 'target_'):
+        for key in ('deadzone', 'compensation'):
+            if prefix + key in source:
+                start, end = curve_window({key: source[prefix + key]}, key)
+                result[prefix + key] = dict(start=start, end=end)
     return result
 
 
@@ -36,10 +78,25 @@ def interpolate(points, value, inverse=False):
 
 def compose_curves(base, target, name):
     a, b = validate_points(base['points']), validate_points(target['points'])
+    ai, ae = curve_window(base, 'deadzone')
+    ao, ax = curve_window(base, 'compensation')
+    bi, be = curve_window(target, 'deadzone')
+    bo, bx = curve_window(target, 'compensation')
+    if bo < ao or bx < ax:
+        raise ValueError('目标响应超出基准曲线可达到的范围，请选择完整响应曲线作为基准。')
+    # Solve only the active segments; keep the exact flat intervals and the
+    # right-hand jump as metadata rather than epsilon-spaced LUT points.
+    def target_y(y): return (bo + (1-bo-bx)*y - ao)/(1-ao-ax)
+    low = interpolate(a, target_y(0), True)
+    high = interpolate(a, target_y(1), True)
+    if high <= low:
+        raise ValueError('目标响应范围过小，无法生成有效转译曲线。')
     # All breakpoints of A^-1(B(x)); do not fit away sharp turns or silently
     # squeeze a generated result back into a smaller user point budget.
-    xs = sorted(set([p[0] for p in b] + [interpolate(b, p[1], True) for p in a]))
-    points = [[x, interpolate(a, interpolate(b, x), True)] for x in xs]
+    crossings = [(ao + (1-ao-ax)*p[1] - bo)/(1-bo-bx) for p in a]
+    xs = sorted(set([p[0] for p in b] + [interpolate(b, y, True) for y in crossings if 0 < y < 1]))
+    points = [[x, (interpolate(a, target_y(interpolate(b, x)), True)-low)/(high-low)] for x in xs]
+    points[0], points[-1] = [0., 0.], [1., 1.]
     # Remove only numerically collinear knots; no approximation tolerance.
     reduced = []
     for p in points:
@@ -48,9 +105,13 @@ def compose_curves(base, target, name):
             if abs((m[1]-l[1])*(p[0]-m[0])-(p[1]-m[1])*(m[0]-l[0])) > 1e-14: break
             reduced.pop()
         reduced.append(p)
-    result = curve_document(name, reduced)
+    result = curve_document(name, reduced, dict(deadzone=dict(start=bi, end=be),
+        compensation=dict(start=ai+(1-ai-ae)*low, end=ae+(1-ai-ae)*(1-high))))
     result['source'] = dict(kind='calculated', base_name=base['name'], base_points=a,
                             target_name=target['name'], target_points=b)
+    for prefix, curve in (('base_', base), ('target_', target)):
+        for key in ('deadzone', 'compensation'):
+            if key in curve: result['source'][prefix + key] = dict(zip(('start', 'end'), curve_window(curve, key)))
     return result
 
 
@@ -94,18 +155,24 @@ def seed_points(algorithm, project):
     return read_curve(Path(project) / 'resources/curves' / (names[algorithm] + '.json'))['points']
 
 
-def curve_document(name, points):
+def curve_document(name, points, metadata=None):
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 80:
         raise ValueError('曲线名称应为 1～80 个字符。')
-    return {'schema_version': 1, 'kind': KIND, 'name': name.strip(),
+    result = {'schema_version': 1, 'kind': KIND, 'name': name.strip(),
             'interpolation': 'piecewise_linear', 'points': validate_points(points)}
+    for key in ('deadzone', 'compensation'):
+        start, end = curve_window(metadata or {}, key)
+        if start or end:
+            result[key] = dict(start=start, end=end)
+            result['schema_version'] = 2
+    return result
 
 
 def read_curve(path):
     data = json.loads(Path(path).read_text(encoding='utf-8-sig'))
-    if not isinstance(data, dict) or type(data.get('schema_version')) is not int or data.get('schema_version') != 1 or data.get('kind') != KIND or data.get('interpolation') != 'piecewise_linear':
+    if not isinstance(data, dict) or type(data.get('schema_version')) is not int or data.get('schema_version') not in (1, 2) or data.get('kind') != KIND or data.get('interpolation') != 'piecewise_linear':
         raise ValueError('不支持的曲线格式或版本。')
-    result = curve_document(data.get('name'), data.get('points'))
+    result = curve_document(data.get('name'), data.get('points'), data)
     if 'source' in data:
         result['source'] = validate_source(data['source'])
     return result
@@ -124,8 +191,8 @@ class CurveLibrary:
             except (OSError,ValueError,KeyError,TypeError) as error:self.errors.append(f'{path.name}：{error}')
         return entries
 
-    def create(self, name, points, source=None):
-        data = curve_document(name, points)
+    def create(self, name, points, source=None, metadata=None):
+        data = curve_document(name, points, metadata)
         if source is not None: data['source'] = validate_source(source)
         self.folder.mkdir(parents=True, exist_ok=True)
         path = self.folder / (uuid.uuid4().hex + '.json')
@@ -150,7 +217,7 @@ class CurveLibrary:
     def update(self, identifier, data):
         path = self.path(identifier)
         if not path.is_file(): raise ValueError('曲线已不存在，请刷新曲线库。')
-        result = curve_document(data['name'], data['points'])
+        result = curve_document(data['name'], data['points'], data)
         if 'source' in data: result['source'] = validate_source(data['source'])
         writer = UiPreferences(self.folder); writer.path = path; writer.write(result)
         return result

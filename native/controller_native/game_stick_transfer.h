@@ -32,7 +32,7 @@ inline float game_stick_magnitude(float magnitude,
                                  const GameStickTransferConfig& config,
                                  bool decode) noexcept {
     if (magnitude == 0.0f) return 0.0f;
-    if (magnitude >= 1.0f && config.outer_deadzone == 0.0f) return magnitude;
+    if (magnitude >= 1.0f && config.outer_deadzone == 0.0f && !curve_has_window(config.curve)) return magnitude;
     const float span = 1.0f - config.deadzone - config.outer_deadzone;
     // A prepared input/output mapping is already C, not a game model A.
     // The AI model remains independently selected in aim_response_curve.
@@ -77,9 +77,10 @@ inline pipeline_contract::Vec2f transfer_game_stick(
     if (radius == 0.0f) return stick;
     // Keep square-report directions/corners. The outer rim scales with the
     // configured full-speed threshold; undo that scale in delivered feedback.
-    const float outer = 1.0f - config.outer_deadzone;
-    if (radius >= (decode ? outer : 1.0f)) {
-        if (config.outer_deadzone == 0.0f) return stick;
+    const float outer = 1.0f - config.outer_deadzone -
+        (1.0f-config.deadzone-config.outer_deadzone)*config.curve.output_end;
+    if (config.curve.input_end == 0.f && radius >= (decode ? outer : 1.0f)) {
+        if (outer == 1.0f) return stick;
         const float scale = decode ? 1.0f / outer : outer;
         return {stick.x * scale, stick.y * scale};
     }

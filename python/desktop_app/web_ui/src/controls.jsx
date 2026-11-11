@@ -2,9 +2,12 @@ import React from "react";
 import { DropdownMenu } from "radix-ui";
 import { Ellipsis } from "lucide-react";
 // The native select still owns values, labels, events and keyboard navigation.
-// An explicit selected-content box lets long labels ellipsize beside the arrow.
+// React owns the displayed label: native selectedcontent can retain stale text
+// when an existing option label changes without changing its selected value.
 export function Select({ children, ...props }) {
-  return <select {...props}><button type="button"><selectedcontent /></button>{children}</select>;
+  const options = React.Children.toArray(children);
+  const selected = options.find((option) => String(option.props?.value) === String(props.value ?? props.defaultValue)) || options[0];
+  return <select {...props}><button type="button"><span className="select-current-label">{selected?.props?.children}</span></button>{children}</select>;
 }
 export function IconButton({ label, children, ...props }) {
   return (

@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { rpc, copy } from "./bridge";
 import { CurveSettings } from "./curve-settings";
 import { CurveEditor } from "./curve-editor";
-import { interpolate, curvePath } from "./curve-preview";
+import { evaluateCurve, displayPoints, curveLabel, curvePath } from "./curve-preview";
 
 const identity = { schema_version: 1, kind: 'normalized_stick_response', name: '新曲线',
   interpolation: 'piecewise_linear', points: [[0, 0], [1, 1]], source: { kind: 'manual' } };
@@ -27,6 +27,11 @@ export function CurveWorkspace({ draft, seeds, fields, setValue, onApply, run, c
   const base = entries.find((e) => e.id === baseId), target = entries.find((e) => e.id === targetId);
   const dirty = edit && JSON.stringify(edit) !== JSON.stringify(original);
   const editPending = !!edit && (!!dirty || !!pointEdit || !edit.id || !!edit.temporary);
+  const validWindow = (curve) => ['deadzone','compensation'].every((key) => {
+    const start=curve?.[key]?.start ?? 0, end=curve?.[key]?.end ?? 0;
+    return Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end >= 0 && start+end < 1;
+  });
+  const editValid = !edit || validWindow(edit);
   const compositionPending = !!(baseId || targetId || result);
   const changeSelection = (setter, value) => { setter(value); setResult(null); setMessage(''); };
   useEffect(() => { Object.assign(cache, { tab, edit, original, pointEdit, editorOpen }); }, [tab, edit, original, pointEdit, editorOpen]);
@@ -43,7 +48,7 @@ export function CurveWorkspace({ draft, seeds, fields, setValue, onApply, run, c
     return () => { active = false; };
   }, [loadAttempt]);
   const calculate = () => run('正在计算…', async () => {
-    const computed = await rpc('curve_compose', { base, target, name: `${base.name} → ${target.name}`.slice(0, 80) });
+    const computed = await rpc('curve_compose', { base, target, name: `${curveLabel(base)} → ${curveLabel(target)}`.slice(0, 80) });
     setResult(computed); setMessage('');
   });
   const openEditor = (entry) => { setEdit(copy(entry)); setOriginal(copy(entry)); setPointEdit(null); setArchiveConfirm(false); setMessage(''); setEditorOpen(true); };
@@ -61,6 +66,7 @@ export function CurveWorkspace({ draft, seeds, fields, setValue, onApply, run, c
     else changeSelection(setBaseId, entry.id);
   });
   const saveLibrary = (asNew = false) => run('正在保存曲线…', async () => {
+    if (!editValid) { setMessage('起点与终点之和必须小于 100%，请保留有效区间。'); return; }
     const data = await rpc('curve_library_save', { ...edit, id: !asNew && !edit.readonly && !edit.temporary ? edit.id : undefined });
     setLibrary(data); setEdit(null); setOriginal(null); setMessage('已保存到曲线库');
   });
@@ -96,9 +102,9 @@ export function CurveWorkspace({ draft, seeds, fields, setValue, onApply, run, c
     return () => { if (saveRef.current === saveCurrent) saveRef.current = null; };
   });
   const sample = result && base && target && {
-    target: interpolate(target.points, probe / 100),
-    output: interpolate(result.points, probe / 100),
-    actual: interpolate(base.points, interpolate(result.points, probe / 100)),
+    target: evaluateCurve(target, probe / 100),
+    output: evaluateCurve(result, probe / 100),
+    actual: evaluateCurve(base, evaluateCurve(result, probe / 100)),
   };
   return <div className="curve-workspace">
     <div className="sectionnav" aria-label="曲线工作区">
@@ -114,11 +120,11 @@ export function CurveWorkspace({ draft, seeds, fields, setValue, onApply, run, c
       <div className="curve-library-toolbar"><button onClick={() => setPreparing(false)}><ArrowLeft size={16} />返回曲线库</button><h2>制作融合曲线</h2>{compositionPending && <button onClick={() => setDiscard('composition')}>放弃制作</button>}</div>
       <section className="curve-selection">
         <label className="stack">基准曲线 A<Select aria-label="基准曲线 A" value={baseId} onChange={(e) => changeSelection(setBaseId, e.target.value)}>
-          <option value="">选择当前游戏响应曲线</option>{entries.map((e) => <option key={e.id} value={e.id}>{e.name}{e.temporary ? '（临时导入）' : ''}</option>)}
+          <option value="">选择当前游戏响应曲线</option>{entries.map((e) => <option key={e.id} value={e.id}>{curveLabel(e)}{e.temporary ? '（临时导入）' : ''}</option>)}
         </Select></label>
         <label className="stack">目标曲线 B<Select aria-label="目标曲线 B" value={targetId} onChange={(e) => changeSelection(setTargetId, e.target.value)}>
           <option value="">选择目标响应曲线</option>
-          {entries.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+          {entries.map((e) => <option key={e.id} value={e.id}>{curveLabel(e)}</option>)}
         </Select></label>
         <div className="curve-selection-actions"><button disabled={!base || !target || !ready} onClick={calculate}>计算转译曲线</button><button onClick={importCurve}>临时导入…</button></div>
       </section>
@@ -128,9 +134,9 @@ export function CurveWorkspace({ draft, seeds, fields, setValue, onApply, run, c
           <div className="chart-title"><span>输出 / 响应 %</span><span>输入 %</span></div>
           <svg viewBox="0 0 660 410" aria-label="基准、目标与转译三条曲线" className="curve-composition-plot">
             {[0,.25,.5,.75,1].map((f) => <g key={f}><path d={`M50 ${360-f*310}H610M${50+f*560} 50V360`} stroke="var(--line-muted)"/><text x="6" y={364-f*310}>{f*100}</text><text x={50+f*560} y="390" textAnchor="middle">{f*100}</text></g>)}
-            <path id="baseCurve" d={curvePath(base.points)} fill="none" stroke="var(--muted)" strokeWidth="2" strokeDasharray="6 5"/>
-            <path id="targetCurve" d={curvePath(target.points)} fill="none" stroke="var(--accent)" strokeWidth="3"/>
-            <path id="translationCurve" d={curvePath(result.points)} fill="none" stroke="var(--warning)" strokeWidth="3" strokeDasharray="10 3 2 3"/>
+            <path id="baseCurve" d={curvePath(displayPoints(base))} fill="none" stroke="var(--muted)" strokeWidth="2" strokeDasharray="6 5"/>
+            <path id="targetCurve" d={curvePath(displayPoints(target))} fill="none" stroke="var(--accent)" strokeWidth="3"/>
+            <path id="translationCurve" d={curvePath(displayPoints(result))} fill="none" stroke="var(--warning)" strokeWidth="3" strokeDasharray="10 3 2 3"/>
           </svg>
         </div>
         <aside className="curve-side"><h2>换算结果</h2>
@@ -145,25 +151,34 @@ export function CurveWorkspace({ draft, seeds, fields, setValue, onApply, run, c
       {edit && <div className="curve-library-toolbar"><button onClick={() => setEditorOpen(true)}>继续编辑</button><span>{edit.name} · 未保存</span><button onClick={() => setDiscard('edit')}>放弃修改</button></div>}
       <div className="curve-library-toolbar"><button disabled={editPending} onClick={() => openEditor(copy(identity))}>新建曲线</button><button disabled={editPending} onClick={() => { setPreparing(true); setMessage(''); }}>{baseId || targetId ? '继续制作融合曲线' : '制作融合曲线'}</button><button disabled={editPending} onClick={importCurve}>导入曲线…</button></div>
       {library.errors.map((e) => <p className="inline-error" key={e}>{e}</p>)}
-      <div className="tablewrap"><table className="profiletable"><thead><tr><th>名称</th><th>来源</th><th>点数</th><th>操作</th></tr></thead><tbody>
-        {library.entries.map((e) => <tr key={e.id}><td>{e.name}</td><td>{e.readonly ? '内置 · ' : ''}{{measurement:'实测',analytic:'公式',calculated:'曲线换算',manual:'手动编辑'}[e.source?.kind] || '导入'}</td><td>{e.points.length}</td><td><button disabled={editPending} onClick={() => openEditor(e)}>查看 / 编辑</button></td></tr>)}
+      <div className="tablewrap"><table className="profiletable"><thead><tr><th>名称</th><th>来源</th><th>起点 / 终点死区</th><th>点数</th><th>操作</th></tr></thead><tbody>
+        {library.entries.map((e) => <tr key={e.id}><td>{e.name}</td><td>{e.readonly ? '内置 · ' : ''}{{measurement:'实测',analytic:'公式',calculated:'曲线换算',manual:'手动编辑'}[e.source?.kind] || '导入'}</td><td>{Number(((e.deadzone?.start ?? 0)*100).toFixed(2))}% / {Number(((e.deadzone?.end ?? 0)*100).toFixed(2))}%</td><td>{e.points.length}</td><td><button disabled={editPending} onClick={() => openEditor(e)}>查看 / 编辑</button></td></tr>)}
       </tbody></table></div>
       </>}
       {edit && editorOpen && <section className="curve-library-editor">
         <div className="curve-library-toolbar"><button onClick={backToLibrary}><ArrowLeft size={16} />返回曲线库</button><label>名称<input className="text-field" aria-label="库中曲线名称" maxLength="80" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })}/></label>
           {editPending && <span className="save-state dirty">未保存</span>}
-          <button disabled={!!pointEdit || !edit.name.trim()} onClick={() => saveLibrary(false)}>{edit.readonly ? '保存为副本' : '保存曲线'}</button>
-          {!edit.readonly && edit.id && !edit.temporary && <button disabled={!!pointEdit} onClick={() => saveLibrary(true)}>另存副本</button>}
-          <button disabled={!!pointEdit || !edit.name.trim()} onClick={() => exportCurve(edit)}>导出…</button>
+          <button disabled={!editValid || !!pointEdit || !edit.name.trim()} onClick={() => saveLibrary(false)}>{edit.readonly ? '保存为副本' : '保存曲线'}</button>
+          {!edit.readonly && edit.id && !edit.temporary && <button disabled={!editValid || !!pointEdit} onClick={() => saveLibrary(true)}>另存副本</button>}
+          <button disabled={!editValid || !!pointEdit || !edit.name.trim()} onClick={() => exportCurve(edit)}>导出…</button>
           {editPending && <button onClick={() => setDiscard('edit')}>放弃修改</button>}
           {!edit.readonly && edit.id && !edit.temporary && <button disabled={editPending} onClick={() => setArchiveConfirm(true)}>移入归档</button>}
         </div>
         {archiveConfirm && <div className="curve-library-toolbar"><span>将“{edit.name}”移入归档？</span><button onClick={() => run('正在归档曲线…', async () => { setLibrary(await rpc('curve_library_archive', { id: edit.id })); setMessage(`已归档“${edit.name}”`); setEdit(null); setOriginal(null); setArchiveConfirm(false); })}>确认归档</button><button onClick={() => setArchiveConfirm(false)}>取消</button></div>}
         {edit.source?.url && /^https?:\/\//.test(edit.source.url) && <a href={edit.source.url} target="_blank" rel="noreferrer">数据来源</a>}
         {edit.source?.kind === 'calculated' && <p className="curve-status">{edit.source.base_name} → {edit.source.target_name}</p>}
-        <CurveEditor key={edit.id || 'new'} draft={{ ...draft, curve: { algorithm:'custom_lut', definition: edit } }}
+        <section className="curve-deadzones" aria-label="曲线死区">
+          {['start','end'].map((key,i) => <label className="stack" key={key}>
+            <span>{i ? '终点死区' : '起点死区'}</span><span className="number"><input type="number" min="0" max="100" step="any" aria-label={i ? '终点死区' : '起点死区'}
+              aria-invalid={!editValid} value={Number.isFinite(edit.deadzone?.[key] ?? 0) ? Number(((edit.deadzone?.[key] ?? 0)*100).toFixed(6)) : ''}
+              onChange={(e) => setEdit({...edit, schema_version:2, deadzone:{...edit.deadzone,[key]:e.target.value === '' ? NaN : Number(e.target.value)/100}})}/><span>%</span></span>
+          </label>)}
+        </section>
+        {!editValid && <p role="alert" className="inline-error">起点与终点之和必须小于 100%，请保留有效区间。</p>}
+        {edit.compensation && <p className="curve-status">补偿输出范围 {(100*edit.compensation.start).toFixed(2)}%～{(100*(1-edit.compensation.end)).toFixed(2)}%</p>}
+        {editValid && <CurveEditor key={edit.id || 'new'} draft={{ ...draft, curve: { algorithm:'custom_lut', definition: edit } }}
           onCurve={(curve) => setEdit({ ...edit, points: curve.definition.points, source: { ...edit.source, kind:'manual' } })}
-          pointEdit={pointEdit} onPointEdit={setPointEdit}/>
+          pointEdit={pointEdit} onPointEdit={setPointEdit}/>}
       </section>}
     </>}
   </div>;

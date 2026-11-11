@@ -8,10 +8,12 @@ def runtime_curve_binding(document, game=None):
     return {
         'ai_algorithm': algorithm,
         'ai_points': lookup(data, 'gamepad.aim_response_curve.custom_points', '') if algorithm == 'custom_lut' else '',
+        'ai_mapping': {key: lookup(data, 'gamepad.aim_response_curve.' + key, 0.) for key in ('input_start','input_end','output_start','output_end')},
         'response_units': 'full_scale_px_per_second',
         'response_calibration': 'manual_v1',
         'manual_translation': lookup(data, 'gamepad.follow_response_curve', False),
         'output': {key: lookup(data, 'gamepad.output_transfer.' + key, default) for key, default in (
+            ('input_start', 0.), ('input_end', 0.), ('output_start', 0.), ('output_end', 0.),
             ('enabled', False), ('response_model', 'power'), ('custom_points', ''),
             ('curve_name', ''), ('deadzone', .16), ('outer_deadzone', 0.), ('axial', False), ('game_exponent', 1.))},
     }

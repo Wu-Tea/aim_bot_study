@@ -207,9 +207,9 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> tracker_keys{
         "aim_height_ratio", "max_observation_age_ms"};
     static const std::unordered_set<std::string> aim_response_curve_keys{
-        "algorithm", "calibration_reference_stick", "custom_points"};
+        "algorithm", "calibration_reference_stick", "custom_points", "input_start", "input_end", "output_start", "output_end"};
     static const std::unordered_set<std::string> output_transfer_keys{
-        "enabled", "axial", "deadzone", "outer_deadzone", "game_exponent", "response_model", "custom_points", "curve_name"};
+        "enabled", "axial", "deadzone", "outer_deadzone", "game_exponent", "response_model", "custom_points", "curve_name", "input_start", "input_end", "output_start", "output_end"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "activation_radius_px",
         "pickup_base_radius_px",
@@ -362,6 +362,10 @@ void apply_gamepad_aim_response_curve_value(
         config.algorithm = algorithm;
     } else if (key == "calibration_reference_stick") {
         config.calibration_reference_stick = parse_float_value(value);
+    } else if (key == "input_start") { config.input_start = parse_float_value(value);
+    } else if (key == "input_end") { config.input_end = parse_float_value(value);
+    } else if (key == "output_start") { config.output_start = parse_float_value(value);
+    } else if (key == "output_end") { config.output_end = parse_float_value(value);
     } else if (key == "custom_points") {
         const auto text = parse_string_value(value);
         std::istringstream points(text);
@@ -681,6 +685,8 @@ void apply_value(
         else if (key == "deadzone") transfer.deadzone = parse_float_value(value);
         else if (key == "outer_deadzone") transfer.outer_deadzone = parse_float_value(value);
         else if (key == "game_exponent") transfer.game_exponent = parse_float_value(value);
+        else if (key == "input_start" || key == "input_end" || key == "output_start" || key == "output_end")
+            apply_gamepad_aim_response_curve_value(transfer.curve, key, value);
         else if (key == "custom_points") {
             if (parse_string_value(value).empty()) transfer.curve.custom_count = 0;
             else apply_gamepad_aim_response_curve_value(transfer.curve, key, value);
@@ -1044,6 +1050,11 @@ void validate_runtime_config(RuntimeConfig& config) {
             "gamepad.aim_response_curve.calibration_reference_stick",
             "0.05..1");
     const auto validate_curve = [&](const AimResponseCurveConfig& curve, bool required, const char* path) {
+    for (const auto window : {std::pair<float,float>{curve.input_start, curve.input_end}, {curve.output_start, curve.output_end}})
+        if (!std::isfinite(window.first) || !std::isfinite(window.second) || window.first < 0 || window.second < 0 || window.first + window.second >= 1)
+            invalid(path, "finite curve window with nonnegative endpoints and sum < 1");
+    if (curve_has_window(curve) && !required)
+        invalid(path, "curve windows require custom_lut");
     if (required || curve.custom_count != 0) {
         if (curve.custom_count < 2 || curve.custom_count > curve.custom_stick.size() ||
             curve.custom_stick[0] != 0 || curve.custom_response[0] != 0 ||

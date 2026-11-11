@@ -95,6 +95,7 @@ class WorkspaceService:
         model = transfer.get('response_model', 'power')
         if transfer.get('enabled') and model in ('cod_linear_legacy_lut', 'custom_lut'):
             a = curve_document(transfer.get('curve_name') or '旧版输入响应', seed_points('cod_linear_legacy_lut', self.repo.curve_source) if model == 'cod_linear_legacy_lut' else decode_points(transfer['custom_points']))
+            a = curve_document(a['name'], a['points'], dict(deadzone=dict(start=transfer.get('deadzone', .16), end=transfer.get('outer_deadzone', 0))))
             b = doc['curve']['definition'] if lookup(doc['config'], 'gamepad.follow_response_curve', False) else curve_document('线性 1:1', seed_points('linear', self.repo.curve_source))
             input_curve = compose_curves(a, b, '已保存的输入转译曲线')
         return dict(id=doc['id'], name=doc['name'], game=doc['game'], revision=revision,
@@ -310,13 +311,13 @@ class WorkspaceService:
             path = self._choose('open','',('响应曲线 (*.json)',))
             return read_curve(path) if path else None
         if command == 'curve_export':
-            data = curve_document(p['name'],p['points'])
+            data = curve_document(p['name'],p['points'],p)
             if 'source' in p: data['source'] = validate_source(p['source'])
             return self._export(data, export_filename(p['name'],'.json'))
         if command == 'curve_library': return self.curves.catalog()
         if command == 'curve_library_save':
             if p.get('id'): self.curves.update(p['id'], p)
-            else: self.curves.create(p['name'], p['points'], p.get('source', {'kind':'manual'}))
+            else: self.curves.create(p['name'], p['points'], p.get('source', {'kind':'manual'}), p)
             return self.curves.catalog()
         if command == 'curve_library_archive':
             self.curves.archive(p['id']); return self.curves.catalog()

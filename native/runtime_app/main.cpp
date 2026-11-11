@@ -251,6 +251,10 @@ void dump_effective_config(const controller_native::RuntimeConfig& config, std::
         transfer_points << transfer.curve.custom_stick[i] << ":" << transfer.curve.custom_response[i];
     }
     line("gamepad.output_transfer.custom_points", transfer_points.str());
+    line("gamepad.output_transfer.input_start", transfer.curve.input_start);
+    line("gamepad.output_transfer.input_end", transfer.curve.input_end);
+    line("gamepad.output_transfer.output_start", transfer.curve.output_start);
+    line("gamepad.output_transfer.output_end", transfer.curve.output_end);
     line("gamepad.output_transfer.axial", transfer.axial);
     line("gamepad.output_transfer.deadzone", transfer.deadzone);
     line("gamepad.output_transfer.outer_deadzone", transfer.outer_deadzone);

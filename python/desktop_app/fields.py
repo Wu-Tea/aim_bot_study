@@ -29,6 +29,10 @@ GAME_FIELDS = [
     ('gamepad.output_transfer.curve_name', '基准曲线名称', str, '', None),
     ('gamepad.output_transfer.deadzone', '游戏死区补偿量', float, .16, (0, .5)),
     ('gamepad.output_transfer.outer_deadzone', '终点死区', float, 0., (0, .5)),
+    ('gamepad.output_transfer.input_start', '曲线映射 input_start', float, 0., (0, 1)),
+    ('gamepad.output_transfer.input_end', '曲线映射 input_end', float, 0., (0, 1)),
+    ('gamepad.output_transfer.output_start', '曲线映射 output_start', float, 0., (0, 1)),
+    ('gamepad.output_transfer.output_end', '曲线映射 output_end', float, 0., (0, 1)),
     ('gamepad.output_transfer.axial', '轴向死区补偿', bool, False, None),
     ('gamepad.output_transfer.game_exponent', '游戏响应幂指数', float, 1.0, (1, 3)),
     ('gamepad.auto_fire.fire_output', '自动开火输出', str, 'RB', ('RT', 'RB')),
@@ -133,3 +137,9 @@ def validate_fields(document, games):
         validate_relationships(data)
         if lookup(data, 'gamepad.output_transfer.deadzone', .16) + lookup(data, 'gamepad.output_transfer.outer_deadzone', 0.) >= 1:
             raise ValueError('起点死区与终点死区之和必须小于 100%，请保留有效输入区间。')
+
+        from .curves import curve_window
+        for section in ('aim_response_curve', 'output_transfer'):
+            mapping = lookup(data, 'gamepad.' + section, {})
+            for side in ('input', 'output'):
+                curve_window({'window': dict(start=mapping.get(side+'_start', 0), end=mapping.get(side+'_end', 0))}, 'window')

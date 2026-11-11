@@ -1,5 +1,6 @@
 import { Select } from "./controls";
 import React, { useState, useRef } from "react";
+import { displayPoints, curvePath, curveWindow } from "./curve-preview";
 import { fmt, copy } from "./bridge";
 export function CurveEditor({
   draft,
@@ -10,6 +11,10 @@ export function CurveEditor({
   const points = draft.curve.definition.points,
     [selected, setSelected] = useState(pointEdit?.index ?? 1),
     [pointError, setPointError] = useState("");
+  const [start,end] = curveWindow(draft.curve.definition, 'deadzone');
+  const [lower,upper] = curveWindow(draft.curve.definition, 'compensation');
+  const toDisplay = ([x,y]) => [start+(1-start-end)*x, lower+(1-lower-upper)*y];
+  const fromDisplay = ([x,y]) => [(x-start)/(1-start-end), (y-lower)/(1-lower-upper)];
   const svg = useRef(null),
     drag = useRef(null);
   const index = Math.min(selected, points.length - 1),
@@ -18,7 +23,7 @@ export function CurveEditor({
   const pointText =
     pointEdit?.index === index
       ? pointEdit.text
-      : point.map((x) => String(fmt(x * 100)));
+      : toDisplay(point).map((x) => String(fmt(x * 100)));
   const replace = (next) => {
     onPointEdit(null);
     onCurve({
@@ -44,9 +49,9 @@ export function CurveEditor({
     );
   const exact = () => {
     const next = copy(points);
-    next[index] = pointText.map((x) =>
+    next[index] = fromDisplay(pointText.map((x) =>
       x.trim() === "" ? NaN : Number(x) / 100,
-    );
+    ));
     if (!valid(next)) {
       setPointError("点位必须在相邻点之间，输入和响应都严格递增。");
       return;
@@ -66,11 +71,11 @@ export function CurveEditor({
     next[i] = [
       Math.max(
         lo[0] + 0.000011,
-        Math.min(hi[0] - 0.000011, (pos.x - 50) / 560),
+        Math.min(hi[0] - 0.000011, ((pos.x - 50) / 560-start)/(1-start-end)),
       ),
       Math.max(
         lo[1] + 0.000011,
-        Math.min(hi[1] - 0.000011, (360 - pos.y) / 310),
+        Math.min(hi[1] - 0.000011, ((360 - pos.y) / 310-lower)/(1-lower-upper)),
       ),
     ];
     onCurve(
@@ -83,9 +88,7 @@ export function CurveEditor({
   const finish = () => {
     drag.current = null;
   };
-  const path = points
-    .map(([x, y], i) => `${i ? "L" : "M"}${50 + x * 560},${360 - y * 310}`)
-    .join(" ");
+  const path = curvePath(displayPoints(draft.curve.definition));
   return (
     <div className="curve-layout">
       <div>
@@ -118,7 +121,7 @@ export function CurveEditor({
               stroke="var(--accent)"
               strokeWidth="4"
             />
-            {points.map(([x, y], i) => (
+            {points.map(toDisplay).map(([x, y], i) => (
               <circle
                 key={i}
                 cx={50 + x * 560}
@@ -166,7 +169,7 @@ export function CurveEditor({
             value={index}
             onChange={(e) => setSelected(Number(e.target.value))}
           >
-            {points.map((p, i) => (
+            {points.map(toDisplay).map((p, i) => (
               <option key={i} value={i}>
                 {i + 1}：{fmt(p[0] * 100)}% → {fmt(p[1] * 100)}%
               </option>

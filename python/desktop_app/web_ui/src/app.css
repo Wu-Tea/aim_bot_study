@@ -154,11 +154,10 @@
 .curve-input-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .curve-settings-preview { display: grid; grid-template-columns: minmax(0,1fr) 210px; gap: 24px; }
 .curve-settings-preview .chart { min-width: 0; }
-.curve-settings-preview .chart .curve-composition-plot { height: clamp(180px, calc(100dvh - 708px), 260px); max-height: 260px; }
+.curve-settings-preview .chart .curve-composition-plot { height: clamp(180px, calc(100dvh - 640px), 260px); max-height: 260px; }
 .curve-settings-preview .chart circle { cursor: default; }
 .curve-preview-values { padding-top: 12px; }
 .curve-preview-values h2 { margin: 0 0 24px; }
-.curve-effective-range { color: var(--muted); font-size: var(--font-small); margin: 0 0 16px; }
 @media (max-width: 900px) { .curve-settings-preview { grid-template-columns: minmax(0,1fr); gap: 12px; } .curve-preview-values { padding-top: 0; } .curve-preview-values h2 { margin-bottom: 12px; } }
 @media (max-width: 720px) { .curve-use-selectors { grid-template-columns: 1fr; } }
 .curve-empty { padding: 48px 24px; text-align: center; color: var(--muted); border: var(--border); border-radius: var(--radius-panel); }
