@@ -22,8 +22,8 @@ enum class AimResponseCurveAlgorithm : unsigned char {
 
 struct AimResponseCurveConfig {
     AimResponseCurveAlgorithm algorithm = AimResponseCurveAlgorithm::Linear;
-    // The scalar response learner is local. Anchor the nonlinear shape here so
-    // enabling a plugin does not silently replace the learned sensitivity.
+    // Read-only legacy configuration field. Full-response calibration no longer
+    // depends on an arbitrary stick-position anchor.
     float calibration_reference_stick = 0.50f;
     std::array<float, 128> custom_stick{};
     std::array<float, 128> custom_response{};
@@ -156,60 +156,29 @@ inline float curve_inverse_magnitude(float value, const AimResponseCurveConfig& 
         resolve_aim_response_curve_plugin(config.algorithm).inverse_magnitude(value);
 }
 
+// UI percentages and camera demand share full-scale normalized response.
+// Apply the radial curve without a local calibration anchor.
+inline pipeline_contract::Vec2f normalized_aim_response_curve(
+    pipeline_contract::Vec2f value, const AimResponseCurveConfig& config,
+    bool inverse = false) noexcept {
+    const float radius = std::hypot(value.x, value.y);
+    if (radius == 0.f || config.algorithm == AimResponseCurveAlgorithm::Linear) return value;
+    const float mapped = inverse ? curve_inverse_magnitude(radius, config)
+                                 : curve_forward_magnitude(radius, config);
+    const float scale = mapped / radius;
+    return {value.x * scale, value.y * scale};
+}
+
+// Camera demand and learning both use full-scale normalized response. The
+// same px/s calibration therefore has the same units for every curve.
 inline pipeline_contract::Vec2f inverse_aim_response_curve(
-    pipeline_contract::Vec2f linear_target,
-    const AimResponseCurveConfig& config) noexcept {
-    const float input_magnitude = std::hypot(linear_target.x, linear_target.y);
-    if (input_magnitude <= 1.0e-7f ||
-        config.algorithm == AimResponseCurveAlgorithm::Linear) {
-        return linear_target;
-    }
-
-    const float reference = std::clamp(
-        std::isfinite(config.calibration_reference_stick)
-            ? config.calibration_reference_stick
-            : 0.50f,
-        0.05f,
-        1.0f);
-    const float reference_response = curve_forward_magnitude(reference, config);
-    const float desired_response = std::clamp(
-        reference_response * input_magnitude / reference, 0.0f, 1.0f);
-    const float output_magnitude = curve_inverse_magnitude(desired_response, config);
-    const float scale = output_magnitude / input_magnitude;
-    return {linear_target.x * scale, linear_target.y * scale};
+    pipeline_contract::Vec2f response, const AimResponseCurveConfig& config) noexcept {
+    return normalized_aim_response_curve(response, config, true);
 }
 
-// Converts the delivered virtual-stick target back into the normalized
-// camera-response space used by the controller.  This is the exact inverse of
-// inverse_aim_response_curve within the plugin's unclipped range. Runtime
-// response learning and simulation both use it so a configured nonlinear
-// response curve is never measured as though it were linear.
 inline pipeline_contract::Vec2f forward_aim_response_curve(
-    pipeline_contract::Vec2f delivered_stick,
-    const AimResponseCurveConfig& config) noexcept {
-    const float stick_magnitude = std::hypot(
-        delivered_stick.x, delivered_stick.y);
-    if (stick_magnitude <= 1.0e-7f ||
-        config.algorithm == AimResponseCurveAlgorithm::Linear) {
-        return delivered_stick;
-    }
-
-    const float reference = std::clamp(
-        std::isfinite(config.calibration_reference_stick)
-            ? config.calibration_reference_stick
-            : 0.50f,
-        0.05f,
-        1.0f);
-    const float reference_response = curve_forward_magnitude(reference, config);
-    if (!std::isfinite(reference_response) ||
-        reference_response <= 1.0e-7f) {
-        return delivered_stick;
-    }
-    const float response = curve_forward_magnitude(
-        std::clamp(stick_magnitude, 0.0f, 1.0f), config);
-    const float linear_magnitude = reference * response / reference_response;
-    const float scale = linear_magnitude / stick_magnitude;
-    return {delivered_stick.x * scale, delivered_stick.y * scale};
+    pipeline_contract::Vec2f stick, const AimResponseCurveConfig& config) noexcept {
+    return normalized_aim_response_curve(stick, config);
 }
 
-}  // namespace controller_native
+} // namespace controller_native

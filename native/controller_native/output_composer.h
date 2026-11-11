@@ -38,7 +38,9 @@ enum class OutputComposeStatus : std::uint8_t {
 class OutputComposer {
 public:
     OutputComposer() noexcept = default;
-    explicit OutputComposer(GameStickTransferConfig transfer) noexcept : transfer_(transfer) {}
+    explicit OutputComposer(GameStickTransferConfig transfer,
+        AimResponseCurveConfig response_curve = {}) noexcept
+        : transfer_(transfer), response_curve_(response_curve) {}
 
     void reset() noexcept;
 
@@ -85,6 +87,7 @@ private:
 
     GamepadOutputState output_{};
     GameStickTransferConfig transfer_{};
+    AimResponseCurveConfig response_curve_{};
     OutputComposeStage stage_ = OutputComposeStage::Empty;
 };
 

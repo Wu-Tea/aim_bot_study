@@ -304,7 +304,7 @@ class WorkspaceService:
         if command == 'learning_export':
             data = self.manager.learning()
             if not data: raise ValueError('当前没有可导出的响应学习数据。')
-            return self._export({'learning': data, 'units': 'px / (effective_stick * second)',
+            return self._export({'learning': data, 'units': 'px/s', 'response_reference': 'normalized_curve_full_scale',
                 'measurement_kind':'controller response estimate, not independent game calibration'}, '响应学习.json')
         if command == 'curve_import':
             path = self._choose('open','',('响应曲线 (*.json)',))

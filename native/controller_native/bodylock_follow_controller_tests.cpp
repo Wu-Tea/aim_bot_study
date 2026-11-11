@@ -161,6 +161,12 @@ void test_center_crossing_incident(const native_test::TestContext& context) {
             const auto axis = [y_axis](pipeline_contract::Vec2f value) {
                 return y_axis ? -value.y : value.x; // screen coordinate
             };
+            // The historical jitter threshold describes camera work. Compare
+            // normalized response so a larger nonlinear inverse stick is not
+            // mistaken for a larger camera disturbance.
+            const auto camera_axis = [&](pipeline_contract::Vec2f stick) {
+                return axis(controller_native::forward_aim_response_curve(stick, config.response_curve));
+            };
             for (const float direction : {-1.0f, 1.0f}) {
                 for (const float authority : {0.65f, 1.0f}) {
                     auto plan = active_plan(0.0f, 0.0f);
@@ -178,7 +184,7 @@ void test_center_crossing_incident(const native_test::TestContext& context) {
                             ? pipeline_contract::Vec2f{0.0f, value}
                             : pipeline_contract::Vec2f{value, 0.0f};
                     };
-                    const float centered = axis(controller.compute(plan));
+                    const float centered = camera_axis(controller.compute(plan));
                     require_true(centered * direction > 0.01f,
                         "trigger requires nonzero sustaining work at center");
                     float previous = 0.0f;
@@ -188,7 +194,7 @@ void test_center_crossing_incident(const native_test::TestContext& context) {
                         const auto result = controller.compute_detailed(plan);
                         require_true(error == 0.0f || std::fabs(axis(result.position_stick)) > 1e-5f,
                             "nonzero probes must lie outside the known-bad exact-zero exception");
-                        const float value = axis(result.stick);
+                        const float value = camera_axis(result.stick);
                         require_true(std::fabs(axis(result.motion_stick) - direction * 0.2f) < 1e-6f,
                             "trigger must hold total motion fixed on both sides of zero");
                         if (have_previous) maximum_crossing_step = std::max(
@@ -205,36 +211,36 @@ void test_center_crossing_incident(const native_test::TestContext& context) {
                     for (const float error : {-1.0f, 0.0f, 1.0f}) {
                         set_error(error);
                         minimum_sustaining_ratio = std::min(minimum_sustaining_ratio,
-                            axis(controller.compute(plan)) / centered);
+                            camera_axis(controller.compute(plan)) / centered);
                     }
                     set_error(-direction * 20.0f);
-                    if (axis(controller.compute(plan)) * direction < 0.0f)
+                    if (camera_axis(controller.compute(plan)) * direction < 0.0f)
                         ++far_position_controls;
                     set_error(0.0f);
                     plan.bodylock_target_motion_px_per_sec = y_axis
                         ? pipeline_contract::Vec2f{0.0f, -direction * 100.0f}
                         : pipeline_contract::Vec2f{-direction * 100.0f, 0.0f};
-                    if (axis(controller.compute(plan)) * direction < -0.01f)
+                    if (camera_axis(controller.compute(plan)) * direction < -0.01f)
                         ++reversal_controls;
                     plan.lifecycle = pipeline_contract::TargetLifecycle::None;
-                    if (axis(controller.compute(plan)) == 0.0f)
+                    if (camera_axis(controller.compute(plan)) == 0.0f)
                         ++lifecycle_controls;
                     plan.lifecycle = pipeline_contract::TargetLifecycle::Observed;
                     plan.bodylock_target_motion_px_per_sec = {};
-                    if (axis(controller.compute(plan)) == 0.0f)
+                    if (camera_axis(controller.compute(plan)) == 0.0f)
                         ++zero_motion_controls;
                     plan.bodylock_target_motion_valid = false;
                     for (const float error : {-0.25f, 0.0f, 0.25f}) {
                         set_error(error);
                         plan.error_rate_px_per_sec = {};
                         maximum_static_jitter = std::max(maximum_static_jitter,
-                            std::fabs(axis(controller.compute(plan))));
+                            std::fabs(camera_axis(controller.compute(plan))));
                         // Screen-rate disturbance does not establish target velocity.
                         plan.error_rate_px_per_sec = y_axis
                             ? pipeline_contract::Vec2f{0.0f, direction * 100.0f}
                             : pipeline_contract::Vec2f{direction * 100.0f, 0.0f};
                         maximum_untrusted_jitter = std::max(maximum_untrusted_jitter,
-                            std::fabs(axis(controller.compute(plan))));
+                            std::fabs(camera_axis(controller.compute(plan))));
                     }
                 }
             }
@@ -535,9 +541,10 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
             for(float ratio : {0.f,.0001f,.001f,.01f,.05f,.1f,.25f,.5f,1.f}) {
                 request.error_px={150*ratio,0};
                 const auto output=solve_response_model_aim(request);
-                require_true(output.stick.x<=.8f*std::sqrt(ratio)+1e-6f && output.stick.x>=previous-1e-6f,
+                const float response = curve_forward_magnitude(output.stick.x, request.response_curve);
+                require_true(response<=.8f*std::sqrt(ratio)+1e-6f && response>=previous-1e-6f,
                     "fast timing and nonlinear curves cannot bypass distance envelope or reverse monotonicity");
-                previous=output.stick.x;
+                previous=response;
             }
             request.error_px={0,0};request.relative_velocity_px_per_sec={100,0};
             request.motion_is_sustaining_target_motion=true;
@@ -679,19 +686,20 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
                     plan.error_rate_px_per_sec={(unit(random)-.5f)*1000,(unit(random)-.5f)*1000};
                     if (tick%29==0) plan.lifecycle=pipeline_contract::TargetLifecycle::None;
                     const auto result=controller.compute_detailed(plan);
-                    follow_peak=std::max(follow_peak,std::hypot(result.stick.x/config.max_force_x,result.stick.y/config.max_force_y));
+                    const auto delivered=controller_native::forward_aim_response_curve(result.stick, config.response_curve);
+                    follow_peak=std::max(follow_peak,std::hypot(delivered.x/config.max_force_x,delivered.y/config.max_force_y));
                     require_true(std::isfinite(result.stick.x) && std::isfinite(result.stick.y) &&
-                        std::abs(result.stick.x)<=config.max_force_x+1e-6f &&
-                        std::abs(result.stick.y)<=config.max_force_y+1e-6f,"follow must honor independent normalized limits");
+                        std::abs(delivered.x)<=config.max_force_x+1e-6f &&
+                        std::abs(delivered.y)<=config.max_force_y+1e-6f,"follow must honor independent normalized limits");
                     if(plan.lifecycle!=pipeline_contract::TargetLifecycle::None) {
                         require_true(near(result.response_horizon_seconds,config.response_time_x_seconds) &&
                             near(result.response_horizon_y_seconds,config.response_time_y_seconds),"time is independent of limit, error, reliability and plant response");
                     } else require_true(result.stick.x==0 && result.stick.y==0,"inactive follow must remain neutral");
                     const float fraction=std::sqrt(std::min(1.f,std::hypot(plan.error_px.x,plan.error_px.y)/plan.position_response_radius_px));
-                    require_true(std::hypot(result.stick.x/config.max_force_x,result.stick.y/config.max_force_y)<=1.f+1e-5f,
+                    require_true(std::hypot(delivered.x/config.max_force_x,delivered.y/config.max_force_y)<=1.f+1e-5f,
                         "velocity feedback stays inside the configured joint actuator budget");
                     plan.mode=pipeline_contract::ControlMode::AdsAcquire;
-                    const auto acquisition=ads.compute(plan);
+                    const auto acquisition=controller_native::forward_aim_response_curve(ads.compute(plan), config.response_curve);
                     require_true(std::hypot(acquisition.x/config.max_force_x,acquisition.y/config.max_force_y)<=fraction+1e-5f,
                         "ADS demand stays inside the geometry budget after the response curve");
                     ads_peak=std::max(ads_peak,std::hypot(acquisition.x/config.max_force_x,acquisition.y/config.max_force_y));

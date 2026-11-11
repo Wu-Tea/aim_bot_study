@@ -678,7 +678,8 @@ GamepadOutputState NativeGamepadController::build_output(
 
 GamepadOutputState NativeGamepadController::build_output_from_sampled_input() {
     ControlFrame frame = resolve_control_frame();
-    OutputComposer composer(config_.output_transfer);
+    OutputComposer composer(config_.output_transfer, config_.ai_aim.adapter_direct_mouse_manual
+        ? AimResponseCurveConfig{} : controller_response_curve(config_));
     if (composer.compose(frame) != OutputComposeStatus::Ok ||
         composer.finalized_output() == nullptr) {
         return {};
@@ -751,9 +752,11 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         last_tick_preparation_.acquisition_rearmed = true;
     }
     TargetControlFeedback control_feedback{};
-    control_feedback.previous_delivered_stick = {
+    // The coordinator multiplies this by full-response px/s on its first
+    // capture. Supply response units here too, not raw nonlinear displacement.
+    control_feedback.previous_delivered_stick = forward_aim_response_curve({
         last_output_components_.before_recoil_stick.x,
-        last_output_components_.before_recoil_stick.y};
+        last_output_components_.before_recoil_stick.y}, controller_response_curve(config_));
     const bool response_ads = last_tick_preparation_.scope.physical_ads_ready;
     if (response_ads != response_ads_) {
         // Camera state, not acquisition/follow stage, owns calibration. A
@@ -1304,9 +1307,11 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         requested = bodylock_diagnostics.stick;
     }
     auto shaping_request = requested;
-    if (canonical_gamepad && !last_tick_preparation_.scope.physical_ads_ready) {
-        shaping_request.x = clamp_unit(shaping_request.x * hipfire_ratio);
-        shaping_request.y = clamp_unit(shaping_request.y * hipfire_ratio);
+    if (canonical_gamepad && !last_tick_preparation_.scope.physical_ads_ready && hipfire_ratio != 1.f) {
+        auto response = normalized_aim_response_curve(shaping_request, controller_response_curve(config_));
+        response.x *= hipfire_ratio;
+        response.y *= hipfire_ratio;
+        shaping_request = normalized_aim_response_curve(response, controller_response_curve(config_), true);
     }
     shaped = dynamics_shaper_.shape(shaping_request, plan, dt);
     // Scale only AI, before arbitration. Physical input and recoil stay owned
@@ -1711,17 +1716,21 @@ void NativeGamepadController::observe_delivered_output(
     }
     const auto delivered_stick = transfer_game_stick(
         {output.right_x, output.right_y}, config_.output_transfer, true);
-    // The curve maps the complete delivered vector into camera velocity.
-    // Remove only the modeled recoil-only baseline in that response space:
-    // F(delivered) - F(recoil), not F(delivered - recoil). A radial nonlinear
-    // curve couples X and Y; removing Y before F loses actual horizontal work.
-    // This is a compensation baseline, not a measurement of weapon kick;
-    // any uncompensated disturbance remains in the observed residual motion.
+    // Recoil was added in response coordinates. Remove its realized response
+    // increment F(composed) - F(before), not F(stick_delta): a radial curve
+    // makes that stick delta depend on the pre-recoil command. Keep delivery
+    // quantization in the tracking residual; weapon kick is not measured here.
     const auto camera_response = forward_aim_response_curve(
         delivered_stick, controller_response_curve(config_));
-    const auto recoil_response = forward_aim_response_curve(
-        {last_output_components_.recoil_stick.x, last_output_components_.recoil_stick.y},
-        controller_response_curve(config_));
+    pipeline_contract::Vec2f recoil_response{};
+    const auto& recoil = last_output_components_.recoil_stick;
+    if (recoil.x != 0.f || recoil.y != 0.f) {
+        const auto& before = last_output_components_.before_recoil_stick;
+        const auto baseline = forward_aim_response_curve({before.x, before.y}, controller_response_curve(config_));
+        const auto composed = forward_aim_response_curve(
+            {before.x + recoil.x, before.y + recoil.y}, controller_response_curve(config_));
+        recoil_response = {composed.x - baseline.x, composed.y - baseline.y};
+    }
     record_aim_response_command(submitted_at_seconds,
         camera_response,
         {camera_response.x - recoil_response.x, camera_response.y - recoil_response.y},

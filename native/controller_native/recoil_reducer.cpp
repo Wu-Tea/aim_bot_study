@@ -19,7 +19,7 @@ pipeline_contract::RecoilContribution RecoilReducer::reduce(
     pipeline_contract::RecoilContribution contribution{};
     contribution.cause_event = cause_event;
     if (!enabled_ || !effective_fire) return contribution;
-    // Preserve the configured ADS amount exactly; hipfire applies only its
+    // Preserve the configured ADS response amount; hipfire applies only its
     // explicit multiplier. Manual-fire AI activation is not physical ADS.
     contribution.stick_delta = {0.0f, -amount_ * (aiming ? 1.0f : hipfire_multiplier_)};
     contribution.active = true;

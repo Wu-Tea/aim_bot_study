@@ -177,7 +177,7 @@ void test_cod_dynamic_plugin_round_trips_seed_curve() {
                  "COD Dynamic inverse LUT must recover the stick sample");
 }
 
-void test_cod_dynamic_curve_shapes_target_t_around_reference() {
+void test_cod_dynamic_curve_uses_full_response_units() {
     auto request = base_request();
     request.max_force = {2.0f, 2.0f};
     request.response_curve.algorithm =
@@ -191,15 +191,15 @@ void test_cod_dynamic_curve_shapes_target_t_around_reference() {
     require(small.unclamped_stick.x > small.pre_curve_stick.x,
             "Dynamic inverse must compensate the low-stick slow region");
 
-    request.error_px = {12.5f, 0.0f};  // configured reference 0.50
+    request.error_px = {12.5f, 0.0f};  // desired normalized response 0.50
     const auto reference = solve_response_model_aim(request);
-    require_near(reference.unclamped_stick.x, 0.50f, 1e-5f,
-                 "Dynamic correction must be identity at its calibration reference");
+    require_near(curve_forward_magnitude(reference.unclamped_stick.x, request.response_curve), 0.50f, 1e-5f,
+                 "half response must invert the curve without a hidden reference gain");
 
     request.error_px = {22.5f, 0.0f};  // linear target magnitude 0.90
     const auto large = solve_response_model_aim(request);
-    require(large.unclamped_stick.x < large.pre_curve_stick.x,
-            "Dynamic inverse must avoid treating high-stick gain as linear");
+    require_near(curve_forward_magnitude(large.unclamped_stick.x, request.response_curve), .90f, 1e-5f,
+            "high response uses the same full-scale calibration");
 }
 
 void test_cod_dynamic_curve_preserves_radial_target_direction() {
@@ -298,7 +298,7 @@ void test_ads_distant_acquisition_is_not_braked_before_saturation() {
         // Even after the existing 12ms lookahead the uncapped demand is
         // saturated. Establishing a pursuit reference must not slow this
         // distant acquisition before the ordinary range cap is enforced.
-        require_near(solve_response_model_aim(r).stick.x, -std::sqrt(100.f/210.f), 1e-5f,
+        require_near(forward_aim_response_curve(solve_response_model_aim(r).stick, r.response_curve).x, -std::sqrt(100.f/210.f), 1e-5f,
             "distant saturated acquisition was attenuated before lookahead");
     }
 }
@@ -471,6 +471,6 @@ void register_response_model_aim_solver_tests(native_test::Registry& registry) {
     registry.add_case("BaseBodyLock", "authority_caps_after_curve_inversion", test_authority_caps_delivered_force_after_curve_inversion);
     registry.add_case("BaseBodyLock", "clear_authority_does_not_multiply_mode_cap", test_clear_authority_does_not_multiply_smaller_mode_cap);
     registry.add_case("BaseBodyLock", "dynamic_plugin_round_trips_seed_curve", test_cod_dynamic_plugin_round_trips_seed_curve);
-    registry.add_case("BaseBodyLock", "dynamic_curve_shapes_target_around_reference", test_cod_dynamic_curve_shapes_target_t_around_reference);
+    registry.add_case("BaseBodyLock", "dynamic_curve_shapes_target_around_reference", test_cod_dynamic_curve_uses_full_response_units);
     registry.add_case("BaseBodyLock", "dynamic_curve_preserves_radial_direction", test_cod_dynamic_curve_preserves_radial_target_direction);
 }

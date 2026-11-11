@@ -64,7 +64,9 @@ struct FireCommand {
 
 struct RecoilContribution {
     // Recoil has no target/manual/aim context by design.  It is a final-stage
-    // contribution and is consumed only by OutputComposer.
+    // normalized response contribution, consumed only by OutputComposer.
+    // stick_delta retains its ABI name; the composer applies the selected
+    // AI response curve after adding this delta in response coordinates.
     Vec2f stick_delta{};
     EventSequence cause_event{};
     bool active = false;

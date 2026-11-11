@@ -51,6 +51,15 @@ class TestRuntime:
 
 
 class WebServiceTests(unittest.TestCase):
+    def test_learning_export_declares_full_response_units(self):
+        data={'regions':[{'effective':5000},{'effective':3000}]}
+        with patch.object(self.runtime,'learning',return_value=data), patch.object(self.service,'_export',return_value='saved') as export:
+            self.assertEqual(self.call('learning_export'),'saved')
+        document=export.call_args.args[0]
+        self.assertEqual(document['units'],'px/s')
+        self.assertEqual(document['response_reference'],'normalized_curve_full_scale')
+        self.assertEqual(document['learning'],data)
+
     def test_only_physical_camera_priors_are_exposed_and_legacy_slow_values_are_inert(self):
         draft=deepcopy(self.profile)
         aim=draft['config'].setdefault('gamepad',{}).setdefault('ai_aim',{})

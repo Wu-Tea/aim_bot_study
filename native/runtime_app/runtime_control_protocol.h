@@ -18,7 +18,8 @@ struct RuntimeControlSnapshot {
 };
 struct RuntimeControlMemory {
     volatile LONG sequence = 0;
-    std::uint32_t protocol = 2;
+    // v3: both camera values are px/s at full normalized curve response.
+    std::uint32_t protocol = 3;
     volatile LONG64 requested_id = 0;
     RuntimeControlSnapshot snapshot;
 };

@@ -59,7 +59,7 @@ class ControlChannel:
             copy = Snapshot.from_buffer_copy(self.memory.snapshot)
             if sequence != self.memory.sequence:
                 continue
-            if self.memory.protocol != 2 or copy.pid != self.record['process_id'] or copy.created != identity['created']:
+            if self.memory.protocol != 3 or copy.pid != self.record['process_id'] or copy.created != identity['created']:
                 raise ValueError('配置通道身份或协议不匹配。')
             return {'status': copy.status, 'revision': copy.revision, 'request_id': copy.request_id,
                     'completed_id': copy.completed_id, 'sampled_at_ms': copy.sampled_at_ms,

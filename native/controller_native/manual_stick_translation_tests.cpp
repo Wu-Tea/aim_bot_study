@@ -2,6 +2,7 @@
 #include "incident_fixture_support.h"
 #include "test_support/native_test_registry.h"
 #include "ds4_output_report.h"
+#include "response_model_aim_solver.h"
 
 #include <chrono>
 #include <iostream>
@@ -336,9 +337,140 @@ void independent_input_and_ai_curves() {
         }
     }
 }
+
+void full_response_calibration_across_curves() {
+    for (unsigned seed : {73u, 1093u, 81239u, 924119u}) for (int count : {300, 12000})
+    for (float gain : {3000.f, 5000.f}) for (int shape : {0, 1, 2}) {
+        auto curve = config_for(shape).aim_response_curve;
+        // Old anchor values must not secretly scale either demand or learning.
+        curve.calibration_reference_stick = seed % 2 ? .2f : .8f;
+        AimResponseEstimatorConfig learner_config; learner_config.fallback_scale = gain * .6f;
+        AimResponseEstimator learner(learner_config);
+        std::mt19937 random(seed);
+        std::uniform_real_distribution<float> unit(.05f, .8f);
+        for (int tick = 0; tick < count; ++tick) {
+            const float demand = unit(random);
+            const float stick = curve_inverse_magnitude(demand, curve);
+            const auto delivered = forward_aim_response_curve({stick, 0}, curve);
+            require(std::fabs(delivered.x - demand) < 2.e-6f,
+                "learning command is normalized response, independent of curve and old anchor");
+            AimResponseInterval interval;
+            interval.target_id = 1 + tick / 200;
+            interval.average_final_stick = delivered;
+            interval.observed_error_rate_px_per_sec = {75.f - gain * demand, 0};
+            interval.dt_seconds = .01f; interval.reliability = 1; interval.observed = true;
+            learner.update(interval);
+            for (bool follow : {false, true}) {
+                ResponseModelAimRequest request;
+                request.range_position_response = true;
+                request.delay_aware_velocity_response = follow;
+                request.position_range_px = 200;
+                request.response_px_per_stick_second = gain;
+                request.arrival_horizon_seconds = .1f;
+                request.error_px = {demand * gain * .1f, 0};
+                request.response_curve = curve;
+                const auto output = solve_response_model_aim(request);
+                // Independent expected response, including ADS distance envelope.
+                const float expected = follow ? demand : std::min(demand,
+                    std::sqrt(std::min(1.f, request.error_px.x / 200.f)));
+                require(std::fabs(curve_forward_magnitude(output.stick.x, curve) - expected) < 3.e-6f,
+                    "same px/s prior and target error must request the same camera speed across curves");
+            }
+        }
+        require(learner.estimate().accepted_samples > 100 &&
+            std::fabs(learner.estimate().scale_px_per_stick_second - gain) < gain * .01f,
+            "auto learning must recover the same full-response px/s value for every curve");
+    }
+}
+
+void recoil_response_composition_randomized() {
+    for (unsigned seed : {181u, 2987u, 82103u, 781321u}) for (int count : {300, 12000})
+    for (bool compensate : {false, true}) {
+        auto cfg = prepared_config(compensate);
+        cfg.recoil.enabled = true; cfg.recoil.output_amount = .2f; cfg.recoil.hipfire_multiplier = .5f;
+        double clock = 100.; NativeGamepadController controller(cfg, &clock);
+        std::mt19937 random(seed); std::uniform_real_distribution<float> axis(-.35f, .35f);
+        for (int tick = 0; tick < count; ++tick) {
+            clock += .001;
+            PhysicalGamepadState physical; physical.connected = true;
+            physical.right_x = axis(random); physical.right_y = axis(random);
+            physical.left_trigger = tick % 200 < 100 ? 1.f : 0.f;
+            const bool firing = tick % 41 != 0;
+            physical.rb = firing; physical.right_trigger = firing ? 1.f : 0.f;
+            const auto preparation = controller.begin_tick(physical);
+            const auto output = controller.build_output_from_sampled_input();
+            const auto internal = transfer_game_stick({output.right_x, output.right_y}, cfg.output_transfer, true);
+            const float raw_radius = std::hypot(physical.right_x, physical.right_y);
+            const float base = curve_forward_magnitude(raw_radius, cfg.aim_response_curve);
+            const Vec2f expected{physical.right_x * base / raw_radius,
+                physical.right_y * base / raw_radius - (firing ? .2f * (preparation.scope.physical_ads_ready ? 1.f : .5f) : 0.f)};
+            const auto actual = forward_aim_response_curve(internal, cfg.aim_response_curve);
+            require(std::fabs(actual.x - expected.x) < 4.e-6f && std::fabs(actual.y - expected.y) < 4.e-6f,
+                "recoil adds target response once, preserving horizontal response and input mapping");
+            if (compensate) {
+                const float radius = std::hypot(output.right_x, output.right_y);
+                const float game_response = cod_linear_reference_magnitude(radius, true);
+                require(std::fabs(game_response - std::hypot(expected.x, expected.y)) < 4.e-6f,
+                    "game A composed with C must realize requested B response including recoil");
+            }
+        }
+    }
+}
 }
 
 void register_manual_stick_translation_tests(native_test::Registry& registry) {
+    registry.add_case("BaseTranslation", "first_capture_feedback_uses_response_units", [] {
+        float expected = 0;
+        for (int shape : {0, 1, 2}) {
+            auto cfg = config_for(shape);
+            cfg.follow_response_curve = false; cfg.output_transfer.enabled = false;
+            cfg.ai_aim.aim_response_learning_enabled = false;
+            cfg.ai_aim.aim_response_initial_scale = 3000;
+            double clock = 100.; NativeGamepadController controller(cfg, &clock);
+            const float stick = curve_inverse_magnitude(.2f, cfg.aim_response_curve);
+            controller.build_output(incident_fixture::ads_input(stick, 0));
+            clock += .01;
+            incident_fixture::TargetSpec target; target.observation_id = target.selector_generation = 1;
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(target, 1, clock, 20, 0));
+            controller.build_output(incident_fixture::ads_input());
+            const auto& plan = controller.last_target_plan();
+            require(plan.target_id != 0, "first-capture regression must acquire a target");
+            if (!shape) expected = plan.radial_closing_velocity_px_per_sec;
+            require(std::fabs(plan.radial_closing_velocity_px_per_sec - expected) < .002f,
+                "first-capture closing prediction must use response, not nonlinear stick position");
+        }
+    });
+    registry.add_case("BaseTranslation", "full_response_calibration_across_curves", full_response_calibration_across_curves);
+    registry.add_case("BaseTranslation", "recoil_response_composition_randomized", recoil_response_composition_randomized);
+    registry.add_case("BaseTranslation", "force_limit_is_target_response", [] {
+        for (bool follow : {false, true}) for (float cap : {.2f, .5f, .8f}) {
+            ResponseModelAimRequest request;
+            request.range_position_response = true;
+            request.delay_aware_velocity_response = follow;
+            request.motion_is_error_rate_lookahead = !follow;
+            request.position_range_px = 200.f;
+            request.error_px = {10000.f, 0};
+            request.max_force = {cap, cap};
+            request.response_curve.algorithm = AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+            const auto output = solve_response_model_aim(request);
+            require(near(curve_forward_magnitude(output.stick.x, request.response_curve), cap),
+                "ADS/BodyLock cap is normalized target response, not stick displacement");
+        }
+    });
+    registry.add_case("BaseTranslation", "recoil_amount_is_target_response", [] {
+        auto cfg = config_for(1);
+        cfg.follow_response_curve = false;
+        cfg.output_transfer.enabled = false;
+        cfg.recoil.enabled = true;
+        cfg.recoil.output_amount = .5f;
+        cfg.recoil.hipfire_multiplier = 1.f;
+        double clock = 100.; NativeGamepadController controller(cfg, &clock);
+        PhysicalGamepadState physical; physical.connected = true;
+        physical.rb = true; physical.right_trigger = 1.f;
+        const auto output = controller.build_output(physical);
+        require(near(curve_forward_magnitude(-output.right_y, cfg.aim_response_curve), .5f),
+            "recoil amount must realize fifty percent target response");
+    });
     registry.add_case("BaseTranslation", "geometry_and_endpoints", translation_geometry_and_endpoints);
     registry.add_case("BaseTranslation", "immediate_output_and_raw_intent", translation_immediate_output_and_raw_intent);
     registry.add_case("BaseTranslation", "ai_chain_and_expired_output", [] { translation_ai_chain_and_expired_output(); });

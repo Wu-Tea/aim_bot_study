@@ -24,6 +24,7 @@ struct ResponseModelAimRequest {
     // Qualified capture-aligned motion is a total camera velocity, independent
     // of ADS position/lookahead braking. It spends the same final force budget.
     pipeline_contract::Vec2f sustaining_velocity_px_per_sec{};
+    // px/s at 100% normalized curve response, independent of curve shape.
     float response_px_per_stick_second = 500.0f;
     float arrival_horizon_seconds = 0.050f;
     float arrival_horizon_y_seconds = 0.0f;
@@ -38,6 +39,7 @@ struct ResponseModelAimRequest {
     // Mouse BodyLock point policy. Zero retains the shared controller policy.
     // A positive per-axis tolerance owns both position and motion demand.
     float point_tolerance_px = 0.0f;
+    // Canonical gamepad: normalized response caps. Legacy adapters: stick caps.
     pipeline_contract::Vec2f max_force{1.0f, 1.0f};
     float authority = 1.0f;
     float authority_budget_scale = 1.0f;
@@ -48,7 +50,7 @@ struct ResponseModelAimRequest {
     bool delay_aware_velocity_response = false;
     float feedback_delay_seconds = 0.0f;
     float position_range_px = 0.0f;
-    // Pursuit reference in final stick units; the continuous point brake may
+    // Pursuit reference in normalized response units; the continuous point brake may
     // reduce it near the target. Verified sustaining motion is independent.
     float minimum_position_stick = 0.0f;
     // Smooth final-approach scale, not a position deadband.

@@ -80,7 +80,8 @@ DISPLAY_FIELDS = {
 }
 
 for _prior in ('body_free_initial_scale', 'ads_free_initial_scale'):
-    DISPLAY_FIELDS['gamepad.ai_aim.' + _prior] = {'unit':'px/s', 'hot_reload':True}
+    DISPLAY_FIELDS['gamepad.ai_aim.' + _prior] = {'unit':'px/s', 'hot_reload':True,
+        'help':'所选 AI 曲线达到 100% 响应时的相机速度。更换曲线不改变这个单位；自动学习也使用同一尺度。'}
 
 
 def field_presentation(path):

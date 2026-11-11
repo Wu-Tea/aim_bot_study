@@ -96,8 +96,9 @@ Result run(float recoil_amount, float target_rate_x, float target_rate_y,
         }
         const auto response = forward_aim_response_curve(
             {output.right_x, output.right_y}, config.aim_response_curve);
-        const auto kick = forward_aim_response_curve(
-            {0, -recoil_amount}, config.aim_response_curve);
+        // Independent plant: weapon kick matches the configured response amount,
+        // not the old raw stick displacement.
+        const pipeline_contract::Vec2f kick{0, -recoil_amount};
         x += ((moving ? target_rate_x : 0) - 500 * response.x) * .001f;
         y += ((moving ? target_rate_y : 0) + 500 * (response.y - (firing ? kick.y : 0))) * .001f;
         now += .001;

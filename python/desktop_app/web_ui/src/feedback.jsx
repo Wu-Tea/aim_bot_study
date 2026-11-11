@@ -66,8 +66,8 @@ export function Feedback({ status, logs, run }) {
           <thead>
             <tr>
               <th>响应标定</th>
-              <th>当前响应</th>
-              <th>学习响应</th>
+              <th>当前响应（px/s）</th>
+              <th>学习响应（px/s）</th>
               <th>置信度</th>
               <th>样本</th>
             </tr>

@@ -137,13 +137,17 @@ OutputComposeStatus OutputComposer::apply_recoil(
     }
     if (!contribution.valid()) return OutputComposeStatus::InvalidInput;
 
-    if (contribution.active) {
+    if (contribution.active &&
+        (contribution.stick_delta.x != 0.f || contribution.stick_delta.y != 0.f)) {
         // This is deliberately after the pre-recoil write.  Recoil cannot
         // feed back into target/aim arbitration or consume its proposal.
-        output_.right_x = clamp_axis(
-            output_.right_x + contribution.stick_delta.x);
-        output_.right_y = clamp_axis(
-            output_.right_y + contribution.stick_delta.y);
+        auto response = normalized_aim_response_curve(
+            {output_.right_x, output_.right_y}, response_curve_);
+        response.x = clamp_axis(response.x + contribution.stick_delta.x);
+        response.y = clamp_axis(response.y + contribution.stick_delta.y);
+        const auto stick = normalized_aim_response_curve(response, response_curve_, true);
+        output_.right_x = stick.x;
+        output_.right_y = stick.y;
     }
     stage_ = OutputComposeStage::RecoilWritten;
     return OutputComposeStatus::Ok;

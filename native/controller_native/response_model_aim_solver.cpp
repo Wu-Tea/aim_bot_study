@@ -16,6 +16,19 @@ float smoothstep(float value) noexcept {
 ResponseModelAimOutput solve_response_model_aim(
     const ResponseModelAimRequest& request) noexcept {
     ResponseModelAimOutput output;
+    // Canonical gamepad strength is a percentage of the selected curve's
+    // normalized response. Legacy/mouse solvers retain their stick budgets.
+    const bool response_budget = request.range_position_response;
+    const auto to_budget = [&](pipeline_contract::Vec2f calibrated,
+                               const AimResponseCurveConfig& curve) noexcept {
+        return response_budget ? calibrated
+            : inverse_aim_response_curve(calibrated, curve);
+    };
+    const auto from_budget = [&](pipeline_contract::Vec2f value,
+                                 const AimResponseCurveConfig& curve) noexcept {
+        return response_budget ? value
+            : forward_aim_response_curve(value, curve);
+    };
     const float response = std::max(
         1.0f, std::fabs(request.response_px_per_stick_second));
     const float horizon = std::clamp(
@@ -132,7 +145,7 @@ ResponseModelAimOutput solve_response_model_aim(
         // Work in calibrated camera-velocity coordinates. A minimum stick
         // reference becomes a smooth pursuit preference, not a positive lower
         // bound that repeatedly drives through a delayed stationary point.
-        const float reference_speed = response * forward_aim_response_curve(
+        const float reference_speed = response * from_budget(
             {std::max(0.f, request.minimum_position_stick), 0.f}, request.response_curve).x;
         const float approach_distance = std::hypot(reference_speed * feedback_time,
             std::max(0.f, request.arrival_radius_px));
@@ -179,14 +192,17 @@ ResponseModelAimOutput solve_response_model_aim(
         : pipeline_contract::Vec2f{
             (output.position_stick.x + output.bounded_motion_stick.x) * authority,
             (output.position_stick.y + output.bounded_motion_stick.y) * authority};
-    output.unclamped_stick = inverse_aim_response_curve(
+    output.unclamped_stick = to_budget(
         output.pre_curve_stick, request.response_curve);
 
     // Authority is also a delivered per-axis budget, not only a gain before
     // the nonlinear response curve. Intersect it with the mode envelope: clear
     // evidence keeps the existing BodyLock cap, while a large no-cue error
     // cannot inflate weak evidence back into a near-full virtual stick.
-    const float authority_budget = authority * request.authority_budget_scale;
+    const float physical_authority = authority * request.authority_budget_scale;
+    const float authority_budget = response_budget
+        ? curve_forward_magnitude(physical_authority, request.response_curve)
+        : physical_authority;
     const float max_x = std::min(
         std::max(0.0f, request.max_force.x), authority_budget);
     const float max_y = std::min(
@@ -206,7 +222,7 @@ ResponseModelAimOutput solve_response_model_aim(
         pipeline_contract::Vec2f sustaining{};
         if (request.motion_is_sustaining_target_motion && !request.motion_is_error_rate_lookahead) {
             // Only capture-aligned real target motion can own centered work.
-            sustaining = inverse_aim_response_curve({
+            sustaining = to_budget({
                 output.bounded_motion_stick.x * authority,
                 output.bounded_motion_stick.y * authority}, request.response_curve);
         }
@@ -217,7 +233,7 @@ ResponseModelAimOutput solve_response_model_aim(
         // restore almost-cancelled work and rotate its budget onto the other
         // axis. BodyLock sustaining motion retains its separate ownership.
         const bool ads_lookahead = request.motion_is_error_rate_lookahead;
-        const auto position_reference = inverse_aim_response_curve({
+        const auto position_reference = to_budget({
             output.position_stick.x * authority,
             output.position_stick.y * authority}, request.response_curve);
         pipeline_contract::Vec2f correction = ads_lookahead
@@ -241,7 +257,7 @@ ResponseModelAimOutput solve_response_model_aim(
         constexpr float stopping_seconds = .025f;
         const float taper = distance > 0.f
             ? distance / std::hypot(distance, request.arrival_radius_px) : 0.f;
-        const auto braking = inverse_aim_response_curve({
+        const auto braking = to_budget({
             control_error.x / (response * stopping_seconds),
             control_error.y / (response * stopping_seconds)}, request.response_curve);
         const float braking_budget = std::hypot(braking.x, braking.y) * taper;
@@ -249,8 +265,8 @@ ResponseModelAimOutput solve_response_model_aim(
             ? std::min(std::clamp(magnitude, minimum, budget), braking_budget) : 0.f;
         const float scale = magnitude > 0.f ? delivered / magnitude : 1.f;
         range_limited = magnitude > std::min(budget, braking_budget);
-        // Apply in final stick space so a nonlinear inverse response curve
-        // cannot expand a tiny position correction back to full force.
+        // Apply in the selected budget space, then perform the inverse curve
+        // once at the final output boundary for canonical gamepad commands.
         output.unclamped_stick = {
             sustaining.x + correction.x * scale,
             sustaining.y + correction.y * scale};
@@ -261,7 +277,7 @@ ResponseModelAimOutput solve_response_model_aim(
             // Both axes share the unbraked gain, so cancelling one cannot
             // transfer its floor budget into the other. Curve calibration and
             // the final physical envelope remain joint two-dimensional solves.
-            const auto reference = forward_aim_response_curve(
+            const auto reference = from_budget(
                 output.unclamped_stick, request.response_curve);
             const float original_magnitude = std::hypot(
                 output.position_stick.x, output.position_stick.y) * authority;
@@ -269,7 +285,7 @@ ResponseModelAimOutput solve_response_model_aim(
                 ? std::max(1.f, std::hypot(reference.x, reference.y) / original_magnitude) : 1.f;
             output.pre_curve_stick.x *= pursuit_gain;
             output.pre_curve_stick.y *= pursuit_gain;
-            output.unclamped_stick = inverse_aim_response_curve(
+            output.unclamped_stick = to_budget(
                 output.pre_curve_stick, request.response_curve);
             // Lookahead may increase demand for a receding point, but it still
             // obeys the existing range/point upper envelope. This is only a
@@ -295,11 +311,11 @@ ResponseModelAimOutput solve_response_model_aim(
          request.sustaining_velocity_px_per_sec.y != 0.f)) {
         // Brake only the position-closing work. A centered moving point still
         // needs camera motion; summing sticks would double-count the curve.
-        auto velocity = forward_aim_response_curve(output.unclamped_stick, request.response_curve);
+        auto velocity = from_budget(output.unclamped_stick, request.response_curve);
         if (max_x > 0.f) velocity.x += request.sustaining_velocity_px_per_sec.x / response;
         if (max_y > 0.f) velocity.y -= request.sustaining_velocity_px_per_sec.y / response;
         output.pre_curve_stick = velocity;
-        output.unclamped_stick = inverse_aim_response_curve(velocity, request.response_curve);
+        output.unclamped_stick = to_budget(velocity, request.response_curve);
         if (max_x <= 0.f) output.unclamped_stick.x = 0.f;
         if (max_y <= 0.f) output.unclamped_stick.y = 0.f;
     }
@@ -314,6 +330,11 @@ ResponseModelAimOutput solve_response_model_aim(
         output.unclamped_stick.x * vector_scale,
         output.unclamped_stick.y * vector_scale,
     };
+    if (response_budget) {
+        output.stick = normalized_aim_response_curve(output.stick, request.response_curve, true);
+        output.unclamped_stick = normalized_aim_response_curve(
+            output.unclamped_stick, request.response_curve, true);
+    }
     output.limited = range_limited || ellipse_length > 1.0f;
     return output;
 }

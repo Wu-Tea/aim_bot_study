@@ -4,6 +4,7 @@
 #include "live_pipeline_trace.h"
 #include "async_console.h"
 #include "runtime_control_bridge.h"
+#include "controller_native/manual_stick_translation.h"
 
 #include "runtime_timing.h"
 #include "vision_controller_adapter.h"
@@ -316,7 +317,8 @@ RuntimeLoop::RuntimeLoop(
       gamepad_perf_log_(gamepad_perf_log_enabled(perf_log)),
       input_reader_(0),
       controller_(config_.gamepad),
-      output_composer_(config_.gamepad.output_transfer),
+      output_composer_(config_.gamepad.output_transfer, config_.gamepad.ai_aim.adapter_direct_mouse_manual
+          ? controller_native::AimResponseCurveConfig{} : controller_native::controller_response_curve(config_.gamepad)),
       viewport_controller_(viewport_controller_config_from(config_)),
       virtual_gamepad_(config_.output.enabled
           ? std::make_unique<controller_native::VirtualGamepad>() : nullptr),
