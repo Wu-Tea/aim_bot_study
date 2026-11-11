@@ -29,6 +29,8 @@ def main():
                     if state and '宿主桥接验证' in state['text']:break
                     time.sleep(.2)
                 else:raise RuntimeError('WebView2 did not bootstrap: '+str(state))
+                picker=window.evaluate_js("({supported:CSS.supports('appearance','base-select'),appearance:getComputedStyle(document.querySelector('select')).appearance})")
+                assert picker == {'supported':True,'appearance':'base-select'}, picker
                 layouts=[]
                 for page_name in ['参数调校','响应曲线','配置管理','模型与设备','运行反馈']:
                     window.evaluate_js('Array.from(document.querySelectorAll("nav button")).find(e=>e.textContent===' + json.dumps(page_name) + ').click()')
@@ -151,7 +153,7 @@ def main():
                 else:raise RuntimeError('Native close did not protect unsaved draft')
                 window.evaluate_js('Array.from(document.querySelectorAll("[role=dialog] button")).find(e=>e.textContent==="取消").click()')
                 print(json.dumps({'webview2_bootstrap':True,'title':state['title'],'bridge':state['bridge'],
-                    'profile_loaded':True,'native_close_guard':True,'directional_haptics_saved':True,
+                    'profile_loaded':True,'native_close_guard':True,'directional_haptics_saved':True,'styled_select':picker,
                     'capture_toggle_and_running_guard':True,'palette_and_observation':True,'layouts':layouts}),flush=True)
             except Exception as error:failure.append(error)
             finally:window.run_js('window.pywebview.api.dispatch("window_close")')

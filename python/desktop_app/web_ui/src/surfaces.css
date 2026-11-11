@@ -71,9 +71,50 @@ select, .stack select {
   background-position: right 12px center;
   background-size: 16px;
   text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 select:disabled { opacity: .65; }
+/* WebView2's customizable picker retains native form and keyboard semantics.
+   The popup lives in the top layer, outside scrolling panels and dialogs. */
+@supports (appearance: base-select) {
+  @media (forced-colors: none) {
+    select, .stack select, select::picker(select) { appearance: base-select; }
+    select > button { all: unset; display: block; flex: 1; min-width: 0; }
+    select selectedcontent { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    select::picker-icon { display: none; }
+    select::picker(select) {
+      color: var(--ink);
+      background: var(--floating);
+      border: var(--border);
+      border-radius: 10px;
+      padding: 4px;
+      margin-block: 6px;
+      min-inline-size: anchor-size(self-inline);
+      max-inline-size: min(480px, calc(100vw - 24px));
+      max-block-size: min(320px, calc(100dvh - 32px));
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      box-shadow: var(--menu-shadow);
+    }
+    select option {
+      min-height: 36px;
+      padding: 7px 10px;
+      gap: 12px;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--ink);
+      font-weight: 400;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      cursor: pointer;
+    }
+    select option:checked { background: var(--selected); }
+    select option:hover, select option:focus-visible { background: var(--tint); outline: none; }
+    select option::checkmark { order: 1; margin-inline-start: auto; color: var(--accent); }
+    select option:disabled { color: var(--disabled); cursor: not-allowed; }
+  }
+}
 @media (forced-colors: active) {
   select, .stack select { appearance: auto; background-image: none; padding-right: 12px; }
 }
@@ -122,8 +163,6 @@ kbd { display: inline-block; min-width: 20px; padding: 0 4px; text-align: center
 .changes { font-size: var(--font-small); }
 .changes > div { padding: 8px 0; border-bottom: var(--border); }
 .changes dd { margin: 4px 0 0; color: var(--accent); overflow-wrap: anywhere; }
-.preset-list button { width: 100%; justify-content: space-between; gap: 16px; margin-top: 8px; text-align: left; }
-.preset-list span { font-size: var(--font-small); color: var(--muted); }
 .field-help { z-index: 100; width: min(320px, calc(100vw - 32px)); max-height: var(--radix-popover-content-available-height); overflow: auto; padding: 12px 16px; font-size: var(--font-small); line-height: 1.6; }
 .field-help-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .field-help-heading button { width: 24px; min-height: 24px; padding: 4px; border: 0; background: transparent; }

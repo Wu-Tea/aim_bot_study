@@ -1,3 +1,4 @@
+import { Select } from "./controls";
 import React, { useState, useEffect, useRef, memo } from "react";
 import { rpc, fmt } from "./bridge";
 import { Dialog } from "radix-ui";
@@ -114,14 +115,14 @@ export const Preview = memo(function Preview({
         <div className="preview-heading">
           <h2>{mode === "acquire" ? "抓取范围" : "跟随范围"}</h2>
           {showModeSwitch && (
-            <select
+            <Select
               aria-label="预览阶段"
               value={mode}
               onChange={(e) => setMode(e.target.value)}
             >
               <option value="acquire">首次瞄准</option>
               <option value="follow">持续跟随</option>
-            </select>
+            </Select>
           )}
           <Dialog.Trigger asChild>
             <button className="icon-button quiet" aria-label="打开观察窗口" title="打开观察窗口"
@@ -156,11 +157,11 @@ export const Preview = memo(function Preview({
             </label>
             <label>
               姿态{" "}
-              <select value={pose} onChange={(e) => setPose(e.target.value)}>
+              <Select value={pose} onChange={(e) => setPose(e.target.value)}>
                 <option value="standing">站立</option>
                 <option value="crouching">蹲姿</option>
                 <option value="wide">宽矮</option>
-              </select>
+              </Select>
             </label>
 
             <label>
@@ -218,10 +219,10 @@ export const Preview = memo(function Preview({
           <fieldset className="observation-controls" disabled={disabled}>
             <div className="observation-toolbar">
               <span>采集范围 <strong>{w} × {h}</strong></span>
-              <select aria-label="观察阶段" value={mode} onChange={(e) => setMode(e.target.value)}>
+              <Select aria-label="观察阶段" value={mode} onChange={(e) => setMode(e.target.value)}>
                 <option value="acquire">首次瞄准</option>
                 <option value="follow">持续跟随</option>
-              </select>
+              </Select>
             </div>
             <RangePlot geometry={g} offset={offset} setOffset={setOffset} mode={mode}
               width={w} height={h} disabled={disabled} observation />

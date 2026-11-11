@@ -15,11 +15,12 @@ import {
   Save,
   LoaderCircle,
   CircleCheck,
+  ArrowLeft,
 } from "lucide-react";
-import { IconButton, Menu } from "./controls";
+import { IconButton, Menu, Select } from "./controls";
 import { Field, Group, isFieldValid } from "./fields";
 import { Preview } from "./preview";
-import { CurveEditor } from "./curve-editor";
+import { CurveWorkspace } from "./curve-workspace";
 import { Feedback } from "./feedback";
 import { WindowControls } from "./window-controls";
 import { copy, eq, rpc, phases } from "./bridge";
@@ -35,7 +36,7 @@ const titles = {
 const tuningGroups = {
   acquire: ["首次瞄准"],
   follow: ["持续跟随"],
-  assist: ["辅助输入", "响应学习与手动介入", "手动输出补偿"],
+  assist: ["辅助输入", "响应学习与手动介入"],
   target: ["目标与识别", "人物震动提醒"],
   fire: ["开火与压枪"],
 };
@@ -48,9 +49,16 @@ function App() {
     [tab, setTab] = useState("acquire");
   const [previewMode, setPreviewMode] = useState("acquire");
   const [deviceTab, setDeviceTab] = useState("capture");
-  const [pointEdits, setPointEdits] = useState({});
+  const [returnView, setReturnView] = useState(null);
+  const returnScroll = useRef(null);
+  const [curveWorkspaceStates, setCurveWorkspaceStates] = useState({});
+  const curveSaveRef = useRef(null);
+  const onCurveWorkspaceState = useCallback((id, state) => {
+    setCurveWorkspaceStates((previous) => previous[id]?.pending === state.pending && previous[id]?.inLibrary === state.inLibrary ? previous : { ...previous, [id]: state });
+  }, []);
   const [focusField, setFocusField] = useState(null);
   const [restartFor, setRestartFor] = useState(null);
+  const [application, setApplication] = useState(null);
   const [busy, setBusy] = useState(""),
     [notice, setNotice] = useState(null),
     [modal, setModal] = useState(null),
@@ -58,20 +66,39 @@ function App() {
     [devices, setDevices] = useState([]),
     [reload, setReload] = useState(null),
     [connection, setConnection] = useState("正在连接桌面…");
-  const historyRef = useRef({}),
-    [historyVersion, setHistoryVersion] = useState(0),
-    pendingRef = useRef(false),
+  const pendingRef = useRef(false),
     statusEpoch = useRef(0),
     viewport = useRef(null);
   const draft = drafts[selected];
+  const inCurveLibrary = page === 'curves' && curveWorkspaceStates[selected]?.inLibrary;
+  const requestModalClose = () => {
+    if (busy) return;
+    if (modal?.confirmDiscard) { setModal({ ...modal, confirmDiscard: false }); return; }
+    if (modal?.kind === 'raw' && modal.text !== modal.initialText)
+      setModal({ ...modal, confirmDiscard: true });
+    else setModal(null);
+  };
+  const enterPage = (destination) => {
+    if (destination !== page) {
+      setReturnView((parent) => ({ page, tab, deviceTab, previewMode, scroll: viewport.current?.scrollTop || 0, parent }));
+      setPage(destination);
+    }
+  };
+  const goBack = () => {
+    if (!returnView) return;
+    returnScroll.current = returnView.scroll;
+    setPage(returnView.page); setTab(returnView.tab); setDeviceTab(returnView.deviceTab);
+    setPreviewMode(returnView.previewMode);
+    setReturnView(returnView.parent);
+  };
   const dirtyById = useMemo(() => Object.fromEntries(
     Object.values(drafts).map((p) => [p.id,
-      !!pointEdits[p.id] || !eq(
+      !eq(
         { values: p.values, curve: p.curve, config: p.config },
         { values: saved[p.id]?.values, curve: saved[p.id]?.curve, config: saved[p.id]?.config },
       ),
     ]),
-  ), [drafts, saved, pointEdits]);
+  ), [drafts, saved]);
   const dirty = (p) => !!p && dirtyById[p.id];
   // A primitive snapshot keeps unrelated edits out of preview rendering/RPC.
   const geometryValuesJson = useMemo(() => draft && boot ? JSON.stringify(
@@ -81,7 +108,7 @@ function App() {
     setPreviewMode(mode);
     if (tab === "acquire" || tab === "follow") setTab(mode);
   }, [tab]);
-  const anyDirty = Object.values(dirtyById).some(Boolean),
+  const anyDirty = Object.values(dirtyById).some(Boolean) || Object.values(curveWorkspaceStates).some((state) => state.pending),
     active = status.record,
     owned = !!(
       draft &&
@@ -91,11 +118,20 @@ function App() {
           .replaceAll("\\", "/")
           .endsWith("/" + draft.id + ".toml"))
     );
+  const unsavedNames = [
+    ...Object.values(drafts).filter((p) => dirtyById[p.id]).map((p) => `配置“${p.name}”`),
+    ...Object.entries(curveWorkspaceStates).filter(([, state]) => state.pending).map(([id]) => `“${drafts[id]?.name || '当前配置'}”的曲线草稿`),
+  ].join('、');
   const transitioning =
     owned && ["starting", "stopping"].includes(status.phase);
+  // Saved bindings survive reopening the desktop; process-local reload state does not.
+  const curveBindingKnown = !!(active?.curve_binding && saved[selected]?.curve_binding);
+  const needsRestart = owned && (restartFor === active.process_id ||
+    (curveBindingKnown && JSON.stringify(active.curve_binding) !== JSON.stringify(saved[selected].curve_binding)));
+  const appliedState = owned && application?.processId === active.process_id ? application.state : null;
   const setDraft = (d) => setDrafts((prev) => ({ ...prev, [d.id]: d }));
+  const curveWorkspaceCache = useRef({});
   const remember = (d) => {
-    setPointEdits((prev) => ({ ...prev, [d.id]: null }));
     setSaved((prev) => ({ ...prev, [d.id]: copy(d) }));
     setDraft(d);
   };
@@ -103,12 +139,15 @@ function App() {
     if (pendingRef.current) return;
     pendingRef.current = true;
     setBusy(label);
+    setNotice(null);
+    setModal((current) => current?.error ? { ...current, error: null } : current);
     try {
       const result = await work();
       if (typeof result === "string") setNotice({ text: result });
       return result;
     } catch (e) {
-      setNotice({ error: true, text: e.message });
+      setNotice({ error: true, text: e.message, field: e.field });
+      setModal((current) => current ? { ...current, error: e.message } : current);
       throw e;
     } finally {
       pendingRef.current = false;
@@ -179,6 +218,7 @@ function App() {
       setReload(null);
       if (state.status === 3) setRestartFor(status.record?.process_id);
       if (state.status === 2) setRestartFor(null);
+      setApplication({ processId: status.record?.process_id, state: state.status === 2 ? 'applied' : 'failed' });
       setNotice({
         error: state.status !== 2,
         text:
@@ -194,12 +234,13 @@ function App() {
         setNotice({ text: "请等待当前操作完成后关闭。" });
         return;
       }
+      if (modal) { requestModalClose(); return; }
       if (anyDirty)
         setModal({
           kind: "close",
           title: "关闭工作空间",
           description:
-            "还有未保存的草稿。关闭会丢弃这些修改，正在运行的原生程序会继续运行。",
+            `未保存：${unsavedNames}。关闭会丢弃这些修改，正在运行的程序会继续运行。`,
         });
       else
         rpc("window_close").catch((e) =>
@@ -207,9 +248,10 @@ function App() {
         );
     };
     return () => delete window.requestDesktopClose;
-  }, [anyDirty]);
+  }, [anyDirty, modal, unsavedNames]);
   useEffect(() => {
-    viewport.current?.scrollTo(0, 0);
+    viewport.current?.scrollTo(0, returnScroll.current ?? 0);
+    returnScroll.current = null;
   }, [page]);
   useEffect(() => {
     if (!focusField || busy) return;
@@ -227,45 +269,25 @@ function App() {
   }, [focusField, busy, page, tab, deviceTab, selected]);
   const valuesUpdate = (changes) =>
     setDraft({ ...draft, values: { ...draft.values, ...changes } });
-  const setValue = (path, value) => valuesUpdate({ [path]: value });
-  const recordCurve = (before) => {
-    const h = (historyRef.current[selected] ??= { undo: [], redo: [] });
-    h.undo.push(copy(before));
-    h.undo = h.undo.slice(-100);
-    h.redo = [];
-    setHistoryVersion((x) => x + 1);
-  };
-  const onCurve = (curve, record = true) => {
-    setPointEdits((prev) => ({ ...prev, [selected]: null }));
-    if (eq(curve, draft.curve)) return;
-    if (record) recordCurve(draft.curve);
-    setDraft({ ...draft, curve });
-  };
-  const h = historyRef.current[selected] ?? { undo: [], redo: [] };
-  const history = {
-    record: recordCurve,
-    canUndo: !!h.undo.length,
-    canRedo: !!h.redo.length,
-    undo: () => {
-      h.redo.push(copy(draft.curve));
-      setDraft({ ...draft, curve: h.undo.pop() });
-      setHistoryVersion((x) => x + 1);
-    },
-    redo: () => {
-      h.undo.push(copy(draft.curve));
-      setDraft({ ...draft, curve: h.redo.pop() });
-      setHistoryVersion((x) => x + 1);
-    },
+  const setValue = (path, value) => {
+    valuesUpdate({ [path]: value });
+    if (notice?.field?.profileId === selected && notice.field.path === path &&
+        isFieldValid(boot.fields.find((field) => field.path === path), value)) setNotice(null);
   };
   const applyResult = (result) => {
     if (result.status) {
       ++statusEpoch.current;
       setStatus(result.status);
+      if (result.status.record) setApplication({ processId: result.status.record.process_id, state: 'applied' });
     }
     if (result.profile) remember(result.profile);
-    if (result.error) setNotice({ error: true, text: result.error });
+    if (result.error) {
+      if (result.profile && owned) setApplication({ processId: active.process_id, state: 'failed' });
+      setNotice({ error: true, text: result.error });
+    }
     else if (result.reload) {
       const r = result.reload;
+      setApplication({ processId: active?.process_id, state: r.status === 2 ? 'applied' : r.status === 1 ? 'pending' : 'failed' });
       setReload(r.status === 1 ? r : null);
       if (r.status === 3) setRestartFor(active?.process_id);
       if (r.status === 2) setRestartFor(null);
@@ -278,31 +300,32 @@ function App() {
               ? "已保存；等待新视觉帧，尚未全部生效。"
               : "已保存，需要重启：" + r.message,
       });
-    } else if (result.message) setNotice({ text: result.message });
+    } else if (result.message) {
+      if (result.profile && owned && !result.status) setApplication({ processId: active.process_id, state: 'pending' });
+      setNotice({ text: result.message });
+    }
   };
   const proposal = (candidate = draft) => {
-    if (pointEdits[candidate.id]) {
-      setSelected(candidate.id);
-      setPage("curves");
-      setFocusField({ id: "curve-point-response" });
-      throw Error("有尚未应用的曲线点位，请在响应曲线中应用或取消后再保存。");
-    }
     const invalid = boot.fields.find((field) =>
       !field.readonly && !isFieldValid(field, candidate.values[field.path]),
     );
     if (invalid) {
       setSelected(candidate.id);
       const section = Object.entries(tuningGroups).find(([, names]) => names.includes(invalid.group));
-      if (section) {
-        setPage("tuning");
+      if (invalid.group === '响应标定' || invalid.group === '响应曲线') {
+        enterPage('curves');
+      } else if (section) {
+        enterPage("tuning");
         setTab(section[0]);
         if (["acquire", "follow"].includes(section[0])) setPreviewMode(section[0]);
       } else {
-        setPage("devices");
+        enterPage("devices");
         setDeviceTab(invalid.group === "捕获与模型" ? "capture" : "input");
       }
       setFocusField({ id: "f-" + invalid.path });
-      throw Error(`请检查“${invalid.label}”，当前填写的值无效。`);
+      const error = Error(`请检查“${invalid.label}”，当前填写的值无效。`);
+      error.field = { profileId: candidate.id, path: invalid.path };
+      throw error;
     }
     return candidate;
   };
@@ -343,10 +366,10 @@ function App() {
       if (!result.error) setRestartFor(null);
     });
   const primary = () => {
-    if (owned && restartFor === active.process_id) start();
+    if (needsRestart) start();
     else if (owned) save();
     else if (!draft?.values["runtime.vision.model_path"]) {
-      setPage("devices");
+      enterPage("devices");
       setDeviceTab("capture");
       chooseModel();
     } else start();
@@ -355,12 +378,15 @@ function App() {
     const key = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
-        if (draft && !modal && !busy) save();
+        if (draft && !modal && !busy) {
+          if (page === 'curves' && curveSaveRef.current) curveSaveRef.current();
+          else save();
+        }
       }
     };
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
-  }, [draft, modal, busy, pointEdits]);
+  }, [draft, modal, busy, page, tab, deviceTab, previewMode]);
   useEffect(() => {
     if (selected && boot)
       rpc("select", { id: selected }).catch((e) =>
@@ -382,6 +408,7 @@ function App() {
         },
       };
       const result = await rpc("model", { config });
+      if (!result) { setNotice({ text: '已取消选择模型' }); return; }
       if (result)
         setModal({
           kind: "modelSelect",
@@ -397,6 +424,7 @@ function App() {
   const chooseImport = () =>
     safely("正在读取配置文件…", async () => {
       const result = await rpc("import_choose");
+      if (!result) { setNotice({ text: '已取消导入' }); return; }
       if (result)
         setModal({
           kind: "import",
@@ -419,12 +447,14 @@ function App() {
         );
         remember(p);
         setSelected(p.id);
-        setPage("devices");
+        enterPage("devices");
         setDeviceTab("capture");
+        setNotice({ text: `${m.kind === 'create' ? '已创建配置' : '已创建副本'}“${p.name}”` });
       } else if (m.kind === "rename") {
         const p = await rpc("rename", { ...draft, name: m.name });
         setSaved((prev) => ({ ...prev, [p.id]: p }));
         setDraft({ ...draft, name: p.name, revision: p.revision });
+        setNotice({ text: `已重命名为“${p.name}”` });
       } else if (m.kind === "delete") {
         const archive = await rpc("delete", draft);
         setDrafts((prev) => {
@@ -437,7 +467,8 @@ function App() {
           delete next[draft.id];
           return next;
         });
-        delete historyRef.current[draft.id];
+        delete curveWorkspaceCache.current[draft.id];
+        setCurveWorkspaceStates((previous) => { const next = { ...previous }; delete next[draft.id]; return next; });
         setSelected(Object.keys(drafts).find((id) => id !== draft.id) ?? null);
         setNotice({ text: "已移至可恢复备份：" + archive });
       } else if (m.kind === "import") {
@@ -448,27 +479,20 @@ function App() {
         });
         remember(p);
         setSelected(p.id);
-        setPage("devices");
+        enterPage("devices");
         setDeviceTab("capture");
+        setNotice({ text: `已导入配置“${p.name}”` });
       } else if (m.kind === "raw") {
         const p = await rpc("raw_apply", { ...draft, text: m.text });
         setDraft(p);
-        recordCurve(draft.curve);
         setNotice({ text: "完整配置已校验并载入草稿，尚未保存。" });
-      } else if (m.kind === "presetSave") {
-        await rpc("curve_preset_save", {
-          name: m.name,
-          points: draft.curve.definition.points,
-        });
-        setNotice({ text: "曲线预设已保存。" });
       } else if (m.kind === "close") await rpc("window_close");
       else if (m.kind === "reload") {
         remember(await rpc("reload", { id: draft.id }));
-        delete historyRef.current[draft.id];
+        setNotice({ text: '已重新载入保存的配置，未保存的配置修改已放弃。' });
       } else if (m.kind === "reset") {
-        setPointEdits((prev) => ({ ...prev, [selected]: null }));
         setDraft(await rpc("reset", draft));
-        recordCurve(draft.curve);
+        setNotice({ text: '初始参数已载入草稿，保存后生效。' });
       } else if (m.kind === "modelSelect") {
         setDraft({
           ...m.candidate,
@@ -534,13 +558,14 @@ function App() {
         {
           label: "编辑完整配置…",
           action: () =>
-            safely("正在生成配置草稿…", async () =>
+            safely("正在生成配置草稿…", async () => {
+              const text = await rpc("raw", proposal());
               setModal({
                 kind: "raw",
                 title: "完整配置（当前草稿）",
-                text: await rpc("raw", proposal()),
-              }),
-            ),
+                text, initialText: text,
+              });
+            }),
         },
         null,
         {
@@ -589,7 +614,7 @@ function App() {
                 aria-current={page === id ? "page" : undefined}
                 title={titles[id]}
                 aria-label={titles[id]}
-                onClick={() => setPage(id)}
+                onClick={() => { setReturnView(null); setPage(id); }}
               >
                 <Icon />
                 <span>{titles[id]}</span>
@@ -601,12 +626,13 @@ function App() {
         <div className="shell">
           <header className="topbar">
             <div className="profile-top">
-                <select
+                <Select
                   className="profile-select"
                   aria-label="当前配置"
                   value={selected ?? ""}
                   disabled={!!busy || !boot}
                   onChange={(e) => {
+                    setReturnView(null);
                     setSelected(e.target.value);
                   }}
                 >
@@ -617,17 +643,20 @@ function App() {
                       {dirty(p) ? "（未保存）" : ""}
                     </option>
                   ))}
-                </select>
+                </Select>
                 <span className={"save-state" + (dirty(draft) ? " dirty" : "")} role="status">
                   {!busy && draft && !dirty(draft) && <CircleCheck size={16} aria-hidden="true" />}
                   {busy || (draft ? (dirty(draft) ? "未保存" : "已保存") : "尚无配置")}
                 </span>
             </div>
             <div className="top-actions">
-              <span className="run-state" title={active && drafts[active.profile_id]
+              <span className="run-state" role="status" title={active && drafts[active.profile_id]
                 ? `运行配置：${drafts[active.profile_id].name}` : undefined}>
                 <i className={"dot " + (active ? "" : "off")} />
-                {active && !owned && status.phase === "running" ? "其他配置运行中" : phases[status.phase]}
+                {active && !owned && status.phase === "running" ? "其他配置运行中" :
+                  owned && status.initialized ? needsRestart ? "运行中 · 待重启" : reload ? "运行中 · 等待应用" :
+                    appliedState === 'failed' ? '运行中 · 应用失败' : appliedState === 'pending' ? '运行中 · 待应用' :
+                      appliedState === 'applied' ? '运行中 · 已应用' : curveBindingKnown ? "运行中" : "运行中 · 设置待确认" : phases[status.phase]}
               </span>
               {draft && !owned && (
                 <button title="保存配置" disabled={!!busy || !dirty(draft)} onClick={() => save(false)}>
@@ -663,9 +692,9 @@ function App() {
                   : transitioning
                     ? phases[status.phase]
                     : owned
-                      ? restartFor === active.process_id
+                      ? needsRestart
                         ? "保存并重启"
-                        : "保存并应用"
+                        : appliedState === 'failed' ? '重试应用' : "保存并应用"
                       : active
                         ? "切换并启动"
                         : !draft?.values["runtime.vision.model_path"]
@@ -709,7 +738,8 @@ function App() {
               ) : (
                 <>
                   <div className="heading">
-                    <div>
+                    <div className="heading-title">
+                      {returnView && <button disabled={!!busy} onClick={goBack}><ArrowLeft size={16} />返回{titles[returnView.page]}</button>}
                       <h1>{titles[page]}</h1>
                     </div>
                     {page === "profiles" && (
@@ -783,7 +813,7 @@ function App() {
                                       aria-label={"编辑配置：" + p.name}
                                       onClick={() => {
                                         setSelected(p.id);
-                                        setPage("tuning");
+                                        enterPage("tuning");
                                       }}
                                     >
                                       编辑参数
@@ -828,7 +858,7 @@ function App() {
                                       );
                                       return path
                                         ? "已导出：" + path
-                                        : undefined;
+                                        : '已取消导出';
                                     }),
                                 },
                                 null,
@@ -897,7 +927,7 @@ function App() {
                             {(() => {
                               const names = tuningGroups[tab];
                               return names.map((name) =>
-                                ["响应学习与手动介入", "手动输出补偿"].includes(
+                                ["响应学习与手动介入"].includes(
                                   name,
                                 ) ? (
                                   <Group
@@ -922,8 +952,7 @@ function App() {
                                         draft={draft}
                                         setValue={setValue}
                                         fold={
-                                          name === "响应学习与手动介入" ||
-                                          name === "手动输出补偿"
+                                          name === "响应学习与手动介入"
                                         }
                                       />
                                     )}
@@ -956,22 +985,14 @@ function App() {
                         </div>
                       </>
                     ) : page === "curves" ? (
-                      <CurveEditor
-                        key={selected}
-                        draft={draft}
-                        seeds={boot.seeds}
-                        onCurve={onCurve}
-                        history={history}
-                        run={safely}
-                        setModal={setModal}
-                        pointEdit={pointEdits[selected]}
-                        onPointEdit={(edit) =>
-                          setPointEdits((prev) => ({
-                            ...prev,
-                            [selected]: edit,
-                          }))
-                        }
-                      />
+                      <CurveWorkspace key={selected} draft={draft} seeds={boot.seeds}
+                        cache={curveWorkspaceCache.current[selected] ??= {}}
+                        saveRef={curveSaveRef} onStateChange={onCurveWorkspaceState}
+                        fields={boot.fields.filter((f) => f.group === '响应标定')}
+                        setValue={setValue} run={safely}
+                        onApply={(curve, changes) => {
+                          setDraft({ ...draft, curve, values: { ...draft.values, ...changes } });
+                        }} />
                     ) : page === "devices" ? (
                       <>
                         <div
@@ -1055,7 +1076,7 @@ function App() {
                             </div>
                             <label className="stack">
                               选择手柄
-                              <select
+                              <Select
                                 value={
                                   draft.values["runtime.input.auto_detect"]
                                     ? "auto"
@@ -1095,7 +1116,7 @@ function App() {
                                     {d.name}
                                   </option>
                                 ))}
-                              </select>
+                              </Select>
                             </label>
                             {(groups["输入设备"] ?? [])
                               .filter(
@@ -1157,7 +1178,7 @@ function App() {
                   </fieldset>
                   <footer className="footer">
                     <span>
-                      <kbd>Ctrl</kbd> + <kbd>S</kbd> {owned ? "保存并应用" : "保存配置"}
+                      <kbd>Ctrl</kbd> + <kbd>S</kbd> {inCurveLibrary ? '保存曲线' : owned ? "保存并应用" : "保存配置"}
                     </span>
                     <span>运行状态来自原生程序</span>
                   </footer>
@@ -1170,7 +1191,7 @@ function App() {
       <Dialog.Root
         open={!!modal}
         onOpenChange={(open) => {
-          if (!open && !busy) setModal(null);
+          if (!open && !busy) requestModalClose();
         }}
       >
         <Dialog.Portal>
@@ -1182,7 +1203,8 @@ function App() {
               (["raw", "logs"].includes(modal?.kind) ? "wide" : "")
             }
             onEscapeKeyDown={(e) => {
-              if (busy) e.preventDefault();
+              e.preventDefault();
+              requestModalClose();
             }}
             onPointerDownOutside={(e) => e.preventDefault()}
           >
@@ -1199,13 +1221,13 @@ function App() {
               label="关闭对话框"
               className="dialog-close"
               disabled={!!busy}
-              onClick={() => setModal(null)}
+              onClick={requestModalClose}
             >
               <X size={18} />
             </IconButton>
             <form onSubmit={submitModal}>
               <fieldset className="modal-fields" disabled={!!busy}>
-                {["create", "copy", "rename", "import", "presetSave"].includes(
+                {["create", "copy", "rename", "import"].includes(
                   modal?.kind,
                 ) && (
                   <label className="stack">
@@ -1224,7 +1246,7 @@ function App() {
                 {modal?.kind === "import" && (
                   <label className="stack">
                     文件中的配置分支
-                    <select
+                    <Select
                       value={modal.game}
                       onChange={(e) =>
                         setModal({ ...modal, game: e.target.value })
@@ -1233,7 +1255,7 @@ function App() {
                       {modal.choices.map((c) => (
                         <option key={c}>{c}</option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                 )}
                 {modal?.changes && (
@@ -1270,58 +1292,23 @@ function App() {
                     <pre>{modal.stdout || "暂无运行输出"}</pre>
                   </>
                 )}
-                {modal?.kind === "presets" && (
-                  <div className="preset-list">
-                    {modal.entries.map((p) => (
-                      <button
-                        type="button"
-                        key={p.id}
-                        onClick={() => {
-                          onCurve({
-                            algorithm: "custom_lut",
-                            definition: {
-                              schema_version: p.schema_version,
-                              kind: p.kind,
-                              name: p.name,
-                              interpolation: p.interpolation,
-                              points: p.points,
-                            },
-                          });
-                          setModal(null);
-                        }}
-                      >
-                        {p.name}
-                        <span>{p.points.length} 个点</span>
-                      </button>
-                    ))}
-                    {!modal.entries.length && (
-                      <p>
-                        暂无曲线预设。在曲线菜单中选择“存为曲线预设”即可添加。
-                      </p>
-                    )}
-                    {modal.errors.map((e, i) => (
-                      <p className="inline-error" key={i}>
-                        {e}
-                      </p>
-                    ))}
-                  </div>
-                )}
-                {notice?.error && modal && (
+                {modal?.error && (
                   <p className="inline-error" role="alert">
-                    {notice.text}
+                    {modal.error}
                   </p>
                 )}
-                <div className="actions">
+                {modal?.confirmDiscard && <div role="alert"><p>放弃完整配置中的未应用修改？</p><div className="actions"><button type="button" onClick={() => setModal(null)}>放弃修改并返回</button><button type="button" onClick={() => setModal({ ...modal, confirmDiscard: false })}>继续编辑</button></div></div>}
+                {!modal?.confirmDiscard && <div className="actions">
                   <button
                     type="button"
                     disabled={!!busy}
-                    onClick={() => setModal(null)}
+                    onClick={requestModalClose}
                   >
-                    {["logs", "presets"].includes(modal?.kind)
+                    {modal?.kind === "logs"
                       ? "关闭"
                       : "取消"}
                   </button>
-                  {!["logs", "presets"].includes(modal?.kind) && (
+                  {modal?.kind !== "logs" && (
                     <button
                       type="button"
                       className={
@@ -1333,6 +1320,12 @@ function App() {
                     >
                       {busy ||
                         ({
+                          create: '创建配置',
+                          copy: '创建副本',
+                          rename: '保存名称',
+                          import: '导入配置',
+                          reload: '放弃修改并重新载入',
+                          modelSelect: '载入模型设置',
                           delete: "删除并保留备份",
                           close: "丢弃草稿并关闭",
                           raw: "校验并载入草稿",
@@ -1343,7 +1336,7 @@ function App() {
                           "确定")}
                     </button>
                   )}
-                </div>
+                </div>}
               </fieldset>
             </form>
           </Dialog.Content>

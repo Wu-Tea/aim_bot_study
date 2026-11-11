@@ -50,7 +50,7 @@ export function Feedback({ status, logs, run }) {
           onClick={() =>
             run("正在导出响应学习…", async () => {
               const path = await rpc("learning_export");
-              return path ? "已导出：" + path : undefined;
+              return path ? "已导出：" + path : '已取消导出';
             })
           }
         >
@@ -65,7 +65,7 @@ export function Feedback({ status, logs, run }) {
         <table className="profiletable">
           <thead>
             <tr>
-              <th>响应学习区域</th>
+              <th>响应标定</th>
               <th>当前响应</th>
               <th>学习响应</th>
               <th>置信度</th>
@@ -74,10 +74,8 @@ export function Feedback({ status, logs, run }) {
           </thead>
           <tbody>
             {[
-              "跟随普通区",
-              "跟随减速区",
-              "ADS 普通区",
-              "ADS 减速区",
+              "腰射（Hipfire）",
+              "开镜（ADS）",
             ].map((label, index) => {
               const value = status.learning?.regions[index];
               return (

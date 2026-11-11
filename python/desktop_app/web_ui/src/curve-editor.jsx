@@ -1,14 +1,9 @@
+import { Select } from "./controls";
 import React, { useState, useRef } from "react";
-import { Undo2, Redo2 } from "lucide-react";
-import { IconButton, Menu } from "./controls";
-import { rpc, fmt, copy } from "./bridge";
+import { fmt, copy } from "./bridge";
 export function CurveEditor({
   draft,
-  seeds,
   onCurve,
-  history,
-  run,
-  setModal,
   pointEdit,
   onPointEdit,
 }) {
@@ -34,7 +29,7 @@ export function CurveEditor({
   };
   const valid = (next) =>
     next.length >= 2 &&
-    next.length <= 32 &&
+    next.length <= 128 &&
     next.every(
       ([x, y], i) =>
         Number.isFinite(x) &&
@@ -83,14 +78,10 @@ export function CurveEditor({
         algorithm: "custom_lut",
         definition: { ...draft.curve.definition, points: next },
       },
-      false,
     );
   };
   const finish = () => {
-    if (drag.current) {
-      history.record(drag.current.before);
-      drag.current = null;
-    }
+    drag.current = null;
   };
   const path = points
     .map(([x, y], i) => `${i ? "L" : "M"}${50 + x * 560},${360 - y * 310}`)
@@ -98,91 +89,9 @@ export function CurveEditor({
   return (
     <div className="curve-layout">
       <div>
-        <div className="curve-toolbar">
-          <div className="segmented">
-            {[
-              ["linear", "线性"],
-              ["cod_dynamic_legacy_lut", "动态"],
-              ["custom_lut", "自定义"],
-            ].map(([key, label]) => (
-              <button
-                key={key}
-                disabled={!!pointEdit}
-                aria-pressed={draft.curve.algorithm === key}
-                className={draft.curve.algorithm === key ? "active" : ""}
-                onClick={() =>
-                  onCurve({
-                    algorithm: key,
-                    definition: {
-                      ...draft.curve.definition,
-                      points: copy(seeds[key] ?? points),
-                    },
-                  })
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <IconButton
-            label="撤销曲线修改"
-            disabled={!!pointEdit || !history.canUndo}
-            onClick={history.undo}
-          >
-            <Undo2 size={16} />
-          </IconButton>
-          <IconButton
-            label="重做曲线修改"
-            disabled={!!pointEdit || !history.canRedo}
-            onClick={history.redo}
-          >
-            <Redo2 size={16} />
-          </IconButton>
-          <Menu
-            disabled={!!pointEdit}
-            items={[
-              {
-                label: "导入曲线…",
-                action: () =>
-                  run("正在读取曲线…", async () => {
-                    const d = await rpc("curve_import");
-                    if (d) onCurve({ algorithm: "custom_lut", definition: d });
-                  }),
-              },
-              {
-                label: "导出曲线…",
-                action: () =>
-                  run("正在导出曲线…", async () => {
-                    const path = await rpc(
-                      "curve_export",
-                      draft.curve.definition,
-                    );
-                    return path ? "已导出：" + path : undefined;
-                  }),
-              },
-              {
-                label: "存为曲线预设…",
-                action: () =>
-                  setModal({
-                    kind: "presetSave",
-                    title: "保存曲线预设",
-                    name: draft.curve.definition.name,
-                  }),
-              },
-              {
-                label: "载入曲线预设…",
-                action: () =>
-                  run("正在读取预设…", async () => {
-                    const result = await rpc("curve_presets");
-                    setModal({ kind: "presets", title: "曲线预设", ...result });
-                  }),
-              },
-            ]}
-          />
-        </div>
         <div className="chart">
           <div className="chart-title">
-            <span>响应 %</span>
+            <span>归一化幅度 %</span>
             <span>拖动控制点，端点固定</span>
           </div>
           <div className="curve-plot">
@@ -202,7 +111,6 @@ export function CurveEditor({
                 />
               </g>
             ))}
-            <path d="M50 360L610 50" stroke="var(--muted)" strokeDasharray="6 6" />
             <path
               id="curvePath"
               d={path}
@@ -227,7 +135,7 @@ export function CurveEditor({
                   setSelected(i);
                   if (i === 0 || i === points.length - 1) return;
                   e.currentTarget.setPointerCapture(e.pointerId);
-                  drag.current = { index: i, before: copy(draft.curve) };
+                  drag.current = { index: i };
                 }}
               />
             ))}
@@ -240,19 +148,19 @@ export function CurveEditor({
           ))}
           </div>
           <div className="chart-axis-title">输入 %</div>
+
         </div>
-        <p className="note">
-          输入和响应须严格递增。
-        </p>
+
       </div>
       <aside className="curve-side">
+
         <div className="sectionhead">
           <h2>编辑点位</h2>
           <span className="pill">{points.length} 个点</span>
         </div>
         <label className="stack">
           控制点
-          <select
+          <Select
             aria-label="选择控制点"
             disabled={!!pointEdit}
             value={index}
@@ -263,7 +171,7 @@ export function CurveEditor({
                 {i + 1}：{fmt(p[0] * 100)}% → {fmt(p[1] * 100)}%
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {["输入 %", "响应 %"].map((label, i) => (
           <label className="stack" key={label}>
@@ -301,13 +209,13 @@ export function CurveEditor({
             >
               取消点位编辑
             </button>
-            <p className="note">点位尚未应用；保存配置前请先应用或取消。</p>
+            <p className="note">点位尚未应用；保存曲线前请先应用或取消。</p>
           </>
         )}
         <div className="curve-point-actions">
           <button
             disabled={
-              !!pointEdit || points.length >= 32 || index === points.length - 1
+              !!pointEdit || points.length >= 128 || index === points.length - 1
             }
             onClick={() => {
               const next = copy(points);
@@ -333,7 +241,6 @@ export function CurveEditor({
             删除点
           </button>
         </div>
-        {endpoint && <p className="note">起点与终点固定为 0% 和 100%。</p>}
       </aside>
     </div>
   );

@@ -1,3 +1,4 @@
+import { Select } from "./controls";
 import React from "react";
 import { Popover } from "radix-ui";
 import { ChevronRight, X } from "lucide-react";
@@ -11,7 +12,8 @@ export const isColorField = (field) => [
 export function isFieldValid(field, value) {
   if (field.kind === "float" || field.kind === "int") {
     return typeof value === "number" && Number.isFinite(value) &&
-      value >= field.limits[0] && value <= field.limits[1] &&
+      value >= field.limits[0] && (field.limits[1] == null || value <= field.limits[1]) &&
+      (!field.path.endsWith('_initial_scale') || value === 0 || value >= 80) &&
       (field.kind !== "int" || Number.isInteger(value));
   }
   return !isColorField(field) || /^#?[\da-f]{6}$/i.test(value ?? "");
@@ -68,7 +70,7 @@ export function Field({ field, value, onChange }) {
           onChange={(e) => onChange(e.target.checked)}
         />
       ) : field.choices ? (
-        <select
+        <Select
           id={id}
           value={value}
           aria-describedby={legacyFireInput ? id + "-legacy" : undefined}
@@ -80,7 +82,7 @@ export function Field({ field, value, onChange }) {
               {v}
             </option>
           ))}
-        </select>
+        </Select>
       ) : numeric ? (
         <div className="rowcontrol">
           {field.unit === "%" && !field.readonly && (
@@ -88,7 +90,7 @@ export function Field({ field, value, onChange }) {
               type="range"
               aria-label={field.label + "滑块"}
               min={field.limits[0] * scale}
-              max={field.limits[1] * scale}
+              max={field.limits[1] == null ? undefined : field.limits[1] * scale}
               step="0.1"
               style={{
                 background: `linear-gradient(to right, var(--accent) ${valid ? ((value - field.limits[0]) / (field.limits[1] - field.limits[0])) * 100 : 0}%, var(--line) 0)`,
@@ -109,7 +111,7 @@ export function Field({ field, value, onChange }) {
               aria-invalid={!valid}
               aria-describedby={!valid ? id + "-error" : undefined}
               min={field.limits[0] * scale}
-              max={field.limits[1] * scale}
+              max={field.limits[1] == null ? undefined : field.limits[1] * scale}
               step={field.kind === "int" ? 1 : "any"}
               value={typeof value === "number" ? fmt(value * scale) : value}
               onChange={(e) =>
@@ -159,7 +161,7 @@ export function Field({ field, value, onChange }) {
       {!valid && (
         <small className="field-error" id={id + "-error"}>
           {color ? "请输入六位 HEX，例如 #FF00FF。" : <>
-            {field.limits[0] * scale}–{field.limits[1] * scale} {field.unit}
+            {field.limits[1] == null ? `请输入不小于 ${field.limits[0] * scale} 的有限数值` : `${field.limits[0] * scale}–${field.limits[1] * scale}`} {field.unit}
             {field.kind === "int" ? "，请输入整数" : ""}
           </>}
         </small>
