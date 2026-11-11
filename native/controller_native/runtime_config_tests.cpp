@@ -676,30 +676,27 @@ void test_hot_reload_diff_and_control_channel() {
         acknowledged.revision == 1, "GUI acknowledgement must follow actual commit");
 }
 
-void test_hipfire_ai_and_response_learning_config() {
+void test_hipfire_ai_and_retired_learning_config() {
     TempConfig base("cod_ai_controls_base.toml", "[gamepad.ai_aim]\n");
     auto before = controller_native::load_runtime_config(base.path());
-    require(before.gamepad.ai_aim.hipfire_multiplier == 1.0f && before.gamepad.ai_aim.aim_response_learning_enabled,
+    require(before.gamepad.ai_aim.hipfire_multiplier == 1.0f,
         "new controls must preserve existing defaults");
     TempConfig changed("cod_ai_controls_changed.toml", "[gamepad.ai_aim]\nhipfire_multiplier=0.75\naim_response_learning_enabled=false\n");
     auto after = controller_native::load_runtime_config(changed.path());
-    require(after.diagnostics.empty() && after.gamepad.ai_aim.hipfire_multiplier == .75f &&
-        !after.gamepad.ai_aim.aim_response_learning_enabled, "decimal multiplier and disabled learning must reach native config");
+    require(after.gamepad.ai_aim.hipfire_multiplier == .75f, "decimal multiplier must reach native config");
     require(runtime_app::hot_reload_restrictions(before, after).empty() &&
-        runtime_app::preserve_response_learning_on_reload(before, after), "new controls must be hot eligible without discarding learned response");
+        runtime_app::preserve_motion_history_on_reload(before, after), "new controls must be hot eligible without discarding motion history");
     auto prior_changed = after;
     prior_changed.effective_values["gamepad.ai_aim.body_free_initial_scale"] = "700";
-    require(runtime_app::preserve_response_learning_on_reload(after, prior_changed), "user calibration must not redefine independent measurements");
+    require(runtime_app::preserve_motion_history_on_reload(after, prior_changed), "calibration reload transports retained motion into the new response units");
     for (const auto* value : {"-0.1", "3.01", "nan", "inf", "0.75junk"}) {
         TempConfig invalid("cod_ai_controls_invalid.toml", std::string("[gamepad.ai_aim]\nhipfire_multiplier=") + value + "\n");
         bool rejected = false;
         try { (void)controller_native::load_runtime_config(invalid.path()); } catch (...) { rejected = true; }
         require(rejected, "AI multiplier must be finite, complete decimal input within 0..3");
     }
-    TempConfig invalid_bool("cod_ai_controls_bool.toml", "[gamepad.ai_aim]\naim_response_learning_enabled=\"false\"\n");
-    bool rejected = false;
-    try { (void)controller_native::load_runtime_config(invalid_bool.path()); } catch (...) { rejected = true; }
-    require(rejected, "learning switch must be a boolean, not a quoted string");
+    require(after.effective_values.count("gamepad.ai_aim.aim_response_learning_enabled")==0,
+        "retired learning setting must have no runtime effect");
 }
 
 void test_custom_curve_config_and_roundtrip() {
@@ -845,11 +842,11 @@ void register_runtime_config_tests(native_test::Registry& registry) {
         TempConfig before("cod_catalog_before.toml", "");
         TempConfig after("cod_catalog_after.toml", "[gamepad.ai_aim]\nmanual_intent_begin=0.1\nmanual_intent_full=0.25\n[gamepad.auto_fire]\npulse_width_ms=20\npulse_period_ms=80\n");
         const auto a=controller_native::load_runtime_config(before.path()), b=controller_native::load_runtime_config(after.path());
-        require(runtime_app::hot_reload_restrictions(a,b).empty() && runtime_app::preserve_response_learning_on_reload(a,b),
+        require(runtime_app::hot_reload_restrictions(a,b).empty() && runtime_app::preserve_motion_history_on_reload(a,b),
                 "intent and pulse changes must hot reload without discarding learned game response");
         TempConfig l2("cod_catalog_l2.toml","[gamepad.ads]\nactivation_trigger=0.1\nscope_ready_trigger=0.7\n");
         const auto l2_config=controller_native::load_runtime_config(l2.path());
-        require(runtime_app::hot_reload_restrictions(a,l2_config).empty() && runtime_app::preserve_response_learning_on_reload(a,l2_config),
+        require(runtime_app::hot_reload_restrictions(a,l2_config).empty() && runtime_app::preserve_motion_history_on_reload(a,l2_config),
                 "both L2 thresholds must reload through their input owner without erasing response learning");
         TempConfig radius("cod_catalog_radius.toml","[gamepad.ads]\npickup_base_radius_px=180\n");
         require(!runtime_app::hot_reload_restrictions(a,controller_native::load_runtime_config(radius.path())).empty(),
@@ -935,7 +932,7 @@ void register_runtime_config_tests(native_test::Registry& registry) {
         TempConfig first("cod_assist_hot_first.toml","[gamepad.ads]\noutput_limit_x=0.3\n[gamepad.bodylock]\nresponse_time_x_ms=120\n");
         TempConfig second("cod_assist_hot_second.toml","[gamepad.ads]\noutput_limit_x=0.7\n[gamepad.bodylock]\nresponse_time_x_ms=240\n");
         const auto a=controller_native::load_runtime_config(first.path()), b=controller_native::load_runtime_config(second.path());
-        require(runtime_app::hot_reload_restrictions(a,b).empty() && runtime_app::preserve_response_learning_on_reload(a,b),
+        require(runtime_app::hot_reload_restrictions(a,b).empty() && runtime_app::preserve_motion_history_on_reload(a,b),
             "independent limits and timing reload without discarding response learning");
     });
     registry.add_case("BaseContracts", "named_input_device_config", [] {
@@ -951,7 +948,7 @@ void register_runtime_config_tests(native_test::Registry& registry) {
     registry.add_case("BaseContracts", "config_rejects_malformed_lines", test_config_rejects_malformed_lines);
     registry.add_case("BaseContracts", "scalar_config_rejects_invalid_tokens", test_scalar_config_rejects_invalid_tokens);
     registry.add_case("BaseContracts", "custom_curve_config_and_randomized_roundtrip", test_custom_curve_config_and_roundtrip);
-    registry.add_case("BaseContracts", "hipfire_ai_and_response_learning_config", test_hipfire_ai_and_response_learning_config);
+    registry.add_case("BaseContracts", "hipfire_ai_and_retired_learning_config", test_hipfire_ai_and_retired_learning_config);
     registry.add_case("BaseContracts", "region_prior_config_boundaries", test_region_prior_config_boundaries);
     registry.add_case("BaseContracts", "hot_reload_diff_control_channel", test_hot_reload_diff_and_control_channel);
     registry.add_case("BaseContracts", "external_stop_signal_listener_lifetime", test_external_stop_signal_obeys_listener_lifetime);

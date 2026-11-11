@@ -3,8 +3,6 @@
 #include "runtime_control_protocol.h"
 #include "frame_rate_protocol.h"
 #include "controller_native/runtime_config.h"
-#include "controller_native/aim_response_estimator.h"
-#include <array>
 #include <Windows.h>
 #include <atomic>
 #include <cstddef>
@@ -17,7 +15,7 @@
 namespace runtime_app {
 
 // OS/file work is owned by this background thread. The tick only consumes a
-// prepared immutable candidate and offers fixed-size learning/FPS snapshots.
+// prepared immutable candidate and offers fixed-size FPS snapshots.
 class RuntimeControlBridge {
 public:
     RuntimeControlBridge(controller_native::RuntimeConfig initial,
@@ -28,8 +26,7 @@ public:
     RuntimeControlBridge& operator=(const RuntimeControlBridge&) = delete;
 
     std::shared_ptr<const controller_native::RuntimeConfig> take_prepared();
-    void complete(const std::array<controller_native::AimResponseEstimate, 2>& values = {}, bool preserved = false) noexcept;
-    void offer_learning(const std::array<controller_native::AimResponseEstimate, 2>& values) noexcept;
+    void complete() noexcept;
     void offer_frame_rates(const FrameRateCounts& counts) noexcept;
     void finish_frame_rates(const FrameRateCounts& counts) noexcept;
 private:
@@ -56,10 +53,6 @@ private:
     std::unique_ptr<RuntimeFrameRateMemory, FrameRateViewUnmapper> frame_rate_memory_;
     RuntimeFrameRateSnapshot frame_rate_state_{};
     RuntimeControlSnapshot state_{};
-    RuntimeLearningRegion learning_[2]{};
-    RuntimeLearningRegion cleared_learning_[2]{};
-    bool learning_preserved_ = false;
-    std::uint64_t learning_at_ = 0;
     std::shared_ptr<const controller_native::RuntimeConfig> current_, candidate_;
     std::function<controller_native::RuntimeConfig()> loader_;
     std::mutex mutex_;

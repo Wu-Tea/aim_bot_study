@@ -44,41 +44,31 @@ class TestRuntime:
             if runtime_curve_binding(document,self.record['game']) != self.record['curve_binding']:
                 return {'status':3,'revision':2,'message':'曲线设置需要重启'}
         return {'status':2,'revision':2,'message':'applied'}
-    def learning(self): return None
+    def control_status(self): return None
     def frame_rates(self, record): return None
     def fusion_state(self): return None
     def input_devices(self): return [{'id':'test-controller','name':'测试手柄'}]
 
 
 class WebServiceTests(unittest.TestCase):
-    def test_measurement_stage_is_explicit_and_does_not_save_or_reload(self):
+    def test_response_learning_is_removed_and_manual_calibration_is_preserved(self):
+        fields=self.call('bootstrap')['fields']
+        self.assertFalse(any('learning' in f['path'] for f in fields))
+        self.assertTrue(any(f['path'].endswith('body_free_initial_scale') for f in fields))
+        self.assertTrue(any(f['path'].endswith('ads_free_initial_scale') for f in fields))
+        for command in ('learning_export','learning_stage'):
+            self.assertFalse(self.service.dispatch(command)['ok'])
+
+    def test_control_channel_error_is_visible_without_losing_runtime_status(self):
         draft=deepcopy(self.profile)
         draft['values']['runtime.vision.model_path']='test.engine'
-        saved=self.call('start',draft)['profile']
-        before=self.service.repo.runtime_path(self.service.states[saved['id']][0]).read_bytes()
-        data={'status':0,'regions':[{'effective':500,'learned':1800,'confidence':.99,'samples':20},
-                                  {'effective':500,'learned':0,'confidence':0,'samples':0}]}
-        with patch.object(self.runtime,'learning',return_value=data), patch.object(self.runtime,'reload_config') as reload:
-            result=self.call('learning_stage',{**saved,'camera':0})
-            self.assertEqual(result,{'path':'gamepad.ai_aim.body_free_initial_scale','value':1800})
-            reload.assert_not_called()
-            self.assertFalse(self.service.dispatch('learning_stage',{**saved,'camera':1})['ok'])
-            incompatible=deepcopy(saved)
-            incompatible['curve']['definition']['points']=[[0,0],[.5,.2],[1,1]]
-            incompatible['curve']['algorithm']='custom_lut'
-            self.assertFalse(self.service.dispatch('learning_stage',{**incompatible,'camera':0})['ok'])
-            self.runtime.record=None
-            self.assertFalse(self.service.dispatch('learning_stage',{**saved,'camera':0})['ok'])
-        self.assertEqual(self.service.repo.runtime_path(self.service.states[saved['id']][0]).read_bytes(),before)
-
-    def test_learning_export_declares_full_response_units(self):
-        data={'regions':[{'effective':5000},{'effective':3000}]}
-        with patch.object(self.runtime,'learning',return_value=data), patch.object(self.service,'_export',return_value='saved') as export:
-            self.assertEqual(self.call('learning_export'),'saved')
-        document=export.call_args.args[0]
-        self.assertEqual(document['units'],'px/s')
-        self.assertEqual(document['response_reference'],'normalized_curve_full_scale')
-        self.assertEqual(document['learning'],data)
+        self.call('start',draft)
+        with patch.object(self.runtime,'control_status',side_effect=ValueError('配置通道版本不匹配')):
+            status=self.call('status')
+            self.assertEqual(status['phase'],'running')
+            self.assertIsNone(status['control'])
+            self.assertEqual(status['control_error'],'配置通道版本不匹配')
+            self.assertFalse(self.service.dispatch('learning_export')['ok'])
 
     def test_only_physical_camera_priors_are_exposed_and_legacy_slow_values_are_inert(self):
         draft=deepcopy(self.profile)

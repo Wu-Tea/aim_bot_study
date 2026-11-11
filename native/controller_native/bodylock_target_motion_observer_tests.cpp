@@ -1,5 +1,5 @@
 #include "bodylock_target_motion_observer.h"
-#include "camera_response_alignment.h"
+#include "bodylock_follow_controller.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -124,25 +124,60 @@ void test_target_replacement_requires_new_aligned_evidence() {
 }  // namespace
 
 void register_bodylock_target_motion_observer_tests(native_test::Registry& registry) {
-    registry.add_case("BaseBodyLock", "high_response_alignment_and_motion", [] {
-        for (float gain : {8000.f, 25000.f}) for (int seed : {7, 81, 923, 6503}) {
-            controller_native::CameraResponseAlignment alignment;
+    registry.add_case("BaseBodyLock", "motion_acceleration_scales_with_projected_height", [] {
+        for (float direction : {-1.f, 1.f}) for (float response : {3000.f, 5000.f}) {
+            float speed[2]{};
+            for (int size=0;size<2;++size) {
+                controller_native::BodylockTargetMotionObserver observer;
+                for (int i=1;i<=4;++i) {
+                    // A growing Y estimate cannot revoke independently held X.
+                    const float height=size ? 16.f : 8.f;
+                    observer.update({1,1.+i*.005,.005f,{0,1000.f*direction},{},response,1,true,false,height});
+                }
+                auto estimate=observer.estimate(1,1.02);
+                require_true(estimate.valid && estimate.target_motion_stick.x==0,
+                    "vertical prediction must not introduce horizontal work");
+                speed[size]=std::fabs(estimate.target_motion_stick.y)*response;
+            }
+            require_true(speed[0]>0 && near(speed[1],2*speed[0],.001f),
+                "same sudden motion on half-height target must grow at half physical acceleration, independent of calibration");
+        }
+    });
+    registry.add_case("BaseBodyLock", "small_target_motion_initialization_is_bounded", [] {
+        for (float direction : {-1.f, 1.f}) for (auto curve : {
+                controller_native::AimResponseCurveAlgorithm::Linear,
+                controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut}) {
             controller_native::BodylockTargetMotionObserver observer;
-            alignment.begin_target(1);
+            for (int i=1;i<=2;++i)
+                observer.update({1,1.+i*.005,.005f,{0,800.f*direction},{},500,1,true,false,16});
+            const auto motion=observer.estimate(1,1.01);
+            controller_native::BodylockFollowControllerConfig config;
+            config.range_position_response=true;
+            config.response_curve.algorithm=curve;
+            config.max_force_x=config.max_force_y=1;
+            controller_native::BodylockFollowController solver(config);
+            pipeline_contract::TargetPlan plan{};
+            plan.mode=pipeline_contract::ControlMode::BodyLockFollow;
+            plan.lifecycle=pipeline_contract::TargetLifecycle::Observed;
+            plan.aim_authority=plan.reliability=1;
+            plan.response_scale=500;
+            plan.position_response_radius_px=16;
+            plan.bodylock_target_motion_valid=motion.valid;
+            plan.bodylock_target_motion_px_per_sec={0,-motion.target_motion_stick.y*500};
+            const auto output=controller_native::forward_aim_response_curve(
+                solver.compute(plan), config.response_curve);
+            require_true(motion.valid && std::fabs(output.y)<=.08001f,
+                "two 4px increments on a 16px target must obey the motion rise budget even at initialization");
+        }
+    });
+    registry.add_case("BaseBodyLock", "high_response_motion", [] {
+        for (float gain : {8000.f, 25000.f}) for (int seed : {7, 81, 923, 6503}) {
+            controller_native::BodylockTargetMotionObserver observer;
             for (int i=0; i<120; ++i) {
                 const double capture=1.+i*.005;
-                controller_native::CameraResponseAlignment::Commands commands;
-                for (int delay=0;delay<alignment.delay_count;++delay) {
-                    const float t=float(i-delay);
-                    commands[delay]={.2f*std::sin(t*.47f+seed)+.07f*std::cos(t*.19f),0};
-                }
-                alignment.update(capture,{-gain*commands[9].x+float(i)*.1f,0},commands);
                 require_true(observer.update(observation(1,capture,{-gain*.4f,gain*.2f},{.4f,.2f},gain)),
                     "high response remains valid motion evidence");
             }
-            const auto fit=alignment.estimate();
-            require_true(fit.valid && std::abs(fit.response-gain)<gain*.005f,
-                "alignment must identify high response above 4000");
             const auto motion=observer.estimate(1,1.+119*.005);
             require_true(motion.valid && std::hypot(motion.target_motion_stick.x,motion.target_motion_stick.y)<1e-4f,
                 "high gain camera motion must not become false target motion");

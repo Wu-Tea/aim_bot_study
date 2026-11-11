@@ -1,5 +1,4 @@
 #include "response_model_aim_solver.h"
-#include "camera_response_alignment.h"
 #include "aim_dynamics_shaper.h"
 #include "target_coordinator.h"
 #include "ads_acquisition_controller.h"
@@ -325,25 +324,7 @@ void test_ads_pursuit_reference_survives_inside_person_box() {
 
 
 namespace {
-void test_camera_alignment_identifies_delay_without_target_motion_leak() {
-    for(int lag:{1,9,19,29}) {
-        CameraResponseAlignment model;model.begin_target(1);
-        const auto command=[](double t) {return pipeline_contract::Vec2f{
-            float(.35*std::sin(83*t)+.12*std::cos(191*t)),float(.23*std::cos(117*t))};};
-        for(int i=0;i<32;++i) {
-            double t=10+i*.005;CameraResponseAlignment::Commands commands{};
-            for(int d=0;d<CameraResponseAlignment::delay_count;++d)commands[d]=command(t-d*.001);
-            const auto u=commands[lag];
-            model.update(t,{float(75+20*(t-10))-1400*u.x,float(-30+10*(t-10))+1400*u.y},commands);
-        }
-        const auto e=model.estimate();require(e.valid,"excited camera must be identifiable");
-        require_near(e.response,1400,1,"target drift contaminated camera gain");
-        require_near(e.delay_seconds,lag*.001f,.0001f,"camera response was paired to the wrong command");
-    }
-    CameraResponseAlignment flat;flat.begin_target(1);CameraResponseAlignment::Commands commands{};
-    for(int i=0;i<32;++i)flat.update(10+i*.005,{300.f,200.f},commands);
-    require(!flat.estimate().valid,"target motion without camera excitation must not identify a camera");
-}
+
 void test_stopping_reserve_accounts_for_existing_output() {
     AimDynamicsShaper shaper;shaper.adopt({.5f,0});AimResponseCurveConfig curve;
     const auto work=shaper.stopping_work({},curve);
@@ -403,7 +384,7 @@ void register_response_model_aim_solver_tests(native_test::Registry& registry) {
         cfg.ai_aim.ai_input_deadzone=.03f;
         cfg.ai_aim.minimum_position_stick=.5f;
         cfg.ai_aim.arrival_radius_px=2;
-        cfg.ai_aim.aim_response_learning_enabled=false;
+
         cfg.ai_aim.ads_free_initial_scale=2500;
         double now=10;NativeGamepadController controller(cfg,&now);
         incident_fixture::TargetSpec spec;spec.observation_id=1;spec.selector_generation=7;
@@ -428,7 +409,7 @@ void register_response_model_aim_solver_tests(native_test::Registry& registry) {
         auto cfg=incident_fixture::base_config(40,190);cfg.ai_aim.normalized_assist_parameters=true;
         cfg.ai_aim.ads_free_initial_scale=1400;
         cfg.ai_aim.body_free_initial_scale=2000;
-        cfg.ai_aim.aim_response_learning_enabled=false;cfg.ai_aim.ads_completion_fresh_frames=3;
+        cfg.ai_aim.ads_completion_fresh_frames=3;
         double now=10;NativeGamepadController controller(cfg,&now);incident_fixture::TargetSpec spec;
         spec.observation_id=1;spec.selector_generation=7;spec.has_enemy_cue=true;spec.enemy_identity_confirmed=true;
         float first=0;bool ads=false,body=false;
@@ -452,7 +433,6 @@ void register_response_model_aim_solver_tests(native_test::Registry& registry) {
         }
     });
 
-    registry.add_case("BaseAds","camera_alignment_keeps_physical_units",test_camera_alignment_identifies_delay_without_target_motion_leak);
     registry.add_case("BaseAds","stopping_reserve_accounts_for_existing_output",test_stopping_reserve_accounts_for_existing_output);
     registry.add_case("BaseAds","firing_preserves_closing_rate",test_firing_does_not_erase_ads_closing_rate);
     registry.add_case("BaseAds", "braking_survives_pursuit_floor", test_ads_braking_survives_pursuit_floor);

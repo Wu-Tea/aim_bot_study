@@ -235,8 +235,6 @@ void test_mouse_config_disables_device_specific_outputs_only() {
     const auto result = mouse_native::make_mouse_controller_config(source);
     require_true(!result.recoil.enabled, "mouse facade must disable gamepad recoil output");
     require_true(result.auto_fire.enabled, "mouse facade must preserve shared AutoFire");
-    require_true(!result.ai_aim.aim_response_learning_enabled,
-        "mouse calibration must replace online gamepad response learning");
     require_true(result.aim_response_curve.algorithm ==
         controller_native::AimResponseCurveAlgorithm::Linear,
         "mouse actuator must use a linear response curve");

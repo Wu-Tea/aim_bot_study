@@ -13,7 +13,7 @@ bool haptics_only_reload(const controller_native::RuntimeConfig& before,
 // Configuration policy only: no worker, device or shared-memory dependency.
 std::string hot_reload_restrictions(const controller_native::RuntimeConfig& before,
                                    const controller_native::RuntimeConfig& after);
-bool preserve_response_learning_on_reload(const controller_native::RuntimeConfig& before,
+bool preserve_motion_history_on_reload(const controller_native::RuntimeConfig& before,
                                           const controller_native::RuntimeConfig& after);
 
 } // namespace runtime_app

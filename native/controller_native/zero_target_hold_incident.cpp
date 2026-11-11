@@ -69,7 +69,7 @@ void centered_native_hold(const native_test::TestContext& context) {
             const float gain=std::array<float,3>{500,1000,1800}[rng()%3];
             const float manual=(rng()%2?1.f:-1.f)*(.02f+(rng()%1200)*.0001f);
             auto config=controller_native::incident_fixture::base_config(100,200);
-            config.ai_aim.aim_response_learning_enabled=false;
+
             config.ai_aim.aim_response_initial_scale=gain;
             config.ai_aim.body_free_initial_scale=gain;
             config.ai_aim.ads_free_initial_scale=gain;
@@ -233,7 +233,7 @@ void native_hold_restarts_on_target_motion(const native_test::TestContext& conte
             const float sign = rng() % 2 ? 1.0f : -1.0f;
             const int deadline = 4 * vision_ms + delay_ms + 2;
             auto config = controller_native::incident_fixture::base_config(100, 200);
-            config.ai_aim.aim_response_learning_enabled = false;
+
             config.ai_aim.aim_response_initial_scale = gain;
             config.ai_aim.body_free_initial_scale = gain;
             config.ai_aim.ads_free_initial_scale = gain;

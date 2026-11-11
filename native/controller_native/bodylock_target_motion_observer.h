@@ -36,6 +36,9 @@ struct BodylockTargetMotionObservation {
     float reliability = 0.0f;
     bool direct_person_observation = false;
     bool current_cue_observation = false;
+    // Observed person height is the projective scale, independent of pose width.
+    // Zero keeps the legacy producer's unscaled motion policy.
+    float target_height_px = 0.0f;
 };
 
 struct BodylockTargetMotionEstimate {
@@ -71,7 +74,8 @@ private:
     static constexpr std::size_t kHistoryWindow = 8;
 
     pipeline_contract::Vec2f robust_measurement() const noexcept;
-    float slew_axis(float current, float target, float dt_seconds) const noexcept;
+    float slew_axis(float current, float target, float dt_seconds,
+                    float rise_per_second) const noexcept;
 
     BodylockTargetMotionObserverConfig config_{};
     std::array<pipeline_contract::Vec2f, kHistoryWindow> measurements_{};

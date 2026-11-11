@@ -1,10 +1,8 @@
 #pragma once
-#include "camera_response_alignment.h"
 #include "capture_evidence_filter.h"
 
 #include "ads_acquisition_controller.h"
 #include "ads_reacquisition_reducer.h"
-#include "aim_response_estimator.h"
 #include "aim_scope_reducer.h"
 #include "assist_activation_reducer.h"
 #include "aim_dynamics_shaper.h"
@@ -148,9 +146,8 @@ public:
 
     void reset();
     // Called only at a tick boundary; preserves target identity and ADS lease.
-    void apply_hot_config(const GamepadRuntimeConfig& config, bool preserve_learning = false);
-    void clear_learning() noexcept;
-    std::array<AimResponseEstimate, 2> learning_snapshot() const noexcept;
+    void apply_hot_config(const GamepadRuntimeConfig& config, bool preserve_motion_history = false);
+    void reset_response_history() noexcept;
     void submit_vision_snapshot(const ControllerVisionSnapshot& snapshot);
     // Application activation is independent of physical ADS/fire and owns no ADS token.
     // Call on the controller thread; deadline uses the same monotonic clock as begin_tick.
@@ -226,7 +223,7 @@ private:
         double at_seconds = 0.0;
         pipeline_contract::Vec2f stick{};
         // Same delivered interval, with the independent recoil contribution
-        // removed. Response identification still owns the full final command.
+        // removed. The full delivered command remains available for camera accounting.
         pipeline_contract::Vec2f tracking_stick{};
         bool manual_ambiguous = false;
         // Physical camera fitting consumes the measured total command, so
@@ -244,7 +241,6 @@ private:
     OperationIntentClassifier operation_intent_classifier_{};
     OperationIntentOutput last_operation_intent_{};
     TargetCoordinator target_coordinator_{};
-    std::array<CameraResponseAlignment, 2> camera_alignment_{};
     bool response_ads_ = false;
     CaptureEvidenceFilter capture_evidence_{};
     AdsAcquisitionController ads_controller_{};
@@ -278,17 +274,7 @@ private:
     std::size_t aim_response_history_begin_ = 0;
     std::size_t aim_response_history_count_ = 0;
     std::uint64_t last_motion_frame_ = 0;
-    void measure_response(const pipeline_contract::VisionObservationBatch& observations,
-                          double now, bool ads) noexcept;
-    struct MeasurementAnchor {
-        std::uint64_t frame = 0, target = 0, cue = 0;
-        double capture = 0;
-        pipeline_contract::Vec2f point{};
-        int point_kind = 0;
-        bool valid = false;
-    } measurement_anchor_{};
-    // Motion and response identification have different measurement durations.
-    // One learner's anchor must not decimate the other's fresh observations.
+    // Motion samples are aligned to captures, independently of control ticks.
     struct MotionObservationAnchor {
         std::uint64_t target_id = 0;
         double capture_seconds = 0.0;

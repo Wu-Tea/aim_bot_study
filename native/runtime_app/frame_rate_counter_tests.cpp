@@ -103,7 +103,7 @@ void compare_randomized(std::uint32_t seed) {
 }
 
 void memory_channel_preserves_control_abi_and_releases_resources() {
-    require(sizeof(runtime_app::RuntimeControlSnapshot) == 608, "FPS and the two-camera learning protocol retain independent layouts");
+    require(sizeof(runtime_app::RuntimeControlSnapshot) == 576, "FPS and the reload protocol retain independent layouts");
     const auto name = L"Local\\cod_native_fps_" + std::to_wstring(GetCurrentProcessId());
     HANDLE handle = nullptr;
     runtime_app::RuntimeFrameRateMemory* memory = nullptr;

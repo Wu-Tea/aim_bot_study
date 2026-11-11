@@ -13,7 +13,7 @@ namespace {
 const std::set<std::string> hot_keys = [] {
     std::set<std::string> result{
     "gamepad.ads.strength_scale", "gamepad.ads.vertical_strength_scale",
-    "gamepad.ai_aim.hipfire_multiplier", "gamepad.ai_aim.aim_response_learning_enabled",
+    "gamepad.ai_aim.hipfire_multiplier",
     "gamepad.ai_aim.aim_response_initial_scale",
     "gamepad.ai_aim.body_free_initial_scale",
     "gamepad.ai_aim.ads_free_initial_scale",
@@ -31,7 +31,7 @@ const std::set<std::string> hot_keys = [] {
 }();
 
 // Walk the sorted maps once, including additions and removals. Both restart
-// eligibility and learning retention use the same definition of a change.
+// eligibility and motion history retention use the same definition of a change.
 std::vector<std::string> changed_keys(const controller_native::RuntimeConfig& before,
                                       const controller_native::RuntimeConfig& after) {
     std::vector<std::string> changed;
@@ -111,11 +111,11 @@ std::string hot_reload_restrictions(const controller_native::RuntimeConfig& befo
     return restart;
 }
 
-bool preserve_response_learning_on_reload(const controller_native::RuntimeConfig& before,
+bool preserve_motion_history_on_reload(const controller_native::RuntimeConfig& before,
                                           const controller_native::RuntimeConfig& after) {
     const auto changed = changed_keys(before, after);
     if (changed.empty()) return false;
-    // These controls change actuation/training admission, not game response.
+    // These controls change actuation settings, not game response.
     for (const auto& key : changed) {
         bool catalog_retains = false;
 #define NATIVE_EDITABLE_FLOAT(SECTION, KEY, MEMBER, NAME, DEFAULT, MIN, MAX, HOT, RETAIN) if (key == SECTION "." KEY) catalog_retains = RETAIN;
@@ -126,8 +126,7 @@ bool preserve_response_learning_on_reload(const controller_native::RuntimeConfig
             key != "gamepad.ai_aim.aim_response_initial_scale" &&
             key != "gamepad.ai_aim.body_free_initial_scale" &&
             key != "gamepad.ai_aim.ads_free_initial_scale" &&
-            key != "gamepad.ai_aim.hipfire_multiplier" &&
-            key != "gamepad.ai_aim.aim_response_learning_enabled") return false;
+            key != "gamepad.ai_aim.hipfire_multiplier") return false;
     }
     return true;
 }

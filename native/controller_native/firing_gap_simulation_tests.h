@@ -22,7 +22,7 @@ void firing_gap_motion_scenarios(const native_test::TestContext& context, bool v
         auto config = incident_fixture::base_config(40, 180);
         config.ai_aim.normalized_assist_parameters = true;
         config.ai_aim.ads_completion_fresh_frames = 1;
-        config.ai_aim.aim_response_learning_enabled = true;
+
         config.ai_aim.aim_response_initial_scale = 500;
         config.ai_aim.aim_response_effect_delay_ms = 9;
         config.ai_aim.body_lock_max_ai_force = .3f;
@@ -100,7 +100,6 @@ void firing_gap_motion_scenarios(const native_test::TestContext& context, bool v
                 if (kind == 2 && missing) controller.observe_delivered_output({}, false, 0);
             }
             const auto prior_id = controller.last_target_plan().target_id;
-            const auto learning_before = controller.learning_snapshot();
             const auto output = controller.build_output(physical);
             const auto& plan = controller.last_target_plan();
             outside_control_range_ticks += plan.mode == pipeline_contract::ControlMode::BodyLockFollow &&
@@ -115,9 +114,6 @@ void firing_gap_motion_scenarios(const native_test::TestContext& context, bool v
             const double age = (now - last_capture) * 1000;
             if (!missing && plan.direct_person_observation) visible_id = plan.target_id;
             if (missing) {
-                const auto learning_after = controller.learning_snapshot();
-                for (std::size_t i=0;i<learning_after.size();++i)
-                    failures += learning_before[i].accepted_samples != learning_after[i].accepted_samples;
                 ++miss_ticks;
                 // Strong manual/handover, generation invalidation and replacement are separate cases.
                 if (kind != 5 && kind != 6 && kind != 7 && age < 31.9 && prior_id != 0 && plan.target_id == 0) ++losses;

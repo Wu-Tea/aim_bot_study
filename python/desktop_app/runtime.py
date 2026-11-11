@@ -344,16 +344,15 @@ class RuntimeManager:
             validate_fields(document, [record['game']])
             return reload_config(record)
 
-    def learning(self):
-        from .control import learning_state
+    def control_status(self):
+        from .control import control_state
         record = self.active()
         if not record:
             return None
 
-        try:
-            return learning_state(record)
-        except (OSError, ValueError):
-            return None
+        # Reload acknowledgement and channel failure are different states.
+        # The UI must expose recovery instead of silently displaying blanks.
+        return control_state(record)
 
     def frame_rates(self,record):
         from .frame_rates import read_frame_rates

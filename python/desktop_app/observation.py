@@ -13,20 +13,20 @@ class RuntimeObserver:
         self.thread=threading.Thread(target=self.run,daemon=True,name='runtime-feedback')
         self.thread.start()
 
-    def request(self,learning=False,fusion=False,performance=False):
+    def request(self,fusion=False,performance=False):
         if self.stopped.is_set():return
-        try:self.requests.put_nowait((learning,fusion,performance))
+        try:self.requests.put_nowait((fusion,performance))
         except queue.Full:pass  # One pending observation is sufficient.
 
     def run(self):
         while not self.stopped.is_set():
             request=self.requests.get()
             if request is None or self.stopped.is_set():return
-            learning,fusion,performance=request
+            fusion,performance=request
             sampled_at=time.monotonic()
             try:
                 status=self.manager.status()
-                result={'sampled_at':sampled_at,'status':status,'learning':self.manager.learning() if learning and status.get('record') else None,
+                result={'sampled_at':sampled_at,'status':status,
                         'fusion':bool(self.manager.fusion_state()) if fusion else None,
                         'performance':self.manager.frame_rates(status['record']) if performance and status.get('record') else None}
             except Exception as error:

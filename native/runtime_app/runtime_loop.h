@@ -66,7 +66,7 @@ private:
     std::shared_ptr<const controller_native::RuntimeConfig> pending_hot_config_;
     bool policy_requested_ = false;
     std::uint64_t vision_policy_revision_ = 0;
-    std::uint64_t last_learning_publish_ms_ = 0;
+    std::uint64_t last_status_publish_ms_ = 0;
     PerfLogger perf_logger_;
     FrameRateCounter frame_rates_;
     PerfSummaryLogger perf_summary_logger_;

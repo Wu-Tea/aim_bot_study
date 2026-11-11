@@ -18,7 +18,6 @@ GAME_FIELDS = [
     ('gamepad.ads.strength_scale', '首次瞄准横向倍率', float, 1.0, (0, 3)),
     ('gamepad.ads.vertical_strength_scale', '首次瞄准纵向倍率', float, 1.0, (0, 3)),
     ('gamepad.ai_aim.hipfire_multiplier', '腰射 AI 力度倍率', float, 1.0, (0, 3)),
-    ('gamepad.ai_aim.aim_response_learning_enabled', '后台测量响应', bool, True, None),
     ('gamepad.ai_aim.body_free_initial_scale', '腰射（Hipfire）', float, 0.0, (0, None)),
     ('gamepad.ai_aim.ads_free_initial_scale', '开镜（ADS）', float, 0.0, (0, None)),
     ('gamepad.recoil.enabled', '固定力度压枪', bool, True, None),
@@ -81,7 +80,7 @@ DISPLAY_FIELDS = {
 
 for _prior in ('body_free_initial_scale', 'ads_free_initial_scale'):
     DISPLAY_FIELDS['gamepad.ai_aim.' + _prior] = {'unit':'px/s', 'hot_reload':True,
-        'help':'所选 AI 曲线达到 100% 响应时的相机速度。运行始终使用此值；后台测量结果需手动填入并保存。'}
+        'help':'所选 AI 曲线达到 100% 响应时的相机速度。运行始终使用此值。'}
 
 
 def field_presentation(path):

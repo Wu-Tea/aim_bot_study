@@ -418,7 +418,6 @@ void RuntimeTelemetry::serialize(const TelemetryRecord& record) {
             << ",\"stopping_reserve_y\":" << record.controller.stopping_reserve_y
             << ",\"camera_response_scale\":" << record.controller.camera_response_scale
             << ",\"camera_effect_delay_ms\":" << record.controller.camera_effect_delay_ms
-            << ",\"camera_alignment_valid\":" << (record.controller.camera_alignment_valid ? "true" : "false")
             << ",\"bodylock_error_rate_x\":"
             << record.controller.bodylock_error_rate_x
             << ",\"bodylock_error_rate_y\":"

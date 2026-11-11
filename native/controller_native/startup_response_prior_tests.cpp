@@ -76,71 +76,30 @@ void cold_prior(const native_test::TestContext& context) {
 }
 
 void physical_camera_snapshot_priors() {
-    const auto path = std::filesystem::temp_directory_path()/"cod_four_region_priors.toml";
-    { std::ofstream file(path); file << "[gamepad.ai_aim]\naim_response_initial_scale=650\n"
-        "body_free_initial_scale=8136.69\nbody_slow_initial_scale=6008.82\n"
-        "ads_free_initial_scale=12656.79\nads_slow_initial_scale=9397.20\n"; }
-    const auto loaded = load_runtime_config(path);
-    std::filesystem::remove(path);
-    require(loaded.diagnostics.empty(), "four region priors must be recognized configuration");
-    const float expected[] = {8136.69f, 12656.79f};
-    auto check = [&](const NativeGamepadController& controller) {
-        const auto snapshot = controller.learning_snapshot();
-        for (int index=0; index<2; ++index) {
-            require(std::fabs(snapshot[index].scale_px_per_stick_second-expected[index])<.01f,
-                "cold or cleared runtime must use each configured region prior");
-            require(snapshot[index].confidence==0 && snapshot[index].accepted_samples==0,
-                "imported priors must not invent sample evidence");
+    for(bool ads:{false,true}) {
+        auto config=incident_fixture::base_config(100,200);
+        config.ai_aim.body_free_initial_scale=8136.69f;
+        config.ai_aim.ads_free_initial_scale=12656.79f;
+        config.recoil.enabled=false;config.auto_fire.enabled=false;
+        double now=10;NativeGamepadController controller(config,&now);
+        incident_fixture::TargetSpec spec;spec.observation_id=spec.selector_generation=1;
+        spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+        auto input=incident_fixture::ads_input();input.left_trigger=ads?1.f:0.f;input.rb=!ads;
+        for(int i=0;i<5;++i) {
+            controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,i+1,now,20,0));
+            controller.build_output(input);now+=.005;
         }
-    };
-    NativeGamepadController controller(loaded.gamepad);
-    check(controller);
-    controller.clear_learning(); check(controller);
-    controller.reset(); check(controller);
-    auto active = loaded.gamepad;
-    active.recoil.enabled = false;
-    double now = 10;
-    NativeGamepadController ads(active, &now);
-    incident_fixture::TargetSpec spec;
-    spec.observation_id = spec.selector_generation = 1;
-    spec.has_enemy_cue = spec.enemy_identity_confirmed = true;
-    for (unsigned frame=1; frame<=2; ++frame) {
-        ads.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, frame, now, 80, 0));
-        ads.build_output(incident_fixture::ads_input()); now += .005;
+        require(controller.last_target_plan().target_id!=0,"calibration fixture must own a target");
+        require(std::fabs(controller.last_target_plan().response_scale-(ads?12656.79f:8136.69f))<.01f,
+            "physical camera must use configured response without any learning");
+        config.ai_aim.body_free_initial_scale=config.ai_aim.ads_free_initial_scale=15000;
+        controller.apply_hot_config(config,true);
+        controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec,6,now,20,0));
+        controller.build_output(input);
+        require(controller.last_target_plan().response_scale==15000,"explicit calibration hot reload must reach active control");
     }
-    const auto& plan = ads.last_target_plan();
-    require(plan.mode==pipeline_contract::ControlMode::AdsAcquire, "prior fixture must exercise active ADS");
-    require(std::fabs(plan.response_scale-expected[1])<.01f &&
-        plan.response_confidence==0, "ADS control must consume its own cold priors without inventing confidence");
-    const auto target_id = plan.target_id;
-    require(target_id!=0, "active prior fixture must own a real target");
-    active.ai_aim.ads_free_initial_scale = 15000;
-    ads.apply_hot_config(active);
-    ads.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, 3, now, 80, 0));
-    ads.build_output(incident_fixture::ads_input());
-    const auto& reloaded = ads.last_target_plan();
-    require(reloaded.target_id==target_id && reloaded.mode==pipeline_contract::ControlMode::AdsAcquire,
-        "changing priors must preserve active target and ADS lifecycle ownership");
-    require(std::fabs(reloaded.response_scale-15000)<.01f,
-        "hot prior must reach the active plan on the next tick");
-    auto released_input = incident_fixture::ads_input(.21f,-.13f);
-    released_input.left_trigger = 0;
-    const auto released = ads.build_output(released_input);
-    require(released.right_x==released_input.right_x && released.right_y==released_input.right_y,
-        "regional prior changes must preserve raw manual authority on release");
-    auto changed = loaded.gamepad;
-    changed.ai_aim = GamepadAiAimConfig{};
-    controller.apply_hot_config(changed);
-    for (const auto& region : controller.learning_snapshot())
-        require(region.scale_px_per_stick_second==500 && region.confidence==0 && region.accepted_samples==0,
-            "hot reload must replace priors and clear old evidence");
-    controller.apply_hot_config(loaded.gamepad); check(controller);
-    changed = loaded.gamepad;
-    changed.ai_aim.adapter_direct_mouse_manual = true;
-    NativeGamepadController mouse(changed);
-    for (const auto& region : mouse.learning_snapshot())
-        require(region.scale_px_per_stick_second==500, "gamepad region priors must not change mouse calibration");
 }
+
 
 void native_prior() {
     const auto path=std::filesystem::temp_directory_path()/"cod_startup_prior_test.toml";
@@ -148,7 +107,7 @@ void native_prior() {
     auto seeded=load_runtime_config(path).gamepad;
     std::filesystem::remove(path);
     auto run=[](GamepadRuntimeConfig config) {
-        config.ai_aim.aim_response_learning_enabled=false;
+
         config.ai_aim.ads_completion_fresh_frames=1;
         config.recoil.enabled=false;
         config.ai_aim.body_lock_max_ai_force=.8f;
@@ -202,7 +161,7 @@ void direct_feedback_distance_reaches_native_chain() {
         GamepadRuntimeConfig config;
         config.ai_aim.body_lock_box_tolerance_px=8;
         config.ai_aim.body_lock_feedback_distance_px=distance;
-        config.ai_aim.aim_response_learning_enabled=false;
+
         config.ai_aim.ads_completion_fresh_frames=1;
         config.aim_response_curve.algorithm=AimResponseCurveAlgorithm::Linear;
         config.recoil.enabled=false;
@@ -245,7 +204,7 @@ void undelivered_commands_cannot_train_motion() {
         auto config=incident_fixture::base_config(100,200);
         config.ai_aim.ads_completion_fresh_frames=1;
         config.ai_aim.aim_response_effect_delay_ms=0;
-        config.ai_aim.aim_response_learning_enabled=false;
+
         double now=10;
         NativeGamepadController controller(config,&now);
         incident_fixture::TargetSpec spec;
@@ -275,7 +234,7 @@ void delivery_receipt_owns_camera_coordinate_and_failure_boundary() {
     auto config=incident_fixture::base_config(100,200);
     config.ai_aim.ads_completion_fresh_frames=1;
     config.ai_aim.aim_response_effect_delay_ms=0;
-    config.ai_aim.aim_response_learning_enabled=false;
+
     double now=20;
     NativeGamepadController controller(config,&now);
     incident_fixture::TargetSpec spec;
@@ -316,14 +275,13 @@ void delivery_receipt_owns_camera_coordinate_and_failure_boundary() {
 
 // Frozen observation/receipt inputs exercise policy and controller together.
 // This is not a game-plant simulation or the asynchronous reload transaction.
-void reload_learning_replay(const native_test::TestContext& context) {
+void reload_motion_history_replay(const native_test::TestContext& context) {
     const auto directory = context.artifact_directory / context.case_name;
     std::filesystem::create_directories(directory);
     std::ofstream csv(directory / "traces.csv");
     require(bool(csv), "reload replay trace open failed");
     csv << std::setprecision(17);
     csv << "seed,ticks,scenario,tick,id,mode,epoch,motion_valid,motion_x,motion_y,aligned_x,aligned_y,response,confidence,output_x,output_y,event,retain,haptics,rejected";
-    for (int region = 0; region < 2; ++region) csv << ",scale" << region << ",learned" << region << ",confidence" << region << ",samples" << region;
     csv << '\n';
     for (unsigned seed : {23017u, 981731u}) for (int ticks : {160, 1600})
     for (int scenario = 0; scenario < 9; ++scenario) {
@@ -331,7 +289,7 @@ void reload_learning_replay(const native_test::TestContext& context) {
         current.gamepad = incident_fixture::base_config(100, 200);
         current.gamepad.ai_aim.ads_completion_fresh_frames = 1;
         current.gamepad.ai_aim.aim_response_effect_delay_ms = 0;
-        current.gamepad.ai_aim.aim_response_learning_enabled = true;
+
         double now = 20;
         NativeGamepadController controller(current.gamepad, &now);
         incident_fixture::TargetSpec spec;
@@ -362,10 +320,7 @@ void reload_learning_replay(const native_test::TestContext& context) {
             bool retain = false, haptics = false, rejected = false;
             if (event) {
                 ++events;
-                const auto before = controller.learning_snapshot();
                 const auto epoch = controller.ads_epoch();
-                require(before[0].accepted_samples + before[1].accepted_samples > 0,
-                    "reload fixture must establish real learning before each switch");
                 auto candidate = current;
                 const bool alternate = (tick / 160) % 2 != 0;
                 // Typed fields and effective keys describe the same candidate.
@@ -389,8 +344,9 @@ void reload_learning_replay(const native_test::TestContext& context) {
                     tune("gamepad.recoil.output_amount", candidate.gamepad.recoil.output_amount, alternate ? .7f : .6f);
                 }
                 if (scenario == 2) {
-                    candidate.gamepad.ai_aim.aim_response_learning_enabled = step == 100;
-                    candidate.effective_values["gamepad.ai_aim.aim_response_learning_enabled"] = step == 100 ? "true" : "false";
+
+                    candidate.gamepad.ai_aim.hipfire_multiplier=step==100 ? 1.f:.9f;
+                    candidate.effective_values["gamepad.ai_aim.hipfire_multiplier"]=step==100 ? "1":"0.9";
                 }
                 if (scenario == 3 || scenario == 5) {
                     auto& aim = candidate.gamepad.ai_aim;
@@ -405,7 +361,7 @@ void reload_learning_replay(const native_test::TestContext& context) {
                 if (scenario == 8) tune("gamepad.ads.pickup_base_radius_px", candidate.gamepad.ai_aim.ads_pickup_base_radius_px, 180.f);
                 if (scenario != 0) {
                     rejected = !runtime_app::hot_reload_restrictions(current, candidate).empty();
-                    retain = runtime_app::preserve_response_learning_on_reload(current, candidate);
+                    retain = runtime_app::preserve_motion_history_on_reload(current, candidate);
                     haptics = runtime_app::haptics_only_reload(current, candidate);
                     require(rejected == (scenario == 8) && haptics == (scenario == 7), "reload admission must match the candidate kind");
                     require(retain == (scenario == 1 || scenario == 2 || scenario == 3 || scenario == 5 || scenario == 7),
@@ -416,15 +372,6 @@ void reload_learning_replay(const native_test::TestContext& context) {
                     }
                 }
                 expect_history_reset = scenario != 0 && !rejected && !haptics && !retain;
-                const auto after = controller.learning_snapshot();
-                NativeGamepadController cold(current.gamepad);
-                const auto expected = expect_history_reset ? cold.learning_snapshot() : before;
-                for (std::size_t region = 0; region < after.size(); ++region) require(
-                    after[region].scale_px_per_stick_second == cold.learning_snapshot()[region].scale_px_per_stick_second &&
-                    after[region].learned_scale == expected[region].learned_scale &&
-                    after[region].confidence == expected[region].confidence &&
-                    after[region].accepted_samples == expected[region].accepted_samples,
-                    "reload must preserve calibration or restore all four configured priors");
                 require(controller.ads_epoch() == epoch && controller.last_target_plan().target_id == plan.target_id,
                     "reload cannot reset target or ADS lifecycle ownership");
             }
@@ -438,8 +385,6 @@ void reload_learning_replay(const native_test::TestContext& context) {
                 << ',' << plan.bodylock_aligned_delivered_stick.x << ',' << plan.bodylock_aligned_delivered_stick.y
                 << ',' << plan.response_scale << ',' << plan.response_confidence << ',' << output.right_x << ',' << output.right_y
                 << ',' << event << ',' << retain << ',' << haptics << ',' << rejected;
-            for (const auto& region : controller.learning_snapshot()) csv << ',' << region.scale_px_per_stick_second
-                << ',' << region.learned_scale << ',' << region.confidence << ',' << region.accepted_samples;
             csv << '\n';
         }
         require(events == unsigned(ticks / 160 * (scenario == 2 ? 2 : 1)), "every short/long cycle must exercise reload");
@@ -459,17 +404,15 @@ void delivery_history_replay(const native_test::TestContext& context) {
     require(bool(csv), "history replay trace open failed");
     csv << std::setprecision(17);
     csv << "seed,ticks,scenario,tick,id,mode,motion_valid,motion_x,motion_y,aligned_x,aligned_y,confidence,output_x,output_y,event";
-    for (int region = 0; region < 2; ++region) csv << ",scale" << region << ",learned" << region << ",confidence" << region << ",samples" << region;
     csv << '\n';
     for (unsigned seed : {23017u, 981731u}) for (int ticks : {160, 1600})
     for (int scenario = 0; scenario < 9; ++scenario) {
         auto config = incident_fixture::base_config(100, 200);
         config.ai_aim.ads_completion_fresh_frames = 1;
         config.ai_aim.aim_response_effect_delay_ms = 0;
-        config.ai_aim.aim_response_learning_enabled = true;
+
         double now = 20;
         NativeGamepadController controller(config, &now);
-        const auto initial_learning = controller.learning_snapshot();
         incident_fixture::TargetSpec spec;
         spec.observation_id = spec.selector_generation = 1;
         spec.has_enemy_cue = spec.enemy_identity_confirmed = true;
@@ -478,7 +421,7 @@ void delivery_history_replay(const native_test::TestContext& context) {
             return pipeline_contract::Vec2f{12.f * std::sin(phase + tick * .31f),
                 8.f * std::cos(phase + tick * .27f)};
         };
-        unsigned warmed = 0, resumed = 0, learned = 0;
+        unsigned warmed = 0, resumed = 0, interruptions = 0;
         for (int tick = 0; tick < ticks; ++tick) {
             now = 20 + tick * .01;
             const int step = tick % 160;
@@ -501,17 +444,14 @@ void delivery_history_replay(const native_test::TestContext& context) {
                 require(plan.bodylock_target_motion_valid, "fresh receipts must restore motion after priming");
                 ++resumed;
             }
-            const auto before = controller.learning_snapshot();
             const bool event = step == 60;
             if (event) {
-                require(before[0].accepted_samples + before[1].accepted_samples > 0,
-                    "history fixture must learn before testing calibration preservation");
-                ++learned;
+                ++interruptions;
                 // Relay/manual and reconnect signals break history before
                 // admitting a possible first receipt of the new interval.
                 if (scenario == 1 || scenario == 3 || scenario == 4)
                     controller.invalidate_delivery_history();
-                if (scenario == 7) controller.clear_learning();
+                if (scenario == 7) controller.reset_response_history();
                 if (scenario == 8) controller.reset();
             }
             GamepadOutputState receipt;
@@ -522,25 +462,14 @@ void delivery_history_replay(const native_test::TestContext& context) {
             if (event && scenario == 5) submitted = std::numeric_limits<double>::quiet_NaN();
             if (event && scenario == 6) receipt.right_x = std::numeric_limits<float>::quiet_NaN();
             controller.observe_delivered_output(receipt, !(event && (scenario == 2 || scenario == 4)), submitted);
-            const auto after = controller.learning_snapshot();
-            if (event) for (std::size_t region = 0; region < after.size(); ++region) {
-                const auto& expected = scenario >= 7 ? initial_learning[region] : before[region];
-                require(after[region].scale_px_per_stick_second == expected.scale_px_per_stick_second &&
-                    after[region].learned_scale == expected.learned_scale &&
-                    after[region].confidence == expected.confidence &&
-                    after[region].accepted_samples == expected.accepted_samples,
-                    "delivery interruption preserves calibration; explicit learning reset clears it");
-            }
             csv << seed << ',' << ticks << ',' << scenario << ',' << tick << ',' << plan.target_id
                 << ',' << int(plan.mode) << ',' << plan.bodylock_target_motion_valid
                 << ',' << plan.bodylock_target_motion_px_per_sec.x << ',' << plan.bodylock_target_motion_px_per_sec.y
                 << ',' << plan.bodylock_aligned_delivered_stick.x << ',' << plan.bodylock_aligned_delivered_stick.y
                 << ',' << plan.bodylock_target_motion_confidence << ',' << output.right_x << ',' << output.right_y << ',' << event;
-            for (const auto& region : after) csv << ',' << region.scale_px_per_stick_second << ',' << region.learned_scale
-                << ',' << region.confidence << ',' << region.accepted_samples;
             csv << '\n';
         }
-        require(warmed == unsigned(ticks / 160) && resumed == warmed && learned == warmed,
+        require(warmed == unsigned(ticks / 160) && resumed == warmed && interruptions == warmed,
             "every short/long cycle must exercise learning, interruption and recovery");
     }
     require(bool(csv), "history replay trace write failed");
@@ -555,7 +484,7 @@ void high_rate_source_keeps_camera_observation(const native_test::TestContext& c
         auto config=incident_fixture::base_config(100,200);
         config.ai_aim.ads_completion_fresh_frames=1;
         config.ai_aim.aim_response_effect_delay_ms=0;
-        config.ai_aim.aim_response_learning_enabled=false;
+
         double now=10;
         NativeGamepadController controller(config,&now);
         incident_fixture::TargetSpec spec;
@@ -595,125 +524,12 @@ void high_rate_source_keeps_camera_observation(const native_test::TestContext& c
     require(all_valid,"high-rate fresh observations must retain stationary-world camera cancellation");
 }
 
-void high_rate_source_keeps_response_learning(const native_test::TestContext& context) {
-    std::filesystem::create_directories(context.artifact_directory);
-    std::ofstream report(context.artifact_path("high_rate_response_learning.json"));
-    report << "{\"plant_source\":\"scripted_ack_probe\",\"cases\":[";
-    bool first = true, all_valid = true;
-    for (int hz : {100,160,200,250,320,500,1000}) {
-        for (int axis : {0,1}) for (int control : {0,1,2}) {
-            auto config = incident_fixture::base_config(100,200);
-            config.ai_aim.ads_completion_fresh_frames = 1;
-            config.ai_aim.aim_response_effect_delay_ms = 0;
-            config.ai_aim.aim_response_initial_scale = 500;
-            config.ai_aim.aim_response_learning_enabled = control != 1;
-            double now = 10;
-            NativeGamepadController controller(config, &now);
-            incident_fixture::TargetSpec spec;
-            spec.observation_id = spec.selector_generation = 1;
-            spec.has_enemy_cue = true;
-            float error = 0, last = 0;
-            int body = 0;
-            for (int frame = 0; frame < 2*hz; ++frame) {
-                now = 10 + static_cast<double>(frame)/hz;
-                error -= last*800/hz;
-                controller.submit_vision_snapshot(incident_fixture::observed_snapshot(
-                    spec, frame+1, now, axis ? 0:error, axis ? error:0));
-                controller.begin_tick(incident_fixture::ads_input(0,0,control == 2));
-                OutputComposer composer;
-                require(composer.compose(controller.resolve_control_frame()) == OutputComposeStatus::Ok,
-                    "learning replay must compose each frame");
-                controller.observe_composed_output(*composer.finalized_output());
-                body += controller.last_target_plan().mode == pipeline_contract::ControlMode::BodyLockFollow;
-                // A bounded camera-only excitation; no target acceleration,
-                // player input, recoil, noise, or unobserved plant latency.
-                last = (static_cast<int>(frame*50.0/hz)%2) ? -.15f:.15f;
-                GamepadOutputState receipt;
-                receipt.right_x = axis ? 0:last;
-                receipt.right_y = axis ? -last:0;
-                controller.observe_delivered_output(receipt,true,now);
-            }
-            const auto& plan = controller.last_target_plan();
-            require(body > hz,"learning replay must sustain the actual BodyLock path");
-            const auto measured=controller.learning_snapshot()[1];
-            const bool passes = plan.response_confidence==0 && std::fabs(plan.response_scale-500)<.001f &&
-                (control==0 ? measured.confidence>.5f && std::fabs(measured.learned_scale-800)<80
-                            : measured.confidence==0 && measured.accepted_samples==0);
-            all_valid = all_valid && passes;
-            report << (first ? "":",") << "{\"hz\":" << hz << ",\"axis\":" << axis
-                << ",\"control\":" << control << ",\"body\":" << body
-                << ",\"response\":" << plan.response_scale
-                << ",\"confidence\":" << plan.response_confidence << "}";
-            first = false;
-        }
-    }
-    report << "]}"; report.close();
-    require(all_valid,"high-rate learning must converge without bypassing disabled/fire ambiguity controls");
-}
+
 
 }
 
 void register_startup_response_prior_tests(native_test::Registry& registry) {
-    registry.add_case("BaseBodyLock", "passive_measurement_fit_timing", [] {
-        CameraResponseAlignment fit;fit.begin_target(1);
-        double elapsed=0;
-        for(int i=0;i<4000;++i) {
-            const double t=10+i*.005;
-            CameraResponseAlignment::Commands commands{};
-            for(int lag=0;lag<CameraResponseAlignment::delay_count;++lag)
-                commands[lag]={float(.2*std::sin((t-lag*.001)*80)+.1*std::cos((t-lag*.001)*137)),0};
-            const auto begin=std::chrono::steady_clock::now();
-            fit.update(t,{float(75+10*t)-1800*commands[8].x,0},commands);
-            elapsed+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-begin).count();
-        }
-        require(fit.estimate().valid && std::fabs(fit.estimate().response-1800)<2,
-            "timed fit must identify response with independently moving target and transport delay");
-        std::cout << "passive response fit us/observation=" << elapsed/4000 << " samples=16 delays=31\n";
-    });
-    registry.add_case("BaseBodyLock", "measurement_is_independent_and_passive", [] {
-        for (unsigned seed : {193u, 2089u, 81973u, 971903u}) for (bool scoped : {false,true})
-        for (int steps : {300,12000}) for (int curve : {0,1,2}) {
-            auto cfg=incident_fixture::base_config(100,200);
-            cfg.ai_aim.normalized_assist_parameters=true;
-            cfg.ai_aim.aim_response_effect_delay_ms=0;
-            cfg.ai_aim.body_free_initial_scale=cfg.ai_aim.ads_free_initial_scale=500;
-            cfg.auto_fire.enabled=false;cfg.recoil.enabled=false;
-            if(curve==1) cfg.aim_response_curve.algorithm=AimResponseCurveAlgorithm::CodDynamicLegacyLut;
-            if(curve==2) {
-                cfg.aim_response_curve.algorithm=AimResponseCurveAlgorithm::CustomLut;
-                cfg.aim_response_curve.custom_count=3;
-                cfg.aim_response_curve.custom_stick[0]=0;cfg.aim_response_curve.custom_stick[1]=.5f;cfg.aim_response_curve.custom_stick[2]=1;
-                cfg.aim_response_curve.custom_response[0]=0;cfg.aim_response_curve.custom_response[1]=.2f;cfg.aim_response_curve.custom_response[2]=1;
-            }
-            auto other=cfg;other.ai_aim.body_free_initial_scale=other.ai_aim.ads_free_initial_scale=5000;
-            auto disabled=cfg;disabled.ai_aim.aim_response_learning_enabled=false;
-            double now=10;NativeGamepadController a(cfg,&now),b(other,&now),off(disabled,&now);
-            incident_fixture::TargetSpec spec;spec.observation_id=spec.selector_generation=1;
-            spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
-            float x=0,y=0;pipeline_contract::Vec2f previous{};
-            for(int i=0;i<steps;++i) {
-                now=10+i*.005;x-=previous.x*1800*.005f;y+=previous.y*1800*.005f;
-                auto snapshot=incident_fixture::observed_snapshot(spec,i+1,now,x,y);
-                auto input=incident_fixture::ads_input();input.left_trigger=scoped?1.f:0.f;
-                a.submit_vision_snapshot(snapshot);b.submit_vision_snapshot(snapshot);off.submit_vision_snapshot(snapshot);
-                const auto out=a.build_output(input),baseline=off.build_output(input);b.build_output(input);
-                require(out.right_x==baseline.right_x && out.right_y==baseline.right_y,
-                    "measurement alone must never change control output");
-                seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;
-                previous={((int)(seed%101)-50)*.004f,((int)((seed>>8)%101)-50)*.004f};
-                const auto stick=inverse_aim_response_curve(previous,cfg.aim_response_curve);
-                GamepadOutputState receipt;receipt.right_x=stick.x;receipt.right_y=stick.y;
-                for(auto* controller:{&a,&b,&off}) controller->observe_delivered_output(receipt,true,now);
-            }
-            const auto av=a.learning_snapshot()[scoped?1:0],bv=b.learning_snapshot()[scoped?1:0];
-            require(av.accepted_samples>0 && std::fabs(av.learned_scale-1800)<20,
-                "independent measurement must identify actual delivered response even without AI activation");
-            require(av.learned_scale==bv.learned_scale && av.confidence==bv.confidence,
-                "identical receipt and vision data must yield identical measurement regardless of user calibration");
-            require(av.scale_px_per_stick_second==500 && bv.scale_px_per_stick_second==5000,
-                "measured values must not replace configured values");
-        }
-    });
+
     registry.add_case("BaseBodyLock", "physical_scope_uses_one_response_at_every_target_position", [] {
         for (unsigned seed : {41u,2089u,81173u,971903u}) for (int ticks : {300,12000}) {
             auto config=incident_fixture::base_config(100,200);
@@ -721,7 +537,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
             config.ai_aim.body_free_initial_scale=1700;
             config.ai_aim.ads_free_initial_scale=2500;
             config.ai_aim.ads_completion_fresh_frames=1;
-            config.ai_aim.aim_response_learning_enabled=false;
+
             config.auto_fire.manual_fire_input="RB";
             double now=10; NativeGamepadController controller(config,&now);
             incident_fixture::TargetSpec spec;
@@ -744,15 +560,11 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
                         "physical hipfire/ADS owns response regardless of target proximity or controller phase");
                     if(scoped) {++ads;scoped_follow+=plan.mode==pipeline_contract::ControlMode::BodyLockFollow;} else ++hip;
                 }
-                for(const auto& model:controller.learning_snapshot()) require(model.accepted_samples==0 && model.confidence==0,
-                    "manual calibration does not invent learned evidence");
-                require(!controller.last_output_components().camera_alignment_valid,
-                    "disabled automatic calibration cannot replace the user prior");
             }
             require(hip>0 && ads>0 && scoped_follow>0,"fixture must exercise both physical cameras and scoped follow");
         }
     });
-    registry.add_context_case("BaseBodyLock", "reload_learning_replay", reload_learning_replay);
+    registry.add_context_case("BaseBodyLock", "reload_motion_history_replay", reload_motion_history_replay);
     registry.add_context_case("BaseBodyLock", "delivery_history_replay", delivery_history_replay);
     registry.add_case("BaseRuntimeFreshness", "input_discontinuity_revokes_target_without_reusing_ads_epoch", [] {
         auto config = incident_fixture::base_config(40.f, 200.f);
@@ -764,7 +576,6 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, 1, now, 20, 0));
         controller.build_output(incident_fixture::ads_input());
         const auto epoch = controller.ads_epoch();
-        const auto learning = controller.learning_snapshot();
         require(controller.last_target_plan().target_id != 0, "gap fixture must own a target");
         controller.reset_after_input_discontinuity();
         now += .005;
@@ -772,10 +583,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         require(controller.ads_epoch() > epoch && controller.last_target_plan().target_id == 0,
             "missed release/repress must invalidate old target and advance ADS identity");
         require(output.right_x == .013f && output.right_y == -.021f, "gap must retain native manual input");
-        const auto after = controller.learning_snapshot();
-        for (std::size_t i = 0; i < learning.size(); ++i)
-            require(after[i].scale_px_per_stick_second == learning[i].scale_px_per_stick_second,
-                "input gap must preserve calibrated response priors");
+
     });
     registry.add_case("BaseRuntimeFreshness", "expired_visual_fire_does_not_hold_trigger", [] {
         auto config = incident_fixture::base_config(40.f, 200.f);
@@ -842,7 +650,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         auto config=incident_fixture::base_config(100,200);
         config.ai_aim.ads_completion_fresh_frames=1;
         config.ai_aim.aim_response_effect_delay_ms=0;
-        config.ai_aim.aim_response_learning_enabled=false;
+
         double now=10;
         NativeGamepadController controller(config,&now);
         incident_fixture::TargetSpec spec;
@@ -896,7 +704,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         GamepadRuntimeConfig config;
         config.ai_aim.normalized_assist_parameters=true;config.ai_aim.arrival_radius_px=2;
         config.ai_aim.minimum_position_stick=.15f;config.ai_aim.ads_response_time_ms=350;
-        config.ai_aim.ads_completion_fresh_frames=1;config.ai_aim.aim_response_learning_enabled=false;
+        config.ai_aim.ads_completion_fresh_frames=1;
         config.recoil.enabled=false;config.aim_response_curve.algorithm=AimResponseCurveAlgorithm::Linear;
         double now=10;NativeGamepadController controller(config,&now);
         incident_fixture::TargetSpec spec;spec.observation_id=20;spec.selector_generation=1;
@@ -923,7 +731,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         config.ai_aim.ads_pickup_base_radius_px=73;
         config.ai_aim.body_lock_activation_box_px=227;
         config.ai_aim.ads_completion_fresh_frames=1;
-        config.ai_aim.aim_response_learning_enabled=false;
+
         config.ai_aim.ai_input_deadzone=0;
         config.recoil.enabled=false;
         config.aim_response_curve.algorithm=AimResponseCurveAlgorithm::CodDynamicLegacyLut;
@@ -960,7 +768,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         config.ai_aim.normalized_assist_parameters=true;
         config.ai_aim.arrival_radius_px=1;
         config.ai_aim.minimum_position_stick=0;
-        config.ai_aim.aim_response_learning_enabled=false;
+
         config.ai_aim.ads_completion_fresh_frames=1;
         config.ai_aim.bodylock_response_time_x_ms=200;
         config.ai_aim.bodylock_response_time_y_ms=200;
@@ -1001,7 +809,7 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         config.ai_aim.normalized_assist_parameters=true;
         config.ai_aim.arrival_radius_px=1;
         config.ai_aim.minimum_position_stick=0;
-        config.ai_aim.aim_response_learning_enabled=false;
+
         config.ai_aim.ads_completion_fresh_frames=1;
         config.ai_aim.bodylock_output_limit_x=.8f;
         config.ai_aim.bodylock_output_limit_y=.8f;
@@ -1043,53 +851,13 @@ void register_startup_response_prior_tests(native_test::Registry& registry) {
         const auto raw=controller.build_output(physical);
         require(raw.right_x==physical.right_x && raw.right_y==physical.right_y,"release retains zero-deadzone manual passthrough");
     });
-    registry.add_case("BaseBodyLock", "learning_pause_preserves_and_resumes_samples", [] {
-        for (int axis : {0, 1}) {
-            auto config = incident_fixture::base_config(100, 200);
-            config.ai_aim.ads_completion_fresh_frames = 1;
-            config.ai_aim.aim_response_effect_delay_ms = 0;
-            config.ai_aim.aim_response_initial_scale = 500;
-            double now = 10;
-            NativeGamepadController controller(config, &now);
-            incident_fixture::TargetSpec spec;
-            spec.observation_id = spec.selector_generation = 1; spec.has_enemy_cue = true;
-            float error = 0, last = 0; int frame = 0;
-            const auto advance = [&](int count, float gain) {
-                for (int i = 0; i < count; ++i, ++frame) {
-                    now = 10 + frame / 160.0;
-                    error -= last * gain / 160;
-                    controller.submit_vision_snapshot(incident_fixture::observed_snapshot(spec, frame + 1, now,
-                        axis ? 0 : error, axis ? error : 0));
-                    controller.build_output(incident_fixture::ads_input());
-                    last = static_cast<int>(frame * 50.0 / 160) % 2 ? -.15f : .15f;
-                    GamepadOutputState receipt; receipt.right_x = axis ? 0 : last; receipt.right_y = axis ? -last : 0;
-                    controller.observe_delivered_output(receipt, true, now);
-                }
-            };
-            advance(320, 800);
-            auto learned = controller.learning_snapshot();
-            require(learned[0].accepted_samples + learned[1].accepted_samples > 10, "pause test must first establish real learned samples");
-            config.ai_aim.aim_response_learning_enabled = false;
-            controller.apply_hot_config(config, true);
-            advance(160, 1000);
-            auto paused = controller.learning_snapshot();
-            for (int region = 0; region < 2; ++region) require(paused[region].accepted_samples == learned[region].accepted_samples &&
-                paused[region].learned_scale == learned[region].learned_scale && paused[region].confidence == learned[region].confidence,
-                "disabled learning must preserve every region without accepting samples");
-            config.ai_aim.aim_response_learning_enabled = true;
-            controller.apply_hot_config(config, true);
-            advance(160, 800);
-            auto resumed = controller.learning_snapshot();
-            require(resumed[0].accepted_samples + resumed[1].accepted_samples > paused[0].accepted_samples + paused[1].accepted_samples,
-                "re-enabled learning must resume actual native samples");
-        }
-    });
+
     registry.add_case("BaseBodyLock","physical_camera_snapshot_priors",physical_camera_snapshot_priors);
     registry.add_context_case("BaseBodyLock","high_rate_camera_observation",high_rate_source_keeps_camera_observation);
-    registry.add_context_case("BaseBodyLock","high_rate_response_learning",high_rate_source_keeps_response_learning);
+
     registry.add_case("BaseBodyLock","unpublished_commands_cannot_train_motion",undelivered_commands_cannot_train_motion);
     registry.add_case("BaseBodyLock","delivery_receipt_coordinate_and_failure",delivery_receipt_owns_camera_coordinate_and_failure_boundary);
-    registry.add_context_case("BaseBodyLock","cold_response_prior_before_learning",cold_prior);
+    registry.add_context_case("BaseBodyLock","configured_response_prior",cold_prior);
     registry.add_case("BaseBodyLock","gamepad_prior_preserves_horizon_and_mouse",native_prior);
     registry.add_case("BaseBodyLock","direct_feedback_distance_reaches_native_chain",direct_feedback_distance_reaches_native_chain);
 }

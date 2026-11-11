@@ -37,8 +37,7 @@ BodylockFollowControllerOutput BodylockFollowController::compute_detailed(
     }
     const float authority = std::clamp(
         std::min(plan.aim_authority, plan.reliability), 0.0f, 1.0f);
-    // Consume the estimator's prior even before it has learned samples.
-    // Plant response converts demand; independent planning times stay fixed.
+    // Calibration converts demand; independent planning times stay fixed.
     const float response = std::isfinite(plan.response_scale) && plan.response_scale >= 50.0f
         ? std::fabs(plan.response_scale) : config_.fallback_response_px_per_stick_second;
     result.response_max_force = {config_.max_force_x, config_.max_force_y};

@@ -115,7 +115,7 @@ void config_contract() {
     require(!before.gamepad.detection_haptics.enabled && after.gamepad.detection_haptics.enabled,"boolean parse");
     require(after.gamepad.detection_haptics.strength==.5f,"strength parse");
     require(hot_reload_restrictions(before,after).empty(),"notification changes require no restart");
-    require(haptics_only_reload(before,after) && preserve_response_learning_on_reload(before,after),"notification reload must preserve controller state and learning");
+    require(haptics_only_reload(before,after) && preserve_motion_history_on_reload(before,after),"notification reload must preserve controller state and learning");
     after.effective_values["gamepad.recoil.enabled"]="false";
     require(!haptics_only_reload(before,after),"mixed reload must still apply control changes");
     for(auto text:{"[gamepad.detection_haptics]\nenabled=invalid\n", "[gamepad.detection_haptics]\nstrength=1.01\n", "[gamepad.detection_haptics]\nstrength=nan\n"}) {

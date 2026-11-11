@@ -7,16 +7,11 @@ import uuid
 from .runtime import kernel, process_identity
 
 
-class Region(ctypes.Structure):
-    _fields_ = [('effective', ctypes.c_float), ('learned', ctypes.c_float),
-                ('confidence', ctypes.c_float), ('samples', w.DWORD)]
-
-
 class Snapshot(ctypes.Structure):
     _fields_ = [('pid', w.DWORD), ('status', w.DWORD), ('created', ctypes.c_uint64),
                 ('request_id', ctypes.c_uint64), ('completed_id', ctypes.c_uint64),
                 ('revision', ctypes.c_uint64), ('sampled_at_ms', ctypes.c_uint64),
-                ('regions', Region * 2), ('fire_output', ctypes.c_char * 8),
+                ('fire_output', ctypes.c_char * 8),
                 ('manual_fire_input', ctypes.c_char * 8), ('message', ctypes.c_char * 512)]
 
 
@@ -24,7 +19,7 @@ class Memory(ctypes.Structure):
     _fields_ = [('sequence', w.LONG), ('protocol', w.DWORD), ('requested_id', ctypes.c_uint64), ('snapshot', Snapshot)]
 
 
-assert ctypes.sizeof(Snapshot) == 608 and Memory.snapshot.offset == 16
+assert ctypes.sizeof(Snapshot) == 576 and Memory.snapshot.offset == 16
 kernel.OpenFileMappingW.argtypes = [w.DWORD, w.BOOL, w.LPCWSTR]
 kernel.OpenFileMappingW.restype = w.HANDLE
 kernel.MapViewOfFile.argtypes = [w.HANDLE, w.DWORD, w.DWORD, w.DWORD, ctypes.c_size_t]
@@ -37,7 +32,7 @@ class ControlChannel:
         self.record = record
         self.handle = kernel.OpenFileMappingW(6, False, f'Local\\cod_native_control_{record["process_id"]}')
         if not self.handle:
-            raise ValueError('当前程序未提供热加载/学习通道，请停止后启动更新版本。')
+            raise ValueError('当前程序未提供热加载通道，请停止后启动更新版本。')
         self.pointer = kernel.MapViewOfFile(self.handle, 6, 0, 0, ctypes.sizeof(Memory))
         if not self.pointer:
             kernel.CloseHandle(self.handle)
@@ -52,6 +47,9 @@ class ControlChannel:
         identity = process_identity(self.record['process_id'])
         if not identity or identity['created'] != self.record.get('process_created', identity['created']):
             raise ValueError('运行实例已退出或发生变化。')
+        if self.memory.protocol != 5:
+            raise ValueError(f'配置通道版本不匹配（程序 {self.memory.protocol}，界面 5）。'
+                             '请完整关闭并重新打开助手界面；若仍不匹配，再停止并重新启动配置。')
         for _ in range(8):
             sequence = self.memory.sequence
             if sequence & 1:
@@ -59,14 +57,12 @@ class ControlChannel:
             copy = Snapshot.from_buffer_copy(self.memory.snapshot)
             if sequence != self.memory.sequence:
                 continue
-            if self.memory.protocol != 4 or copy.pid != self.record['process_id'] or copy.created != identity['created']:
+            if copy.pid != self.record['process_id'] or copy.created != identity['created']:
                 raise ValueError('配置通道身份或协议不匹配。')
             return {'status': copy.status, 'revision': copy.revision, 'request_id': copy.request_id,
                     'completed_id': copy.completed_id, 'sampled_at_ms': copy.sampled_at_ms,
                     'fire_output': copy.fire_output.decode(), 'manual_fire_input': copy.manual_fire_input.decode(),
-                    'message': copy.message.decode('utf-8', errors='replace'),
-                    'regions': [{'effective': r.effective, 'learned': r.learned, 'confidence': r.confidence,
-                                 'samples': r.samples} for r in copy.regions]}
+                    'message': copy.message.decode('utf-8', errors='replace')}
         return None
 
     def reload(self):
@@ -98,7 +94,7 @@ class ControlChannel:
         raise ValueError('原生程序未确认重载请求，当前参数是否生效尚未确定。')
 
 
-def learning_state(record):
+def control_state(record):
     channel = ControlChannel(record)
     try:
         return channel.read()

@@ -316,20 +316,15 @@ void test_game_transfer_response_feedback() {
         const auto& plan = controller.last_target_plan();
         require_true(active_ticks > 50 && plan.target_id != 0 && plan.response_confidence == 0,
             "measurement must preserve target ownership without taking over calibration");
-        scales[enabled] = controller.learning_snapshot()[1].learned_scale;
+        scales[enabled] = plan.response_scale;
         const auto identity = plan.target_id;
         const auto epoch = controller.ads_epoch();
-        const auto learned = controller.learning_snapshot();
-        require_true(learned[1].accepted_samples > 0,
-            "reload fixture must have actual ADS learning before clearing");
         auto revised = config;
         revised.ai_aim.ads_snap_max_ai_force = .4f;
         revised.ai_aim.body_lock_max_ai_force = .3f;
         revised.auto_fire.fire_output = "RT";
         revised.auto_fire.manual_fire_input = "RT";
         controller.apply_hot_config(revised);
-        for (const auto& value : controller.learning_snapshot()) require_true(value.accepted_samples == 0 && value.confidence == 0,
-            "hot reload retained estimator excitation, confidence or sample counts");
         require_true(controller.last_target_plan().target_id == identity && controller.ads_epoch() == epoch,
             "clearing learning must not rearm ADS or discard target identity");
         now += .001;
@@ -505,7 +500,7 @@ void register_control_pipeline_primitives_tests(
             auto config=controller_native::incident_fixture::base_config(40,200);
             config.ai_aim.normalized_assist_parameters=true;
             config.ai_aim.hipfire_ratio=.7f;
-            config.ai_aim.aim_response_learning_enabled=false;
+
             config.auto_fire.manual_fire_activates_ai_aim=true;
             double now=10;
             controller_native::NativeGamepadController controller(config,&now);
@@ -534,7 +529,7 @@ void register_control_pipeline_primitives_tests(
             const auto run = [=](float multiplier) {
                 auto config = controller_native::incident_fixture::base_config(100, 200);
                 config.ai_aim.hipfire_multiplier = multiplier;
-                config.ai_aim.aim_response_learning_enabled = false;
+
                 config.auto_fire.manual_fire_activates_ai_aim = true;
                 double now = 10;
                 controller_native::NativeGamepadController controller(config, &now);

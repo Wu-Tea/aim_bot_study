@@ -50,7 +50,7 @@ controller_native::GamepadRuntimeConfig make_mouse_controller_config(
     config.ai_aim.body_lock_max_ai_force_y *= force_scale;
     config.rb_counts_as_aiming = false;
     config.enemy_mark.enabled = false;
-    config.ai_aim.aim_response_learning_enabled = false;
+
     config.aim_response_curve.algorithm =
         controller_native::AimResponseCurveAlgorithm::Linear;
     config.recoil.enabled = false;

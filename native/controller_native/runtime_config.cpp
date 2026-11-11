@@ -231,7 +231,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "enabled", "feedback_amount", "feedback_min_amount", "feedback_max_amount",
         "hipfire_multiplier"};
     static const std::unordered_set<std::string> ai_aim_keys{
-        "ai_delta_gain", "hipfire_multiplier", "aim_response_learning_enabled", "target_max_age_ms", "ads_activation_radius_px",
+        "ai_delta_gain", "hipfire_multiplier", "target_max_age_ms", "ads_activation_radius_px",
         "ads_pickup_base_radius_px", "ads_scope_ready_trigger", "ads_snap_window_ms",
         "ads_snap_max_ai_force", "ads_snap_max_ai_force_y",
         "ads_completion_radius_px", "ads_completion_fresh_frames",
@@ -245,7 +245,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
         "body_lock_max_ai_force", "body_lock_max_ai_force_y",
         "body_lock_box_tolerance_px", "body_lock_activation_box_px",
         "aim_response_effect_delay_ms", "aim_response_initial_scale",
-        "body_free_initial_scale", "body_slow_initial_scale",
+        "body_free_initial_scale", "body_slow_initial_scale", "aim_response_learning_enabled",
         "ads_free_initial_scale", "ads_slow_initial_scale",
         "desired_point_traversal_ms", "desired_point_boundary_exit_ms",
         "visual_authority_enabled"};
@@ -392,10 +392,6 @@ void apply_gamepad_ai_aim_value(
     const std::string& value) {
     if (key == "hipfire_multiplier") {
         config.hipfire_multiplier = parse_float_value(value);
-    } else if (key == "aim_response_learning_enabled") {
-        const auto text = trim(value);
-        if (text != "true" && text != "false") throw std::runtime_error("aim_response_learning_enabled requires true or false");
-        config.aim_response_learning_enabled = text == "true";
     } else if (key == "ai_delta_gain") {
         config.ai_delta_gain = parse_float_value(value);
     } else if (key == "target_max_age_ms") {
@@ -461,7 +457,7 @@ void apply_gamepad_ai_aim_value(
         config.body_free_initial_scale = parse_float_value(value);
     } else if (key == "ads_free_initial_scale") {
         config.ads_free_initial_scale = parse_float_value(value);
-    } else if (key == "body_slow_initial_scale" || key == "ads_slow_initial_scale") {
+    } else if (key == "body_slow_initial_scale" || key == "ads_slow_initial_scale" || key == "aim_response_learning_enabled") {
         // Retired: old profile data is accepted but never used for control.
     } else if (key == "desired_point_traversal_ms") {
         config.desired_point_traversal_ms =
@@ -1176,7 +1172,8 @@ RuntimeConfig load_runtime_config(
         // Retired profile data is readable but is not effective configuration,
         // including for reload policy comparisons.
         if (entry.section == "gamepad.ai_aim" &&
-            (entry.key == "body_slow_initial_scale" || entry.key == "ads_slow_initial_scale")) continue;
+            (entry.key == "body_slow_initial_scale" || entry.key == "ads_slow_initial_scale" ||
+             entry.key == "aim_response_learning_enabled")) continue;
         config.effective_values[entry.section + "." + entry.key] = entry.value;
     }
 

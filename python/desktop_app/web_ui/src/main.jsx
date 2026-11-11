@@ -36,7 +36,7 @@ const titles = {
 const tuningGroups = {
   acquire: ["首次瞄准"],
   follow: ["持续跟随"],
-  assist: ["辅助输入", "响应学习与手动介入"],
+  assist: ["辅助输入", "手动介入"],
   target: ["目标与识别", "人物震动提醒"],
   fire: ["开火与压枪"],
 };
@@ -212,8 +212,8 @@ function App() {
     };
   }, [boot]);
   useEffect(() => {
-    if (!reload || !status.learning) return;
-    const state = status.learning;
+    if (!reload || !status.control) return;
+    const state = status.control;
     if (state.request_id === reload.request_id && state.status !== 1) {
       setReload(null);
       if (state.status === 3) setRestartFor(status.record?.process_id);
@@ -227,7 +227,7 @@ function App() {
             : "配置已保存，需要重启才能全部生效。",
       });
     }
-  }, [status.learning, reload]);
+  }, [status.control, reload]);
   useEffect(() => {
     window.requestDesktopClose = () => {
       if (pendingRef.current) {
@@ -878,13 +878,7 @@ function App() {
                         </div>
                       </>
                     ) : page === "feedback" ? (
-                      <Feedback status={status} logs={logs} run={safely} draft={draft} saved={saved[selected]} owned={owned}
-                        onRevert={(path) => { setValue(path, saved[selected].values[path]); setNotice({ text: '已恢复此项的已保存值。' }); }} onStage={(camera) =>
-                        safely('正在读取测量结果…', async () => {
-                          const result = await rpc('learning_stage', { ...proposal(), camera });
-                          valuesUpdate({ [result.path]: result.value });
-                          setNotice({ text: '测量值已填入配置草稿，尚未生效。保存配置后应用，也可恢复已保存值。' });
-                        })} />
+                      <Feedback status={status} logs={logs} run={safely} />
                     ) : !draft ? (
                       <div className="empty">
                         <Library size={45} />
@@ -933,7 +927,7 @@ function App() {
                             {(() => {
                               const names = tuningGroups[tab];
                               return names.map((name) =>
-                                ["响应学习与手动介入"].includes(
+                                ["手动介入"].includes(
                                   name,
                                 ) ? (
                                   <Group
@@ -958,7 +952,7 @@ function App() {
                                         draft={draft}
                                         setValue={setValue}
                                         fold={
-                                          name === "响应学习与手动介入"
+                                          name === "手动介入"
                                         }
                                       />
                                     )}

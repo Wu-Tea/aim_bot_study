@@ -6,7 +6,7 @@
 
 namespace runtime_app {
 
-// A separate pagefile-backed memory mapping keeps the 640-byte reload/learning
+// A separate pagefile-backed memory mapping keeps the reload
 // ABI unchanged. No file backs this channel and no samples are persisted.
 enum FrameRateState : std::uint32_t { NotStarted = 0, Sampling = 1, Stopped = 2 };
 struct RuntimeFrameRateSnapshot {

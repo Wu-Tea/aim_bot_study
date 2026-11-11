@@ -820,7 +820,7 @@ void test_policy_commit_replay(const native_test::TestContext& context) {
                 if (snapshot.policy_revision != revision + 1 || snapshot.freshness != VisionSnapshotFreshness::Fresh) return;
                 ++revision;
             }
-            controller.apply_hot_config(next.gamepad, preserve_response_learning_on_reload(current, next));
+            controller.apply_hot_config(next.gamepad, preserve_motion_history_on_reload(current, next));
             current = next; pending = requested = false; committed = tick;
         };
         bool saw_assist = false, saw_wait_passthrough = false, saw_old_inflight = false, saw_age_rejection = false, saw_overwrite = false;

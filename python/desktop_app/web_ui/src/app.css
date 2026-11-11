@@ -131,7 +131,6 @@
 .curve-readout dd { margin: 6px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .curve-error-unit { display: inline-block; white-space: nowrap; }
 .curve-calibration { margin-bottom: 24px; border-bottom: var(--border); padding-bottom: 16px; }
-.curve-learning-toggle { display: flex; align-items: center; gap: 12px; font-size: var(--font-small); }
 .curve-prior-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
 .curve-prior-grid .stack { margin: 0; min-width: 0; flex-direction: row; align-items: center; justify-content: space-between; }
 .curve-calibration .number { width: 160px; max-width: 55%; }
@@ -295,4 +294,3 @@
   .window-controls { margin-left: auto; }
   .topbar { flex-wrap: wrap; }
 }
-.measurement-actions { display: flex; flex-wrap: wrap; gap: 8px; }

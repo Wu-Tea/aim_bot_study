@@ -428,7 +428,6 @@ void RuntimeLoop::record_tick_diagnostics(
     telemetry_tick.controller.stopping_reserve_y=telemetry_components.stopping_reserve_px.y;
     telemetry_tick.controller.camera_response_scale=telemetry_components.camera_response_scale;
     telemetry_tick.controller.camera_effect_delay_ms=telemetry_components.camera_effect_delay_ms;
-    telemetry_tick.controller.camera_alignment_valid=telemetry_components.camera_alignment_valid;
     telemetry_tick.controller.bodylock_error_rate_x =
         telemetry_components.bodylock_error_rate_px_per_sec.x;
     telemetry_tick.controller.bodylock_error_rate_y =

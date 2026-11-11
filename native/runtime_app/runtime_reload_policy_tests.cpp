@@ -17,14 +17,14 @@ void test_reload_additions_removals_and_unchanged_validation() {
     after.effective_values = {{"gamepad.ai_aim.hipfire_multiplier", "0.5"}, {"z.structural", "1"}};
     require(runtime_app::hot_reload_restrictions(before, after) == "a.structural, z.structural",
             "both removed and added structural settings require restart in key order");
-    require(!runtime_app::preserve_response_learning_on_reload(before, after),
-            "mixed structural and learning-safe changes cannot retain learning");
+    require(!runtime_app::preserve_motion_history_on_reload(before, after),
+            "mixed structural and history-preserving changes cannot retain motion history");
     before.effective_values.erase("a.structural");
     after.effective_values.erase("z.structural");
     require(runtime_app::hot_reload_restrictions(before, after).empty() &&
-            runtime_app::preserve_response_learning_on_reload(before, after),
-            "a learning-safe change alone remains hot eligible");
-    require(!runtime_app::preserve_response_learning_on_reload(after, after),
+            runtime_app::preserve_motion_history_on_reload(before, after),
+            "a history-preserving change alone remains hot eligible");
+    require(!runtime_app::preserve_motion_history_on_reload(after, after),
             "a no-op reload keeps the existing reset contract");
     after.effective_values["gamepad.recoil.enabled"] = "invalid";
     bool rejected = false;

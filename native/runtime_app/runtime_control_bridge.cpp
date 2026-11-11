@@ -46,20 +46,9 @@ std::shared_ptr<const controller_native::RuntimeConfig> RuntimeControlBridge::ta
     return candidate_;
 }
 
-void RuntimeControlBridge::complete(const std::array<controller_native::AimResponseEstimate, 2>& values, bool preserved) noexcept {
-    for (int i = 0; i < 2; ++i) cleared_learning_[i] = {values[i].scale_px_per_stick_second,
-        values[i].learned_scale, values[i].confidence, values[i].accepted_samples};
-    learning_preserved_ = preserved;
+void RuntimeControlBridge::complete() noexcept {
     completed_.store(true, std::memory_order_release);
     SetEvent(finished_.get());
-}
-
-void RuntimeControlBridge::offer_learning(const std::array<controller_native::AimResponseEstimate, 2>& values) noexcept {
-    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
-    if (!lock.owns_lock()) return;
-    for (int i = 0; i < 2; ++i) learning_[i] = {values[i].scale_px_per_stick_second,
-        values[i].learned_scale, values[i].confidence, values[i].accepted_samples};
-    learning_at_ = GetTickCount64();
 }
 
 void RuntimeControlBridge::write_bindings(const controller_native::RuntimeConfig& config) {
@@ -92,7 +81,7 @@ void RuntimeControlBridge::finish_frame_rates(const FrameRateCounts& counts) noe
 }
 
 void RuntimeControlBridge::publish() noexcept {
-    { std::lock_guard<std::mutex> lock(mutex_); std::copy(std::begin(learning_), std::end(learning_), state_.regions); state_.sampled_at_ms = learning_at_;
+    { std::lock_guard<std::mutex> lock(mutex_); state_.sampled_at_ms = GetTickCount64();
       publish_frame_rates_locked(); }
     InterlockedIncrement(&memory_->sequence);
     memory_->snapshot = state_;
@@ -115,18 +104,16 @@ void RuntimeControlBridge::work() noexcept {
 
 
 void RuntimeControlBridge::acknowledge_commit() {
-    { std::lock_guard<std::mutex> lock(mutex_); std::copy(std::begin(cleared_learning_), std::end(cleared_learning_), learning_); learning_at_ = GetTickCount64(); }
     current_ = candidate_;
     candidate_.reset();
     ++state_.revision;
     state_.status = Applied;
     state_.completed_id = state_.request_id;
-    strcpy_s(state_.message, learning_preserved_ ? "applied; response learning preserved" : "applied; response learning cleared");
+    strcpy_s(state_.message, "applied");
     write_bindings(*current_);
     const auto& value = *current_;
-    std::cout << "[RuntimeControl] applied revision=" << state_.revision << " learning_cleared=" << !learning_preserved_ << " game=" << value.game
+    std::cout << "[RuntimeControl] applied revision=" << state_.revision << " game=" << value.game
         << " hipfire_ai_ratio=" << value.gamepad.ai_aim.hipfire_ratio
-        << " response_learning_enabled=" << value.gamepad.ai_aim.aim_response_learning_enabled
         << " ads_limit_x=" << value.gamepad.ai_aim.ads_output_limit_x << " ads_limit_y=" << value.gamepad.ai_aim.ads_output_limit_y
         << " ads_response_ms=" << value.gamepad.ai_aim.ads_response_time_ms
         << " body_limit_x=" << value.gamepad.ai_aim.bodylock_output_limit_x << " body_limit_y=" << value.gamepad.ai_aim.bodylock_output_limit_y

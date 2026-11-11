@@ -660,7 +660,6 @@ void register_cue_identity_tests(native_test::Registry& registry) {
         auto cfg=f::base_config(40,180);
         cfg.ai_aim.ads_snap_max_ai_force=cfg.ai_aim.ads_snap_max_ai_force_y=0;
         cfg.ai_aim.body_lock_max_ai_force=cfg.ai_aim.body_lock_max_ai_force_y=0;
-        cfg.ai_aim.aim_response_learning_enabled=false;
         double now=10;controller_native::NativeGamepadController controller(cfg,&now);
         f::TargetSpec spec;spec.selector_generation=1;spec.has_enemy_cue=true;
         for(int i=0;i<80;++i) {

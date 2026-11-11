@@ -14,7 +14,7 @@
       "advanced": false,
       "editor": "slider",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "USB 连接 DSE 时，锁敌规则选中目标后按左、中、右轻震一次；中间为双侧同时震动。24% 为已试用的波形力度，0% 不播放。与瞄准共用目标筛选、准入门槛和目标身份，同一目标不重复提醒，锁敌策略切换或重新确认新目标时再次提醒。仅覆盖捕获区域。不按开镜也可提醒；原本暂停空闲检测时会增加视觉运算。DSE 音量为零时临时提升，关闭或退出后恢复；系统静音时不播放。",
       "display_scale": 100,
       "unit": "%"
@@ -32,7 +32,7 @@
       "advanced": false,
       "editor": "slider",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "L2 超过此力度后提前搜索目标，尚不授权瞄准辅助；0.05 表示 5%。达到开镜辅助阈值后才进入 L2 辅助阶段。退出搜索阈值低 2 个百分点，连续 3 次采样后退出，不影响实体 L2 透传。",
       "display_scale": 100,
       "unit": "%"
@@ -50,7 +50,7 @@
       "advanced": false,
       "editor": "slider",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "达到此力度后允许 ADS snap 与后续瞄准辅助；0.80 表示 80%。它按扳机力度判断，不确认游戏开镜动画完成，自动开火仍需满足原有就绪条件；必须高于预搜索阈值。",
       "display_scale": 100,
       "unit": "%"
@@ -68,7 +68,7 @@
       "advanced": false,
       "editor": "number",
       "hot_reload": false,
-      "preserve_learning": false,
+      "preserve_motion_history": false,
       "help": "蓝圈以准星为圆心，目标瞄点进入圈内才满足新目标的距离条件；半径随目标变大而放宽。这里调整基础值，图下显示实际半径。参数影响视觉选择和控制器，保存后重启生效；图示即时预览草稿。 此阶段实际范围也决定位置衰减；范围越大，同样偏差的纠偏预算越低，低速参考在参数调校的高级参数中设置。",
       "display_scale": 1,
       "unit": "px"
@@ -86,7 +86,7 @@
       "advanced": false,
       "editor": "number",
       "hot_reload": false,
-      "preserve_learning": false,
+      "preserve_motion_history": false,
       "help": "跟随基础半径，按目标大小放宽；必须不小于近点收尾半径，否则拒绝配置，不静默抬高。超出范围停止辅助并保留身份。保存后重启生效。 此阶段实际范围也决定位置衰减；范围越大，同样偏差的纠偏预算越低，低速参考在参数调校的高级参数中设置。",
       "display_scale": 1,
       "unit": "px"
@@ -104,7 +104,7 @@
       "advanced": false,
       "editor": "number",
       "hot_reload": false,
-      "preserve_learning": false,
+      "preserve_motion_history": false,
       "help": "直接设置位置纠偏距离，不再乘 1.5 或限制在 18 px。数值越小，小偏差纠偏越急；越大越柔和。它不是容许误差，也不改变跟随范围。1 px 可以生效，但最短响应时间仍为 5 ms，并受最大力度限制；延迟和识别噪声可能放大摆动。旧配置按原来实际距离换算。保存后重启生效。",
       "legacy": true
     },
@@ -123,7 +123,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "位置纠偏和目标移动补偿共用的水平输出上限，0 关闭该轴。界面填 30% 表示最大 30% 摇杆力度；最终输出还受目标可信度、横纵联合限幅和手动权限约束。超过 100% 不会突破满幅输出。增大此值也会缩短纠偏时间，可能放大摆动。首次瞄准倍率在参数调校页设置，作用于开镜时拉向目标的阶段。这里作用于瞄上后的持续跟随，保存后热加载。",
       "legacy": true
     },
@@ -142,7 +142,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "位置纠偏和目标移动补偿共用的垂直输出上限，0 关闭该轴。界面填 42% 表示最大 42% 摇杆力度；最终输出还受目标可信度、横纵联合限幅和手动权限约束。超过 100% 不会突破满幅输出。首次瞄准倍率在参数调校页设置，作用于开镜时拉向目标的阶段。这里作用于瞄上后的持续跟随，保存后热加载。",
       "legacy": true
     },
@@ -158,7 +158,7 @@
       "advanced": true,
       "editor": "slider",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "逐轴力度达到此值前，不参与 AI 纠偏。0.15 表示 15%；只影响意图判断，实体摇杆始终原样透传。",
       "display_scale": 100,
       "unit": "%"
@@ -175,7 +175,7 @@
       "advanced": true,
       "editor": "slider",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "达到此值后完整采用手动意图；两阈值之间平滑增加手动权重。0.30 表示 30%；必须大于忽略阈值。",
       "display_scale": 100,
       "unit": "%"
@@ -192,7 +192,7 @@
       "advanced": false,
       "editor": "number",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "从实体 L2 按下开始计时，只禁止自动开火；0 不增加等待。保存后可热加载，手动开火与瞄准不延迟。"
     },
     {
@@ -207,7 +207,7 @@
       "advanced": true,
       "editor": "number",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "两次自动按下之间的周期，默认 100 ms 即每秒最多 10 次；必须不小于单次按住时长。只影响自动开火。"
     },
     {
@@ -222,7 +222,7 @@
       "advanced": true,
       "editor": "number",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "每次自动开火保持按下的时长，默认 30 ms；其余周期时间用于松开，不修改实体按键。"
     },
     {
@@ -240,7 +240,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "AI 在此轴允许的最大响应力度，以所选 AI 曲线的满响应为 100%。程序自动换算摇杆位置；0% 关闭该轴。横纵同时输出受联合限幅约束，手动输入保留独立优先权。"
     },
     {
@@ -258,7 +258,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "AI 在此轴允许的最大响应力度，以所选 AI 曲线的满响应为 100%。程序自动换算摇杆位置；0% 关闭该轴。横纵同时输出受联合限幅约束，手动输入保留独立优先权。"
     },
     {
@@ -276,7 +276,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "AI 在此轴允许的最大响应力度，以所选 AI 曲线的满响应为 100%。程序自动换算摇杆位置；0% 关闭该轴。横纵同时输出受联合限幅约束，手动输入保留独立优先权。"
     },
     {
@@ -294,7 +294,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "AI 在此轴允许的最大响应力度，以所选 AI 曲线的满响应为 100%。程序自动换算摇杆位置；0% 关闭该轴。横纵同时输出受联合限幅约束，手动输入保留独立优先权。"
     },
     {
@@ -312,7 +312,7 @@
       "display_scale": 1,
       "unit": "ms",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "位置纠偏的规划时间，越短越急；原样用于计算，不再按目标大小或向上方向缩短。不保证在此时间内到达，仍受游戏响应、曲线和输出上限影响。"
     },
     {
@@ -330,7 +330,7 @@
       "display_scale": 1,
       "unit": "ms",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "位置纠偏的基础响应时间，越短反应越急；反馈较慢时会自动延长有效响应时间，降低近点过冲。输出上限独立，可信目标移动补偿继续使用观测速度，不承诺在此时间内到达。"
     },
     {
@@ -348,7 +348,7 @@
       "display_scale": 1,
       "unit": "ms",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "位置纠偏的基础响应时间，越短反应越急；反馈较慢时会自动延长有效响应时间，降低近点过冲。输出上限独立，可信目标移动补偿继续使用观测速度，不承诺在此时间内到达。"
     },
     {
@@ -365,7 +365,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "腰射时保留多少辅助输出。100% 保持，0% 不输出腰射辅助；只衰减 AI，不改变手动输入和压枪。"
     },
     {
@@ -382,7 +382,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "开火时向下增加的响应力度，以所选 AI 曲线的满响应为 100%，自动换算摇杆位置。可设置 1%–50%；腰射再乘保留比例，合成输出受满幅限制。需要零输出时关闭“固定力度压枪”。"
     },
     {
@@ -399,7 +399,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "按相机响应与捕获间隔换算观测扰动尺度，默认 3%。在实际相机运动对齐后抑制围绕近期轨迹的测量扰动；可信小偏差和慢速移动仍可产生小修正。此项不再按最终杆量清零，不抬高输出，不影响手动权和独立压枪；兼容旧配置字段，0% 不修正观测。",
       "page": "ads"
     },
@@ -417,7 +417,7 @@
       "display_scale": 100,
       "unit": "%",
       "hot_reload": true,
-      "preserve_learning": true,
+      "preserve_motion_history": true,
       "help": "追赶目标时的低速响应参考，以所选 AI 曲线的满响应为 100%，默认 20%，受各轴上限约束。BodyLock 将它换算为平滑追赶速度，接近瞄点或反馈变慢时连续降低，不是必须维持的最低输出；ADS 保留抓取时的近点刹车。0% 不抬高追赶力度。可信目标移动补偿、手动输入和 AI 死区独立处理。"
     },
     {
@@ -434,7 +434,7 @@
       "display_scale": 1,
       "unit": "px",
       "hot_reload": false,
-      "preserve_learning": false,
+      "preserve_motion_history": false,
       "help": "以 target 瞄点为中心的连续收尾尺度，默认 2 px；越大则近点修正越柔和，不再进入半径就突然归零。ADS 仍用新鲜来源与运动证据判断抓取完成，随后 BodyLock 继续向瞄点收敛，可信移动补偿持续跟随。观测降噪不按最终杆量截断小修正。保存后重启生效。"
     }
   ],

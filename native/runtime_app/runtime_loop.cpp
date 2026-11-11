@@ -512,8 +512,8 @@ void RuntimeLoop::apply_pending_config() {
         ++vision_policy_revision_;
     }
     const auto next = live_control_config(candidate);
-    const bool preserve_learning = preserve_response_learning_on_reload(config_, next);
-    if (!haptics_only_reload(config_, next)) controller_.apply_hot_config(next.gamepad, preserve_learning);
+    const bool preserve_motion_history = preserve_motion_history_on_reload(config_, next);
+    if (!haptics_only_reload(config_, next)) controller_.apply_hot_config(next.gamepad, preserve_motion_history);
     if (vision_changed || config_.gamepad.detection_haptics.enabled != next.gamepad.detection_haptics.enabled ||
         (config_.gamepad.detection_haptics.strength == 0) != (next.gamepad.detection_haptics.strength == 0))
         detection_haptics_policy_.reset();
@@ -525,7 +525,7 @@ void RuntimeLoop::apply_pending_config() {
     config_.vision.target_wide_low_height_ratio = next.vision.target_wide_low_height_ratio;
     config_.effective_values = next.effective_values;
     config_.effective_sources = next.effective_sources;
-    control_bridge_->complete(controller_.learning_snapshot(), preserve_learning);
+    control_bridge_->complete();
     pending_hot_config_.reset();
     policy_requested_ = false;
 }
@@ -765,10 +765,9 @@ void RuntimeLoop::run_once(const ManualRelay::Sample& input_sample) {
     }
     frame_rates_.record_tick(physical_read_at_ns, aiming,
         fresh_vision && latest_vision_result_.frame_updated);
-    if (control_bridge_ && tick_count_ % 128 == 0 && GetTickCount64() - last_learning_publish_ms_ >= 500) {
-        control_bridge_->offer_learning(controller_.learning_snapshot());
+    if (control_bridge_ && tick_count_ % 128 == 0 && GetTickCount64() - last_status_publish_ms_ >= 500) {
         control_bridge_->offer_frame_rates(frame_rates_.snapshot());
-        last_learning_publish_ms_ = GetTickCount64();
+        last_status_publish_ms_ = GetTickCount64();
     }
     if (fresh_vision) {
         if (fusion_publisher_.enabled() && latest_vision_result_.frame_updated) {

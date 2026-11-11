@@ -37,7 +37,7 @@ Result run(float recoil_amount, float target_rate_x, float target_rate_y,
     using namespace controller_native;
     auto config = incident_fixture::base_config(75, 180);
     config.ai_aim.aim_response_initial_scale = 500;
-    config.ai_aim.aim_response_learning_enabled = false;
+
     config.ai_aim.aim_response_effect_delay_ms = 0;
     config.ai_aim.ads_completion_fresh_frames = 2;
     config.ai_aim.visual_authority_enabled = false;
@@ -193,7 +193,7 @@ void fresh_cue_retains_measured_motion() {
     using namespace controller_native;
     auto config = incident_fixture::base_config(40, 180);
     config.ai_aim.aim_response_initial_scale = 500;
-    config.ai_aim.aim_response_learning_enabled = false;
+
     config.ai_aim.aim_response_effect_delay_ms = 0;
     config.ai_aim.ads_completion_fresh_frames = 2;
     config.ai_aim.visual_authority_enabled = false;
@@ -253,7 +253,7 @@ void intermittent_delivery_history(const native_test::TestContext& context) {
         auto config=incident_fixture::base_config(50,180);
         config.ai_aim.normalized_assist_parameters=true;
         config.ai_aim.ads_completion_fresh_frames=1;
-        config.ai_aim.aim_response_learning_enabled=false;
+
         config.ai_aim.aim_response_initial_scale=500;
         config.ai_aim.aim_response_effect_delay_ms=10;
         config.ai_aim.body_lock_max_ai_force=.3f;

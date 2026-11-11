@@ -43,13 +43,13 @@ def schema():
         elif path.startswith('runtime.'): group = '诊断记录'
         elif path.startswith('gamepad.enemy_mark.'): group = '目标与识别'
         elif path.startswith('gamepad.output_transfer.'): group = '响应曲线'
-        elif path.endswith('_initial_scale') or path.endswith('aim_response_learning_enabled'): group = '响应标定'
+        elif path.endswith('_initial_scale'): group = '响应标定'
         elif path.startswith(('gamepad.recoil.', 'gamepad.auto_fire.')): group = '开火与压枪'
         elif path.startswith('gamepad.bodylock.'): group = '持续跟随'
         elif path.startswith('gamepad.ads.'): group = '首次瞄准'
         elif path.startswith('gamepad.assist.'): group = '辅助输入'
         elif path.startswith('gamepad.detection_haptics.'): group = '人物震动提醒'
-        else: group = '响应学习与手动介入'
+        else: group = '手动介入'
         advanced = meta.get('advanced', False) or path in ('gamepad.ads.activation_trigger','gamepad.ads.scope_ready_trigger')
         result.append(dict(path=path, label=meta.get('label', label), kind=kind.__name__,
             limits=limits, scale=meta.get('display_scale', 1), unit=meta.get('unit', ''),
@@ -175,7 +175,12 @@ class WorkspaceService:
         status = self.manager.status()
         record = status.get('record')
         status['rates'] = self.manager.frame_rates(record) if record else None
-        status['learning'] = self.manager.learning() if record else None
+        status['control'] = None
+        if record:
+            try:
+                status['control'] = self.manager.control_status()
+            except (OSError, ValueError) as error:
+                status['control_error'] = str(error)
         status['fusion'] = bool(self.manager.fusion_state())
         status['capture'] = capture_status(self.root, record)
         status.pop('output', None)
@@ -301,34 +306,6 @@ class WorkspaceService:
             from .runtime import tail
             status = self.manager.status(); record = status.get('record') or status.get('last_record')
             return {'stdout': tail(record.get('stdout_path','')) if record else '', 'stderr': tail(record.get('stderr_path','')) if record else ''}
-        if command == 'learning_export':
-            data = self.manager.learning()
-            if not data: raise ValueError('当前没有可导出的响应学习数据。')
-            record = self.manager.active() or {}
-            return self._export({'learning': data, 'units': 'px/s', 'response_reference': 'normalized_curve_full_scale',
-                'profile_id':record.get('profile_id'), 'game':record.get('game'), 'curve_binding':record.get('curve_binding'),
-                'measurement_kind':'passive delivered-output response fit; independent of configured response'}, '响应测量.json')
-        if command == 'learning_stage':
-            # Copy a live measurement to a draft only. Saving / applying remains
-            # the existing explicit profile transaction with conflict checks.
-            doc, _ = self._candidate(p)
-            record = self.manager.active()
-            if not self._owns(doc, record):
-                raise ValueError('请先选择正在运行的配置，再填入测量值。')
-            if runtime_curve_binding(projection(doc), doc['game']) != record.get('curve_binding'):
-                raise ValueError('当前曲线与运行中的曲线不同，请先保存并重启后重新测量。')
-            index = p.get('camera')
-            if type(index) is not int or index not in (0, 1):
-                raise ValueError('请选择腰射或开镜测量。')
-            data = self.manager.learning()
-            if not data or data.get('status') == 1:
-                raise ValueError('测量暂不可用，请等待运行状态更新。')
-            value = data['regions'][index]
-            measured = value['learned']
-            if not value['samples'] or not value['confidence'] or not math.isfinite(measured) or measured < 80:
-                raise ValueError('尚未测得可靠响应，请继续移动视角观察人物目标。')
-            return {'path': 'gamepad.ai_aim.' + ('body_free_initial_scale' if index == 0 else 'ads_free_initial_scale'),
-                    'value': measured}
         if command == 'curve_import':
             path = self._choose('open','',('响应曲线 (*.json)',))
             return read_curve(path) if path else None

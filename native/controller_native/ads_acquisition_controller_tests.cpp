@@ -314,71 +314,14 @@ void test_ads_carried_manual_spends_remaining_work_without_restoring_brake() {
         "a gap must not authorize new ADS manual suppression or assistance");
 }
 
-void test_physical_camera_fit_distinguishes_known_manual_from_weapon_disturbance() {
-    using namespace controller_native;
-    namespace f=incident_fixture;
-    for(bool firing : {false,true}) {
-        auto cfg=f::base_config(40,190);
-        cfg.ai_aim.normalized_assist_parameters=true;
-        cfg.ai_aim.minimum_position_stick=.5f;cfg.ai_aim.arrival_radius_px=2;
-        cfg.ai_aim.ads_response_time_ms=60;
-        cfg.ai_aim.ads_free_initial_scale=900;
-        // Measurement no longer changes controller latency either. This plant
-        // uses a known 22 ms queue; configure it explicitly for the adoption test.
-        cfg.ai_aim.aim_response_effect_delay_ms=22;
-        cfg.ai_aim.bodylock_output_limit_x=cfg.ai_aim.bodylock_output_limit_y=1;
-        cfg.ai_aim.ads_output_limit_x=cfg.ai_aim.ads_output_limit_y=1;
-        cfg.ai_aim.bodylock_response_time_x_ms=cfg.ai_aim.bodylock_response_time_y_ms=10;
-        cfg.ai_aim.body_lock_activation_box_px=120;
-        cfg.ai_aim.body_free_initial_scale=2000;
-        cfg.aim_response_curve.algorithm=AimResponseCurveAlgorithm::CodDynamicLegacyLut;
-        cfg.auto_fire.enabled=false;cfg.recoil.enabled=false;
-        cfg.output_transfer.enabled=false;
-        double now=10;NativeGamepadController c(cfg,&now);
-        std::deque<pipeline_contract::Vec2f> plant(22);
-        float x=20,y=-18;bool identified=false,applied=false;float best_response_error=1e9f;
-        for(int tick=0;tick<1500;++tick) {
-            now=10+tick*.001;
-            if(tick%5==0) {
-                f::TargetSpec spec;spec.observation_id=tick+1;spec.selector_generation=1;
-                spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
-                c.submit_vision_snapshot(f::observed_snapshot(spec,tick+1,now,x,y));
-            }
-            auto input=f::ads_input(.392f,0,firing);
-            auto out=c.build_output(input);
-            identified=identified||c.last_output_components().camera_alignment_valid;
-            if(c.last_output_components().camera_alignment_valid) {
-                const auto measured=c.learning_snapshot()[1];
-                best_response_error=std::min(best_response_error,std::fabs(measured.learned_scale-1500));
-                if(!applied && std::fabs(measured.learned_scale-1500)<80) {
-                    require_true(c.last_target_plan().response_scale==900,
-                        "measurement cannot replace the user's calibration before explicit adoption");
-                    cfg.ai_aim.ads_free_initial_scale=measured.learned_scale;
-                    c.apply_hot_config(cfg,true);applied=true;
-                }
-            }
-            c.observe_delivered_output(out,true,now);
-            auto delivered=plant.front();plant.pop_front();
-            plant.push_back(forward_aim_response_curve({out.right_x,out.right_y},cfg.aim_response_curve));
-            x+=(600-1500*delivered.x)*.001f;y+=1500*delivered.y*.001f;
-        }
-        require_true(firing ? !identified : identified,
-            "physical fit must learn from known delivered manual work but reject weapon-disturbed intervals");
-        if(!firing) require_true(best_response_error<80,
-            "known manual output must independently identify physical camera response");
-        if(!firing) std::cout << "passive-fit adoption response=" << cfg.ai_aim.ads_free_initial_scale
-            << " best_error=" << best_response_error << " final_error=" << std::hypot(x,y) << '\n';
-        if(!firing) require_true(std::hypot(x,y)<2.f,
-            "explicitly adopted response and configured delay must restore accurate tracking");
-    }
-}
+
 
 }  // namespace
 
 void register_ads_acquisition_controller_tests(native_test::Registry& registry) {
     registry.add_case("BaseAds", "centered_qualified_motion", test_centered_ads_retains_qualified_motion_under_original_budget);
     registry.add_case("BaseAds", "carried_manual_remaining_work", test_ads_carried_manual_spends_remaining_work_without_restoring_brake);
-    registry.add_case("BaseAds", "physical_fit_known_manual", test_physical_camera_fit_distinguishes_known_manual_from_weapon_disturbance);
+
     registry.add_context_case("BaseAds", "september_ads_precenter_brake", test_september_ads_precenter_brake);
     registry.add_case("BaseAds", "large_reliable_error_gets_strong_output", test_large_reliable_error_gets_strong_output);
     registry.add_case("BaseAds", "predicted_crossing_applies_terminal_brake", test_predicted_crossing_applies_terminal_brake);

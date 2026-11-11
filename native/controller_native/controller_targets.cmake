@@ -23,8 +23,6 @@ add_library(controller_native_core STATIC
     controller_native/bodylock_follow_controller.cpp
     controller_native/bodylock_target_motion_observer.cpp
     controller_native/response_model_aim_solver.cpp
-    controller_native/aim_response_estimator.cpp
-    controller_native/ads_response_estimator.cpp
     controller_native/aim_dynamics_shaper.cpp)
 target_include_directories(controller_native_core PUBLIC
     ${PROJECT_BINARY_DIR}/generated

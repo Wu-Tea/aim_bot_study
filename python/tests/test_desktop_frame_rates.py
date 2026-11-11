@@ -107,7 +107,7 @@ class FrameRateObserverTests(unittest.TestCase):
             result = observer.results.get(timeout=2)
             self.assertEqual(result['performance'], {'aim_frames': 820})
             manager.frame_rates.assert_called_once_with(record)
-            manager.learning.assert_not_called()
+            manager.control_status.assert_not_called()
             manager.fusion_state.assert_not_called()
             manager.active.assert_not_called()
         finally:

@@ -26,10 +26,10 @@ struct Result {
 // pixel displacement and semantic box-point noise. It does not replay Apex.
 Result run(unsigned seed, int axis, int duration, int vision_ms, float noise,
            float speed, float manual, controller_native::AimResponseCurveAlgorithm curve,
-           bool learning=false, int anchor_discontinuity=0, bool cue_reference=false) {
+           int anchor_discontinuity=0, bool cue_reference=false) {
     using namespace controller_native;
     auto config=incident_fixture::base_config(100,180);
-    config.ai_aim.aim_response_learning_enabled=learning;
+
     config.ai_aim.aim_response_effect_delay_ms=0;
     config.ai_aim.aim_response_initial_scale=1000;
     config.ai_aim.body_free_initial_scale=1000;
@@ -148,12 +148,12 @@ void incident(const native_test::TestContext& context) {
 }
 
 // Independent validation covariates are frozen separately from the original
-// RED fixture. Valid correspondence tests learning-on geometry noise; the
+// RED fixture. Valid correspondence tests geometry noise; the
 // negative controls have quiet semantic geometry but invalid/jumped features.
-void learning_and_correspondence_validation(const native_test::TestContext& context) {
+void correspondence_validation(const native_test::TestContext& context) {
     using controller_native::AimResponseCurveAlgorithm;
-    std::ofstream out(context.artifact_path("motion_anchor_learning_and_domains.json"));
-    out << "{\"seeds\":[10012026,3141592653],\"learning_enabled\":true,\"cases\":[";
+    std::ofstream out(context.artifact_path("motion_anchor_domains.json"));
+    out << "{\"seeds\":[10012026,3141592653],\"cases\":[";
     int count=0,failed=0,invalid=0;
     for (unsigned seed : {10012026u,3141592653u}) for (int index=0;index<64;++index)
     for (int duration : {600,2400}) {
@@ -165,7 +165,7 @@ void learning_and_correspondence_validation(const native_test::TestContext& cont
         const float manual=std::array<float,3>{0,.03f,-.03f}[rng()%3];
         const float noise=kind ? 0 : 1.5f+(rng()%251)*.01f;
         const auto curve=(index/2)%2 ? AimResponseCurveAlgorithm::CodDynamicLegacyLut : AimResponseCurveAlgorithm::Linear;
-        const auto r=run(seed+index*19,axis,duration,vision_ms,noise,speed,manual,curve,true,kind);
+        const auto r=run(seed+index*19,axis,duration,vision_ms,noise,speed,manual,curve,kind);
         const bool trigger=r.body_ticks>=duration-450 && r.motion_ticks>=duration-450 && r.identity && r.finite && (kind || r.geometry_changes>=10);
         const bool pass=trigger && r.maximum_motion_error<=.002f;
         invalid+=!trigger; failed+=!pass;
@@ -178,11 +178,64 @@ void learning_and_correspondence_validation(const native_test::TestContext& cont
     }
     out << "],\"count\":"<<count<<",\"failed\":"<<failed<<",\"invalid\":"<<invalid<<"}";
     out.close();
-    if (invalid) throw native_test::InvalidFixtureError("learning/domain validation did not exercise stable native observer ownership");
-    if (failed) throw std::runtime_error("plant learning must share the rigid measurement source; invalid/rebuilt features cannot cross measurement domains");
+    if (invalid) throw native_test::InvalidFixtureError("motion/domain validation did not exercise stable native observer ownership");
+    if (failed) throw std::runtime_error("motion estimation must use the rigid measurement source; invalid/rebuilt features cannot cross measurement domains");
 }
 }
 void register_bodylock_motion_anchor_incident_tests(native_test::Registry& registry) {
+    registry.add_context_case("BaseBodyLock","small_target_vertical_short_long",[](const native_test::TestContext& context) {
+        using namespace controller_native;
+        std::ofstream out(context.artifact_path("small_target_vertical.csv"));
+        out<<"seed,duration_ms,curve,firing,height,noise,delay,peak_output,peak_motion,peak_error,steady_motion_error,motion_ticks\n";
+        for(unsigned seed:{20261111u,8675309u,99173u,314159u})for(int duration:{3000,20000})
+        for(int variant=0;variant<12;++variant) for(bool firing:{false,true}) {
+            std::mt19937 rng(seed+variant);
+            const float height=std::array<float,3>{16.f,32.f,140.f}[variant%3];
+            const float noise=variant<6 ? 0.f : 3.f;
+            const int delay=std::array<int,3>{0,9,18}[rng()%3];
+            const auto curve=variant%2 ? AimResponseCurveAlgorithm::CodDynamicLegacyLut : AimResponseCurveAlgorithm::Linear;
+            auto config=incident_fixture::base_config(100,190);
+            config.ai_aim.normalized_assist_parameters=true;
+            config.ai_aim.minimum_position_stick=.5f;
+            config.ai_aim.bodylock_output_limit_x=config.ai_aim.bodylock_output_limit_y=1.f;
+            config.ai_aim.bodylock_response_time_x_ms=config.ai_aim.bodylock_response_time_y_ms=10;
+            config.ai_aim.body_free_initial_scale=5000;
+            config.ai_aim.ads_free_initial_scale=3400;
+            config.ai_aim.aim_response_effect_delay_ms=float(delay);
+            config.ai_aim.visual_authority_enabled=false;
+            config.aim_response_curve.algorithm=curve;
+            double now=10;NativeGamepadController controller(config,&now);
+            incident_fixture::TargetSpec target;target.body_height=height;target.body_width=height*.4f;
+            target.selector_generation=99;target.has_enemy_cue=target.enemy_identity_confirmed=true;
+            float y=0,peak=0,motion=0,error=0,steady_error=0;int motion_ticks=0;std::array<float,64> pending{};
+            std::uint64_t frame=0;
+            for(int tick=0;tick<duration;++tick) {
+                const int phase=tick%3000;
+                const float speed=phase<500 || phase>=2500 ? 0 : (phase<1500 ? height*.5f : -height*.5f);
+                if(tick%5==0) {
+                    target.observation_id=++frame;
+                    const float jitter=(int(rng()%201)-100)*noise*.01f;
+                    auto snapshot=incident_fixture::observed_snapshot(target,frame,now,0,y+jitter,tick==0);
+                    controller.submit_vision_snapshot(snapshot);
+                }
+                auto output=controller.build_output(incident_fixture::ads_input(0,0,firing));
+                auto response=forward_aim_response_curve({output.right_x,output.right_y},config.aim_response_curve);
+                pending[tick%64]=response.y;
+                y+=speed*.001f+(tick>=delay?pending[(tick-delay)%64]:0.f)*3.4f;
+                const auto& plan=controller.last_target_plan();
+                if(tick>=400) {
+                    peak=std::max(peak,std::fabs(output.right_y));motion=std::max(motion,std::fabs(plan.bodylock_target_motion_px_per_sec.y));error=std::max(error,std::fabs(y));
+                    motion_ticks+=plan.bodylock_target_motion_valid;
+                    if((phase>=1000 && phase<1400)||(phase>=2000 && phase<2400))
+                        steady_error=std::max(steady_error,std::fabs(plan.bodylock_target_motion_px_per_sec.y-speed));
+                }
+                now+=.001;
+            }
+            out<<seed<<','<<duration<<','<<int(curve)<<','<<firing<<','<<height<<','<<noise<<','<<delay<<','<<peak<<','<<motion<<','<<error<<','<<steady_error<<','<<motion_ticks<<'\n';
+            if(motion_ticks<duration-450 || peak>=.65f || error>height*.3f || (noise==0 && steady_error>.02f))
+                throw std::runtime_error("small-target motion must remain bounded without losing sustained speed or observation coverage");
+        }
+    });
     registry.add_context_case("BaseBodyLock","cue_rigid_motion_short_long_validation",[](const native_test::TestContext& context) {
         std::ofstream out(context.artifact_path("cue_rigid_motion.csv"));
         out<<"seed,case,duration_ms,axis,speed,cadence,motion_error,world_error,identity,finite\n";
@@ -193,7 +246,7 @@ void register_bodylock_motion_anchor_incident_tests(native_test::Registry& regis
             const auto r=run(seed+i,i%2,duration,cadence,4.f,speed,
                 std::array<float,3>{0,.03f,-.03f}[rng()%3],
                 i%3?controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut:
-                    controller_native::AimResponseCurveAlgorithm::Linear,true,0,true);
+                    controller_native::AimResponseCurveAlgorithm::Linear,0,true);
             out<<seed<<','<<i<<','<<duration<<','<<i%2<<','<<speed<<','<<cadence<<','
                <<r.maximum_motion_error<<','<<r.maximum_world_error<<','<<r.identity<<','<<r.finite<<'\n';
             if(!r.identity || !r.finite || r.motion_ticks<duration-450 || r.maximum_motion_error>.002f)
@@ -201,5 +254,5 @@ void register_bodylock_motion_anchor_incident_tests(native_test::Registry& regis
         }
     });
     registry.add_context_case("BaseBodyLock","bodylock_semantic_point_false_motion",incident);
-    registry.add_context_case("BaseBodyLock","motion_anchor_learning_and_domains",learning_and_correspondence_validation);
+    registry.add_context_case("BaseBodyLock","motion_anchor_domains",correspondence_validation);
 }

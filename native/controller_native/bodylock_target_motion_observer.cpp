@@ -77,19 +77,39 @@ bool BodylockTargetMotionObserver::update(
     const float maximum_motion = std::max(0.0f, config_.maximum_target_motion_stick);
     robust.x = std::clamp(robust.x, -maximum_motion, maximum_motion);
     robust.y = std::clamp(robust.y, -maximum_motion, maximum_motion);
+    const bool sized = std::isfinite(observation.target_height_px) &&
+        observation.target_height_px > 0.f && config_.maximum_hold_seconds > 0.f;
+    float rise = std::max(0.f, config_.rise_slew_stick_per_second);
+    if (sized) {
+        // A new acceleration estimate may displace prediction by at most one
+        // observed body height over its existing hold horizon: d = a*t*t/2.
+        // Height is projective scale on both axes; pose width is not distance.
+        // This limits changes in predicted velocity, never sustained speed or
+        // position correction. Camera work has already been removed above.
+        const float hold = config_.maximum_hold_seconds;
+        rise = std::min(rise, 2.f * observation.target_height_px /
+            (response * hold * hold));
+    }
+    float elapsed = observation.interval_seconds;
     if (!initialized_) {
-        filtered_motion_stick_ = robust;
         initialized_ = true;
-        return true;
+        if (!sized) {
+            filtered_motion_stick_ = robust;
+            return true;
+        }
+        // The first published estimate must spend the same rise budget as
+        // later estimates, including the capture time spent priming it.
+        elapsed = 0.f;
+        for (std::size_t i=0; i<measurement_count_; ++i) elapsed += intervals_[i];
     }
     filtered_motion_stick_.x = slew_axis(
         filtered_motion_stick_.x,
         robust.x,
-        observation.interval_seconds);
+        elapsed, rise);
     filtered_motion_stick_.y = slew_axis(
         filtered_motion_stick_.y,
         robust.y,
-        observation.interval_seconds);
+        elapsed, rise);
     return true;
 }
 
@@ -168,14 +188,14 @@ BodylockTargetMotionObserver::robust_measurement() const noexcept {
 float BodylockTargetMotionObserver::slew_axis(
     float current,
     float target,
-    float dt_seconds) const noexcept {
+    float dt_seconds, float rise_per_second) const noexcept {
     const bool reversing = current * target < 0.0f;
     const bool decaying = reversing || std::fabs(target) < std::fabs(current);
     const float rate = std::max(
         0.0f,
         decaying
             ? config_.decay_slew_stick_per_second
-            : config_.rise_slew_stick_per_second);
+            : rise_per_second);
     const float effective_target = reversing ? 0.0f : target;
     const float step = rate * std::max(0.0f, dt_seconds);
     return current + std::clamp(

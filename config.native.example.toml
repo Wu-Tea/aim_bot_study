@@ -160,17 +160,16 @@ tolerance_px = 8
 
 [gamepad.ai_aim]
 hipfire_multiplier = 1.0 # 0..3; AI input only when physical ADS is not ready; decimals accepted
-aim_response_learning_enabled = true # false pauses sample updates; the selected tool LUT is unchanged
 # Cue-only BodyLock stays conservative for targets no taller than 12% of the
 # capture, blends continuously above that, and reaches full retained authority
 # for close targets at this height ratio.
 cue_hold_full_force_min_target_height_ratio = 0.25
-# Camera/output effect delay used only to pair delivered commands with fresh
-# captures for online response learning. It does not add input latency.
+# Camera/output effect delay aligns delivered commands with fresh captures
+# for target motion estimation. It does not add input latency.
 aim_response_effect_delay_ms = 9
-# Gamepad startup response prior in px/(effective stick*s), 80..4000.
-# 0 inherits the adapter calibration (normally 500). Online learning continues;
-# direct mouse keeps its own calibration. This is not a physical stick curve.
+# Full-response camera speed in px/s, at least 80 with no fixed upper bound.
+# 0 inherits the adapter calibration (normally 500). Runtime uses the configured
+# Hipfire/ADS values; direct mouse keeps its own calibration.
 aim_response_initial_scale = 0
 # Provisional V1 calibration: D may move only inside selector-published R.
 # Continued pressure at R's boundary becomes an explicit exit request.

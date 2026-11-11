@@ -342,10 +342,8 @@ void full_response_calibration_across_curves() {
     for (unsigned seed : {73u, 1093u, 81239u, 924119u}) for (int count : {300, 12000})
     for (float gain : {3000.f, 5000.f}) for (int shape : {0, 1, 2}) {
         auto curve = config_for(shape).aim_response_curve;
-        // Old anchor values must not secretly scale either demand or learning.
+        // Old anchor values must not secretly scale either demand or feedback.
         curve.calibration_reference_stick = seed % 2 ? .2f : .8f;
-        AimResponseEstimatorConfig learner_config; learner_config.fallback_scale = gain * .6f;
-        AimResponseEstimator learner(learner_config);
         std::mt19937 random(seed);
         std::uniform_real_distribution<float> unit(.05f, .8f);
         for (int tick = 0; tick < count; ++tick) {
@@ -353,13 +351,7 @@ void full_response_calibration_across_curves() {
             const float stick = curve_inverse_magnitude(demand, curve);
             const auto delivered = forward_aim_response_curve({stick, 0}, curve);
             require(std::fabs(delivered.x - demand) < 2.e-6f,
-                "learning command is normalized response, independent of curve and old anchor");
-            AimResponseInterval interval;
-            interval.target_id = 1 + tick / 200;
-            interval.average_final_stick = delivered;
-            interval.observed_error_rate_px_per_sec = {75.f - gain * demand, 0};
-            interval.dt_seconds = .01f; interval.reliability = 1; interval.observed = true;
-            learner.update(interval);
+                "feedback command is normalized response, independent of curve and old anchor");
             for (bool follow : {false, true}) {
                 ResponseModelAimRequest request;
                 request.range_position_response = true;
@@ -377,9 +369,6 @@ void full_response_calibration_across_curves() {
                     "same px/s prior and target error must request the same camera speed across curves");
             }
         }
-        require(learner.estimate().accepted_samples > 100 &&
-            std::fabs(learner.estimate().scale_px_per_stick_second - gain) < gain * .01f,
-            "auto learning must recover the same full-response px/s value for every curve");
     }
 }
 
@@ -424,7 +413,7 @@ void register_manual_stick_translation_tests(native_test::Registry& registry) {
         for (int shape : {0, 1, 2}) {
             auto cfg = config_for(shape);
             cfg.follow_response_curve = false; cfg.output_transfer.enabled = false;
-            cfg.ai_aim.aim_response_learning_enabled = false;
+
             cfg.ai_aim.aim_response_initial_scale = 3000;
             double clock = 100.; NativeGamepadController controller(cfg, &clock);
             const float stick = curve_inverse_magnitude(.2f, cfg.aim_response_curve);

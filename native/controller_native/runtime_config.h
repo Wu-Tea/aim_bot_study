@@ -115,7 +115,6 @@ struct GamepadAiAimConfig {
     float body_free_initial_scale = 0.0f;
     float ads_free_initial_scale = 0.0f;
     // Device adapters with a calibrated linear response disable stick learning.
-    bool aim_response_learning_enabled = true;
     // Native device-adapter units; ordinary gamepad configuration keeps 500.
     float adapter_response_px_per_second = 500.0f;
     float adapter_ads_speed = 1.0f;
