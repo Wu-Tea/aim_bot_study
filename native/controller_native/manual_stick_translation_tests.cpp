@@ -338,6 +338,83 @@ void independent_input_and_ai_curves() {
     }
 }
 
+void endpoint_deadzone_compensation_chain() {
+    auto cfg = prepared_config(false);
+    cfg.output_transfer.deadzone = .2f;
+    require(near(transfer_game_stick({.5f,0},cfg.output_transfer).x,.6f),
+        "20% start deadzone requires 60% wire for 50% game response");
+    cfg.output_transfer.outer_deadzone = .1f;
+    require(near(transfer_game_stick({.5f,0},cfg.output_transfer).x,.55f),
+        "20%-90% effective interval requires 55% wire for 50% game response");
+    require(near(transfer_game_stick({1,0},cfg.output_transfer).x,.9f),
+        "full command reaches the configured end threshold");
+    require(transfer_game_stick({},cfg.output_transfer).x == 0,
+        "endpoint compensation must never move neutral");
+    require(transfer_game_stick({.2f,0},cfg.output_transfer,true).x == 0,
+        "feedback removes the entire start deadzone");
+    require(transfer_game_stick({.001f,0},cfg.output_transfer).x > .2f,
+        "small commands cross game deadzone instead of being discarded");
+    for (float magnitude : {.001f,.1f,.5f,.9f,1.f}) {
+        const float wire = transfer_game_stick({magnitude,0},cfg.output_transfer).x;
+        require(near((wire-.2f)/.7f,magnitude), "independent linear game plant realizes 1:1");
+    }
+    cfg = prepared_config(true);
+    cfg.output_transfer.deadzone = .2f;
+    cfg.output_transfer.outer_deadzone = .1f;
+    for (int i=1;i<=1000;++i) {
+        const float input = i/1000.f;
+        const float wire = transfer_game_stick({input,0},cfg.output_transfer).x;
+        const float game_response = cod_linear_reference_magnitude((wire-.2f)/.7f,true);
+        require(near(game_response,curve_forward_magnitude(input,cfg.aim_response_curve)),
+            "nonlinear game A composed with endpoint compensation and prepared C must realize target B");
+    }
+    for (unsigned seed : {41u,2089u,81173u,971903u}) for (bool axial : {false,true})
+    for (int length : {300,12000}) {
+        cfg = prepared_config(true);
+        cfg.output_transfer.outer_deadzone = .1f;
+        cfg.output_transfer.deadzone = .16f;
+        cfg.output_transfer.axial = axial;
+        auto reference = cfg;
+        reference.output_transfer.outer_deadzone = reference.output_transfer.deadzone = 0;
+        double clock = 100;
+        NativeGamepadController controller(cfg,&clock), baseline(reference,&clock);
+        PhysicalGamepadState physical; physical.connected = true;
+        std::mt19937 rng(seed); std::uniform_real_distribution<float> input(-1,1);
+        for (int tick=0; tick<length; ++tick) {
+            clock += .001;
+            physical.right_x = tick%101 ? input(rng) : 0;
+            physical.right_y = tick%101 ? input(rng) : 0;
+            const auto a = controller.begin_tick(physical).intent, b = baseline.begin_tick(physical).intent;
+            require(a.filtered_right.x==b.filtered_right.x && a.filtered_right.y==b.filtered_right.y,
+                "deadzone settings cannot rewrite per-axis manual intent");
+            const auto out = controller.build_output_from_sampled_input(); baseline.build_output_from_sampled_input();
+            const auto decoded = transfer_game_stick({out.right_x,out.right_y},cfg.output_transfer,true);
+            require(near(decoded.x,physical.right_x) && near(decoded.y,physical.right_y),
+                "prepared C and both endpoint compensations must roundtrip manual input exactly once");
+        }
+        physical = incident_fixture::ads_input();
+        incident_fixture::TargetSpec target; target.observation_id=target.selector_generation=1;
+        float largest = 0;
+        for (int tick=0; tick<length; ++tick) {
+            clock += .001;
+            // ADS and firing BodyLock, then source gaps and physical release.
+            physical.rb = tick%240 >= 120;
+            if (tick%8==0 && tick%500<420) {
+                auto source = incident_fixture::observed_snapshot(target,tick+1,clock,
+                    25*std::sin(tick*.003f),12*std::cos(tick*.002f));
+                controller.submit_vision_snapshot(source); baseline.submit_vision_snapshot(source);
+            }
+            const auto out = controller.build_output(physical), raw = baseline.build_output(physical);
+            const auto a = transfer_game_stick({out.right_x,out.right_y},cfg.output_transfer,true);
+            const auto b = transfer_game_stick({raw.right_x,raw.right_y},reference.output_transfer,true);
+            require(std::fabs(a.x-b.x)<1.e-4f && std::fabs(a.y-b.y)<1.e-4f,
+                "AI solve, recoil and feedback must retain response across deadzone compensation");
+            largest = std::max(largest,std::hypot(a.x,a.y));
+        }
+        require(largest > .01f, "AI comparison must exercise nonzero corrections");
+    }
+}
+
 void full_response_calibration_across_curves() {
     for (unsigned seed : {73u, 1093u, 81239u, 924119u}) for (int count : {300, 12000})
     for (float gain : {3000.f, 5000.f}) for (int shape : {0, 1, 2}) {
@@ -468,4 +545,5 @@ void register_manual_stick_translation_tests(native_test::Registry& registry) {
     registry.add_case("BaseTranslation", "manual_exit_and_axis_authority", translation_manual_exit_and_axis_authority);
     registry.add_case("BaseTranslation", "mapping_cost", translation_mapping_cost);
     registry.add_case("BaseTranslation", "independent_input_and_ai_curves", independent_input_and_ai_curves);
+    registry.add_case("BaseTranslation", "endpoint_deadzone_compensation_chain", endpoint_deadzone_compensation_chain);
 }

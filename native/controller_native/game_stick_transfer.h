@@ -24,19 +24,28 @@ struct GameStickTransferConfig {
     float game_exponent = 1.0f;
     GameStickResponseModel response_model = GameStickResponseModel::Power;
     AimResponseCurveConfig curve;
+    // Fraction of the outer travel where the game already produces full speed.
+    float outer_deadzone = 0.0f;
 };
 
 inline float game_stick_magnitude(float magnitude,
                                  const GameStickTransferConfig& config,
                                  bool decode) noexcept {
-    if (magnitude == 0.0f || magnitude >= 1.0f) return magnitude;
+    if (magnitude == 0.0f) return 0.0f;
+    if (magnitude >= 1.0f && config.outer_deadzone == 0.0f) return magnitude;
+    const float span = 1.0f - config.deadzone - config.outer_deadzone;
     // A prepared input/output mapping is already C, not a game model A.
     // The AI model remains independently selected in aim_response_curve.
-    if (config.response_model == GameStickResponseModel::OutputLut)
-        return custom_curve_magnitude(magnitude, config.curve, decode);
+    if (config.response_model == GameStickResponseModel::OutputLut) {
+        if (decode) {
+            const float normalized = std::clamp((magnitude - config.deadzone) / span, 0.0f, 1.0f);
+            return custom_curve_magnitude(normalized, config.curve, true);
+        }
+        const float mapped = custom_curve_magnitude(magnitude, config.curve, false);
+        return config.deadzone + span * mapped;
+    }
     if (decode) {
-        const float normalized = std::max(0.0f,
-            (magnitude - config.deadzone) / (1.0f - config.deadzone));
+        const float normalized = std::clamp((magnitude - config.deadzone) / span, 0.0f, 1.0f);
         if (config.response_model == GameStickResponseModel::CustomLut)
             return custom_curve_magnitude(normalized, config.curve, false);
         if (config.response_model == GameStickResponseModel::CodLinearLegacyLut)
@@ -50,7 +59,7 @@ inline float game_stick_magnitude(float magnitude,
         ? cod_linear_reference_magnitude(magnitude, false)
         : config.game_exponent == 1.0f ? magnitude
             : std::pow(magnitude, 1.0f / config.game_exponent);
-    return config.deadzone + (1.0f - config.deadzone) * linearized;
+    return config.deadzone + span * linearized;
 }
 
 inline pipeline_contract::Vec2f transfer_game_stick(
@@ -65,9 +74,15 @@ inline pipeline_contract::Vec2f transfer_game_stick(
                 std::copysign(game_stick_magnitude(std::fabs(stick.y), config, decode), stick.y)};
     }
     const float radius = std::hypot(stick.x, stick.y);
-    // Preserve the square report's outer rim/corners and exact center. Inside
-    // the unit circle, preserve direction (no new axial deadzone or snapping).
-    if (radius == 0.0f || radius >= 1.0f) return stick;
+    if (radius == 0.0f) return stick;
+    // Keep square-report directions/corners. The outer rim scales with the
+    // configured full-speed threshold; undo that scale in delivered feedback.
+    const float outer = 1.0f - config.outer_deadzone;
+    if (radius >= (decode ? outer : 1.0f)) {
+        if (config.outer_deadzone == 0.0f) return stick;
+        const float scale = decode ? 1.0f / outer : outer;
+        return {stick.x * scale, stick.y * scale};
+    }
     const float scale = game_stick_magnitude(radius, config, decode) / radius;
     return {stick.x * scale, stick.y * scale};
 }

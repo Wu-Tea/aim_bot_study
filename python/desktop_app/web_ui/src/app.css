@@ -145,15 +145,20 @@
 .curve-library-editor { min-width: 0; }
 .curve-result-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
 .curve-status { color: var(--muted); margin: 0 0 16px; }
-.curve-use-selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; margin-bottom: 24px; }
+.curve-use-selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; margin-bottom: 16px; }
 .curve-use-selectors .stack { margin: 0; min-width: 0; }
+.curve-deadzones { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 24px; margin-bottom: 24px; }
+.curve-deadzones .stack { margin: 0; min-width: 0; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.curve-deadzones .number { width: 120px; max-width: 50%; }
+@media (max-width: 720px) { .curve-deadzones { grid-template-columns: 1fr; } }
 .curve-input-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .curve-settings-preview { display: grid; grid-template-columns: minmax(0,1fr) 210px; gap: 24px; }
 .curve-settings-preview .chart { min-width: 0; }
-.curve-settings-preview .chart .curve-composition-plot { height: 260px; max-height: 260px; }
+.curve-settings-preview .chart .curve-composition-plot { height: clamp(180px, calc(100dvh - 708px), 260px); max-height: 260px; }
 .curve-settings-preview .chart circle { cursor: default; }
 .curve-preview-values { padding-top: 12px; }
 .curve-preview-values h2 { margin: 0 0 24px; }
+.curve-effective-range { color: var(--muted); font-size: var(--font-small); margin: 0 0 16px; }
 @media (max-width: 900px) { .curve-settings-preview { grid-template-columns: minmax(0,1fr); gap: 12px; } .curve-preview-values { padding-top: 0; } .curve-preview-values h2 { margin-bottom: 12px; } }
 @media (max-width: 720px) { .curve-use-selectors { grid-template-columns: 1fr; } }
 .curve-empty { padding: 48px 24px; text-align: center; color: var(--muted); border: var(--border); border-radius: var(--radius-panel); }

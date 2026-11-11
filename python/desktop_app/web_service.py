@@ -93,7 +93,7 @@ class WorkspaceService:
         input_curve = None
         transfer = lookup(doc['config'], 'gamepad.output_transfer', {})
         model = transfer.get('response_model', 'power')
-        if transfer.get('enabled') and transfer.get('deadzone', .16) == 0 and model in ('cod_linear_legacy_lut', 'custom_lut'):
+        if transfer.get('enabled') and model in ('cod_linear_legacy_lut', 'custom_lut'):
             a = curve_document(transfer.get('curve_name') or '旧版输入响应', seed_points('cod_linear_legacy_lut', self.repo.curve_source) if model == 'cod_linear_legacy_lut' else decode_points(transfer['custom_points']))
             b = doc['curve']['definition'] if lookup(doc['config'], 'gamepad.follow_response_curve', False) else curve_document('线性 1:1', seed_points('linear', self.repo.curve_source))
             input_curve = compose_curves(a, b, '已保存的输入转译曲线')

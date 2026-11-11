@@ -28,6 +28,7 @@ GAME_FIELDS = [
     ('gamepad.output_transfer.custom_points', '基准曲线数据', str, '', None),
     ('gamepad.output_transfer.curve_name', '基准曲线名称', str, '', None),
     ('gamepad.output_transfer.deadzone', '游戏死区补偿量', float, .16, (0, .5)),
+    ('gamepad.output_transfer.outer_deadzone', '终点死区', float, 0., (0, .5)),
     ('gamepad.output_transfer.axial', '轴向死区补偿', bool, False, None),
     ('gamepad.output_transfer.game_exponent', '游戏响应幂指数', float, 1.0, (1, 3)),
     ('gamepad.auto_fire.fire_output', '自动开火输出', str, 'RB', ('RT', 'RB')),
@@ -73,7 +74,8 @@ DISPLAY_FIELDS = {
     'runtime.vision.target_wide_low_height_ratio': {'label':'宽矮目标瞄点距顶部','display_scale':100,'unit':'%'},
     'gamepad.recoil.feedback_amount': {'label':'开镜压枪输出','display_scale':100,'unit':'%'},
     'gamepad.recoil.hipfire_multiplier': {'label':'腰射压枪保留比例','display_scale':100,'unit':'%'},
-    'gamepad.output_transfer.deadzone': {'label':'游戏死区补偿量','display_scale':100,'unit':'%'},
+    'gamepad.output_transfer.deadzone': {'label':'起点死区','display_scale':100,'unit':'%','hot_reload':False},
+    'gamepad.output_transfer.outer_deadzone': {'label':'终点死区','display_scale':100,'unit':'%','hot_reload':False},
     'gamepad.ai_aim.hipfire_multiplier': {'label':'腰射辅助增益','unit':'×'},
     'gamepad.output_transfer.game_exponent': {'label':'游戏响应指数'},
 }
@@ -129,3 +131,5 @@ def validate_fields(document, games):
                 raise ValueError(f'{game} 的“{field[1]}”配置类型不正确。')
             field_value(field, value)
         validate_relationships(data)
+        if lookup(data, 'gamepad.output_transfer.deadzone', .16) + lookup(data, 'gamepad.output_transfer.outer_deadzone', 0.) >= 1:
+            raise ValueError('起点死区与终点死区之和必须小于 100%，请保留有效输入区间。')

@@ -13,5 +13,5 @@ def runtime_curve_binding(document, game=None):
         'manual_translation': lookup(data, 'gamepad.follow_response_curve', False),
         'output': {key: lookup(data, 'gamepad.output_transfer.' + key, default) for key, default in (
             ('enabled', False), ('response_model', 'power'), ('custom_points', ''),
-            ('curve_name', ''), ('deadzone', .16), ('axial', False), ('game_exponent', 1.))},
+            ('curve_name', ''), ('deadzone', .16), ('outer_deadzone', 0.), ('axial', False), ('game_exponent', 1.))},
     }

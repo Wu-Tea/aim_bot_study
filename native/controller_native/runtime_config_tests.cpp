@@ -575,10 +575,11 @@ void test_game_output_transfer_config() {
     require(!controller_native::load_runtime_config(defaults.path()).gamepad.output_transfer.enabled,
         "existing profiles must not enable output transfer");
     TempConfig file("cod_output_transfer.toml",
-        "[gamepad.output_transfer]\nenabled = true\naxial = true\ndeadzone = 0.18\ngame_exponent = 2.0\n");
+        "[gamepad.output_transfer]\nenabled = true\naxial = true\ndeadzone = 0.18\nouter_deadzone = 0.10\ngame_exponent = 2.0\n");
     auto config = controller_native::load_runtime_config(file.path());
     require(config.diagnostics.empty() && config.gamepad.output_transfer.enabled &&
         config.gamepad.output_transfer.axial && config.gamepad.output_transfer.deadzone == .18f &&
+        config.gamepad.output_transfer.outer_deadzone == .10f &&
         config.gamepad.output_transfer.game_exponent == 2.0f, "output adapter keys must parse");
     require(config.gamepad.output_transfer.response_model == controller_native::GameStickResponseModel::Power,
         "old output compensation retains its power model");
@@ -592,7 +593,12 @@ void test_game_output_transfer_config() {
     try { (void)controller_native::load_runtime_config(unknown.path()); }
     catch (const std::runtime_error&) { rejected_model=true; }
     require(rejected_model, "unknown game models cannot silently become linear");
-    for (const auto* key : {"deadzone", "game_exponent"}) {
+    TempConfig closed("closed_deadzone_interval.toml", "[gamepad.output_transfer]\ndeadzone=0.5\nouter_deadzone=0.5\n");
+    bool rejected_closed=false;
+    try { (void)controller_native::load_runtime_config(closed.path()); }
+    catch (const std::runtime_error&) { rejected_closed=true; }
+    require(rejected_closed, "endpoint deadzones must leave a nonempty effective range");
+    for (const auto* key : {"deadzone", "outer_deadzone", "game_exponent"}) {
         for (const auto* value : {"-0.01", "3.01", "nan", "inf"}) {
             TempConfig invalid("cod_output_transfer_invalid.toml",
                 std::string("[gamepad.output_transfer]\n") + key + " = " + value + "\n");

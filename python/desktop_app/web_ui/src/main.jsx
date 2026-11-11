@@ -307,7 +307,9 @@ function App() {
   };
   const proposal = (candidate = draft) => {
     const invalid = boot.fields.find((field) =>
-      !field.readonly && !isFieldValid(field, candidate.values[field.path]),
+      !field.readonly && (!isFieldValid(field, candidate.values[field.path]) ||
+        (field.path === 'gamepad.output_transfer.outer_deadzone' &&
+          candidate.values['gamepad.output_transfer.deadzone'] + candidate.values[field.path] >= 1)),
     );
     if (invalid) {
       setSelected(candidate.id);
@@ -323,7 +325,10 @@ function App() {
         setDeviceTab(invalid.group === "捕获与模型" ? "capture" : "input");
       }
       setFocusField({ id: "f-" + invalid.path });
-      const error = Error(`请检查“${invalid.label}”，当前填写的值无效。`);
+      const error = Error(invalid.path === 'gamepad.output_transfer.outer_deadzone' &&
+        candidate.values['gamepad.output_transfer.deadzone'] + candidate.values[invalid.path] >= 1
+        ? '起点死区与终点死区之和必须小于 100%，请保留有效输入区间。'
+        : `请检查“${invalid.label}”，当前填写的值无效。`);
       error.field = { profileId: candidate.id, path: invalid.path };
       throw error;
     }

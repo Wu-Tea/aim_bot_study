@@ -253,6 +253,7 @@ void dump_effective_config(const controller_native::RuntimeConfig& config, std::
     line("gamepad.output_transfer.custom_points", transfer_points.str());
     line("gamepad.output_transfer.axial", transfer.axial);
     line("gamepad.output_transfer.deadzone", transfer.deadzone);
+    line("gamepad.output_transfer.outer_deadzone", transfer.outer_deadzone);
     line("gamepad.output_transfer.game_exponent", transfer.game_exponent);
     const auto& recoil = config.gamepad.recoil;
     line("gamepad.recoil.enabled", recoil.enabled);

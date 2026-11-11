@@ -209,7 +209,7 @@ bool is_known_key(const std::string& section, const std::string& key) {
     static const std::unordered_set<std::string> aim_response_curve_keys{
         "algorithm", "calibration_reference_stick", "custom_points"};
     static const std::unordered_set<std::string> output_transfer_keys{
-        "enabled", "axial", "deadzone", "game_exponent", "response_model", "custom_points", "curve_name"};
+        "enabled", "axial", "deadzone", "outer_deadzone", "game_exponent", "response_model", "custom_points", "curve_name"};
     static const std::unordered_set<std::string> ads_keys{
         "strength_scale", "vertical_strength_scale", "activation_radius_px",
         "pickup_base_radius_px",
@@ -679,6 +679,7 @@ void apply_value(
         if (key == "enabled") transfer.enabled = parse_bool_value(value);
         else if (key == "axial") transfer.axial = parse_bool_value(value);
         else if (key == "deadzone") transfer.deadzone = parse_float_value(value);
+        else if (key == "outer_deadzone") transfer.outer_deadzone = parse_float_value(value);
         else if (key == "game_exponent") transfer.game_exponent = parse_float_value(value);
         else if (key == "custom_points") {
             if (parse_string_value(value).empty()) transfer.curve.custom_count = 0;
@@ -859,6 +860,10 @@ void validate_runtime_config(RuntimeConfig& config) {
         invalid("gamepad.auto_fire.manual_fire_input", "both, RT or RB");
     if (!std::isfinite(transfer.deadzone) || transfer.deadzone < 0.0f || transfer.deadzone > 0.5f)
         invalid("gamepad.output_transfer.deadzone", "finite 0..0.5");
+    if (!std::isfinite(transfer.outer_deadzone) || transfer.outer_deadzone < 0.0f || transfer.outer_deadzone > 0.5f)
+        invalid("gamepad.output_transfer.outer_deadzone", "finite 0..0.5");
+    if (transfer.deadzone + transfer.outer_deadzone >= 1.0f)
+        invalid("gamepad.output_transfer.outer_deadzone", "start + end deadzone must be less than 1");
     if (!std::isfinite(transfer.game_exponent) || transfer.game_exponent < 1.0f || transfer.game_exponent > 3.0f)
         invalid("gamepad.output_transfer.game_exponent", "finite 1..3");
     if (!std::isfinite(config.gamepad.recoil.hipfire_multiplier) ||

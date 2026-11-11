@@ -151,6 +151,30 @@ class WebServiceTests(unittest.TestCase):
         self.assertEqual(actual['gamepad.output_transfer.custom_points'],encode_points(a))
         self.assertEqual(actual['gamepad.ai_aim.body_free_initial_scale'],25000)
 
+    def test_deadzone_settings_roundtrip_and_runtime_binding(self):
+        draft=deepcopy(self.profile)
+        draft['values'].update({
+            'gamepad.follow_response_curve':True,
+            'gamepad.output_transfer.enabled':True,
+            'gamepad.output_transfer.response_model':'output_lut',
+            'gamepad.output_transfer.custom_points':'0:0;1:1',
+            'gamepad.output_transfer.deadzone':.2,
+            'gamepad.output_transfer.outer_deadzone':.1,
+        })
+        saved=self.call('save',draft)['profile']
+        reopened=self.call('reload',{'id':saved['id']})
+        for key,value in [('deadzone',.2),('outer_deadzone',.1)]:
+            self.assertEqual(reopened['values']['gamepad.output_transfer.'+key],value)
+            self.assertEqual(reopened['curve_binding']['output'][key],value)
+        for key in ['deadzone','outer_deadzone']:
+            invalid=deepcopy(reopened)
+            invalid['values']['gamepad.output_transfer.'+key]=.51
+            self.assertFalse(self.service.dispatch('save',invalid)['ok'])
+        invalid=deepcopy(reopened)
+        for key in ['deadzone','outer_deadzone']:
+            invalid['values']['gamepad.output_transfer.'+key]=.5
+        self.assertFalse(self.service.dispatch('save',invalid)['ok'])
+
     def test_cod_linear_reference_compensation_roundtrip(self):
         draft=deepcopy(self.profile)
         self.assertEqual(draft['values']['gamepad.output_transfer.response_model'], 'power')
