@@ -1,3 +1,4 @@
+#include <fstream>
 #include "incident_fixture_support.h"
 #include "test_support/native_test_registry.h"
 #include "vision_native/target_selector.h"

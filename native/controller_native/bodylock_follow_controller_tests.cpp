@@ -1,6 +1,6 @@
+#include "aim_dynamics_shaper.h"
 #include "bodylock_follow_controller.h"
 #include "ads_acquisition_controller.h"
-#include "point_boundary_simulation.h"
 #include "test_support/native_test_registry.h"
 
 #include <cmath>
@@ -261,86 +261,6 @@ void test_center_crossing_incident(const native_test::TestContext& context) {
                  "BodyLock crossing/noise contract failed; see measured incident artifact");
 }
 
-void test_feedback_distance_delay_noise_sweep(const native_test::TestContext& context) {
-    // A component-level ideal game plant, not live-game acceptance. The real
-    // controller solves at 1 kHz; sampled observations have explicit delay,
-    // noise and cadence. No Vision/identity/manual/weapon model is invented.
-    std::filesystem::create_directories(context.artifact_directory);
-    std::ofstream report(context.artifact_path("follow-response-sweep.csv"));
-    require_true(report.good(), "response diagnostic artifact must be writable");
-    report << "seed,case,ms,delay_ms,capture_ms,noise_px,plant_scale,moving,curve,distance_px,force,mean_abs_error_px,rms_error_px,peak_error_px,center_crossings\n";
-    for (unsigned seed : {5071u,90439u}) {
-        std::mt19937 random(seed);
-        auto unit=[&]() { return static_cast<float>(random()%10001)/10000.f; };
-        for (int scenario=0;scenario<20;++scenario) {
-            const int duration=scenario%2 ? 5000 : 1000;
-            const int delay=4+random()%21, cadence=4+random()%9;
-            const float noise=.02f+unit()*.98f, plant=500.f*(.8f+unit()*.4f);
-            const bool moving=scenario%3!=0;
-            const float amplitude=6.f+unit()*14.f, frequency=.7f+unit()*1.6f;
-            for (auto curve : {controller_native::AimResponseCurveAlgorithm::Linear,
-                               controller_native::AimResponseCurveAlgorithm::CodDynamicLegacyLut,
-                               controller_native::AimResponseCurveAlgorithm::CustomLut}) {
-                for (float distance : {1.f,6.f,18.f,36.f}) {
-                    for (float force : {.3f,.6f,1.f}) {
-                        // Reuse precisely the same observation-noise stream
-                        // across parameter candidates for each scenario.
-                        std::mt19937 sensor(seed+scenario*101);
-                        controller_native::BodylockFollowControllerConfig config;
-                        config.feedback_range_x_px=config.feedback_range_y_px=distance;
-                        config.max_force_x=force; config.max_force_y=force*.8f;
-                        config.response_curve.algorithm=curve;
-                        if (curve==controller_native::AimResponseCurveAlgorithm::CustomLut) {
-                            config.response_curve.custom_count=4;
-                            config.response_curve.custom_stick={0,.2f,.5f,1};
-                            config.response_curve.custom_response={0,.08f,.37f,1};
-                        }
-                        controller_native::BodylockFollowController controller(config);
-                        pipeline_contract::Vec2f camera{};
-                        std::vector<pipeline_contract::Vec2f> history;
-                        auto plan=active_plan(8,4);
-                        double sum=0,squares=0; float peak=0; unsigned measured=0,crossings=0;
-                        int last_sign=1;
-                        for (int tick=0;tick<duration;++tick) {
-                            const float t=tick*.001f, phase=t*frequency;
-                            const pipeline_contract::Vec2f target{8+(moving ? amplitude*std::sin(phase) : 0),
-                                4+(moving ? amplitude*.4f*std::sin(phase*.7f) : 0)};
-                            const pipeline_contract::Vec2f error{target.x-camera.x,target.y-camera.y};
-                            history.push_back(error);
-                            if (tick%cadence==0) {
-                                const auto observed=history[std::max(0,tick-delay)];
-                                auto jitter=[&]() { return (static_cast<float>(sensor()%10001)/5000.f-1)*noise; };
-                                plan.error_px={observed.x+jitter(),observed.y+jitter()};
-                                plan.bodylock_target_motion_valid=true;
-                                const float observed_t=std::max(0,tick-delay)*.001f;
-                                plan.bodylock_target_motion_px_per_sec={
-                                    moving ? amplitude*frequency*std::cos(observed_t*frequency) : 0,
-                                    moving ? amplitude*.4f*frequency*.7f*std::cos(observed_t*frequency*.7f) : 0};
-                            }
-                            const auto out=controller.compute_detailed(plan);
-                            const float ellipse=std::hypot(out.stick.x/force,out.stick.y/(force*.8f));
-                            require_true(std::isfinite(out.stick.x) && std::isfinite(out.stick.y) && ellipse<=1.00001f,
-                                         "every response candidate must obey finite joint force limits");
-                            const auto effective=controller_native::forward_aim_response_curve(out.stick,config.response_curve);
-                            camera.x+=effective.x*plant*.001f;
-                            camera.y-=effective.y*plant*.001f;
-                            if (tick>=duration/5) {
-                                const float magnitude=std::hypot(error.x,error.y);
-                                sum+=magnitude;squares+=magnitude*magnitude;peak=std::max(peak,magnitude);++measured;
-                                const int sign=error.x>.05f ? 1 : error.x<-.05f ? -1 : 0;
-                                if (sign && sign!=last_sign) { ++crossings;last_sign=sign; }
-                            }
-                        }
-                        report << seed << ',' << scenario << ',' << duration << ',' << delay << ',' << cadence << ','
-                               << noise << ',' << plant << ',' << moving << ',' << static_cast<int>(curve) << ','
-                               << distance << ',' << force << ',' << sum/measured << ',' << std::sqrt(squares/measured)
-                               << ',' << peak << ',' << crossings << '\n';
-                    }
-                }
-            }
-        }
-    }
-}
 
 }  // namespace
 
@@ -717,8 +637,6 @@ void register_bodylock_follow_controller_tests(native_test::Registry& registry) 
             }
         }
     });
-    registry.add_context_case("BaseBodyLock", "point_boundary_closed_loop_diagnostic", simulate_point_boundary);
-    registry.add_context_case("BaseBodyLock", "feedback_distance_delay_noise_sweep", test_feedback_distance_delay_noise_sweep);
     registry.add_context_case("BaseBodyLock", "center_crossing_incident", test_center_crossing_incident);
     registry.add_case("BaseBodyLock", "inactive_plan_is_neutral", test_inactive_plan_is_neutral);
     registry.add_case("BaseBodyLock", "current_error_owns_position_proposal", test_current_error_owns_position_proposal);

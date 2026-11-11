@@ -4,10 +4,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <stdexcept>
-#include <string>
 
 namespace controller_native::incident_fixture {
 
@@ -181,30 +177,6 @@ inline ControllerVisionSnapshot empty_snapshot(
 
 inline bool finite_unit(float value) noexcept {
     return std::isfinite(value) && std::fabs(value) <= 1.0f + 1.0e-6f;
-}
-
-inline std::filesystem::path output_path_from_args(
-    int argc,
-    char** argv,
-    const std::filesystem::path& default_path = {}) {
-    if (argc == 3 && std::string(argv[1]) == "--output") {
-        return std::filesystem::path(argv[2]);
-    }
-    if (argc == 1 && !default_path.empty()) return default_path;
-    throw std::invalid_argument("usage: fixture --output <report.json>");
-}
-
-inline std::ofstream open_report(
-    const std::filesystem::path& output,
-    bool binary = false) {
-    if (!output.parent_path().empty()) {
-        std::filesystem::create_directories(output.parent_path());
-    }
-    auto mode = std::ios::out | std::ios::trunc;
-    if (binary) mode |= std::ios::binary;
-    std::ofstream stream(output, mode);
-    if (!stream) throw std::runtime_error("failed to open report output");
-    return stream;
 }
 
 }  // namespace controller_native::incident_fixture

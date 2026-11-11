@@ -74,7 +74,7 @@ BodyLock 的横纵响应时间分别保存为 `gamepad.bodylock.response_time_x_
 
 ADS 的基准响应时间为 60～350 ms，默认 135 ms；规范化手柄参数不再按目标大小或向上方向隐式缩短时间。它与抓取生命周期时限分开，修改响应时间不延长目标等待或独占预算。BodyLock 使用独立的横纵规划时间。学习到的游戏响应参与需求换算，但不会改变所设置的时间。
 
-历史参数换算仍由普通原生诊断 `BaseBodyLock.feedback_distance_delay_noise_sweep` 覆盖；它保留延迟、噪声、不同曲线与移动目标的数值场景，不作为新参数的交互说明或实战验收。新参数另有两组独立随机种子的 160 条短、长输入流，共 202240 个采样时刻，逐例记录输出椭圆边界与固定响应时间。它检查数值不变量，不模拟完整游戏。
+输出边界与参数独立性由 `BaseBodyLock.force_envelope_remains_bounded` 和 `independent_limits_and_response_randomized` 检查；延迟下的收敛由 `delayed_stationary_target_converges_without_limit_cycle` 与完整控制链回归检查。旧的两组参数扫描只检查有限输出及力度上限，没有对其收敛报表设置判定，已从日常测试删除。随机输入与数值仿真仍用于验证不变量，不代表实战验收。
 
 几何常量由原生程序的只读入口 `--describe-ads-geometry` 提供，入口在模型、设备和输出初始化之前返回。界面使用这些常量绘图，检查将大小及临界外形的 35 组结果与原生输出逐项对照，避免另写一套不一致的规则。
 

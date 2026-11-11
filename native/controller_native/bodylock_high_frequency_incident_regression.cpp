@@ -6,11 +6,8 @@
 #include <cmath>
 #include <cstdint>
 #include <deque>
-#include <filesystem>
-#include <iomanip>
-#include <iostream>
+#include <fstream>
 #include <limits>
-#include <numeric>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,25 +33,17 @@ struct PendingObservation {
 
 struct FreshSample {
     int at_ms = 0;
-    float error_y_px = 0.0f;
     float pre_recoil_y = 0.0f;
-    float requested_y = 0.0f;
 };
 
 struct ScenarioResult {
     std::string name;
-    float plant_response_px_per_stick_second = 0.0f;
-    int control_effect_delay_ms = 0;
-    int disturbance_at_ms = 0;
-    float disturbance_px = 0.0f;
-    float target_velocity_y_px_per_sec = 0.0f;
     int fresh_observations = 0;
     int bodylock_active_ms = 0;
     int target_identity_changes = 0;
     float maximum_desired_point_drift = 0.0f;
     float error_p95_abs_px = 0.0f;
     float error_peak_to_peak_px = 0.0f;
-    float output_p95_abs = 0.0f;
     float output_peak_to_peak = 0.0f;
     int significant_output_reversals = 0;
     float median_reversal_interval_ms = -1.0f;
@@ -63,11 +52,7 @@ struct ScenarioResult {
     int permanent_settle_ms = -1;
     float minimum_response_scale = std::numeric_limits<float>::infinity();
     float maximum_response_scale = 0.0f;
-    float final_response_scale = 0.0f;
     float maximum_response_confidence = 0.0f;
-    float final_response_confidence = 0.0f;
-    int radial_brake_requests = 0;
-    int radial_brake_bounds = 0;
     bool trigger_covered = false;
     bool incident_signature = false;
     bool accuracy_oracle = false;
@@ -157,12 +142,6 @@ ScenarioResult run_scenario(
 
     ScenarioResult result;
     result.name = std::move(name);
-    result.plant_response_px_per_stick_second =
-        plant_response_px_per_stick_second;
-    result.control_effect_delay_ms = control_effect_delay_ms;
-    result.disturbance_at_ms = disturbance_at_ms;
-    result.disturbance_px = disturbance_px;
-    result.target_velocity_y_px_per_sec = target_velocity_y_px_per_sec;
 
     for (int now_ms = 0; now_ms < kDurationMs; ++now_ms) {
         now_seconds = static_cast<double>(now_ms) / 1000.0;
@@ -221,19 +200,9 @@ ScenarioResult run_scenario(
                 result.minimum_response_scale, plan.response_scale);
             result.maximum_response_scale = std::max(
                 result.maximum_response_scale, plan.response_scale);
-            result.final_response_scale = plan.response_scale;
             result.maximum_response_confidence = std::max(
                 result.maximum_response_confidence,
                 plan.response_confidence);
-            result.final_response_confidence = plan.response_confidence;
-            const auto position = components.bodylock_position_stick;
-            const auto motion = components.bodylock_motion_stick;
-            if (position.x * motion.x + position.y * motion.y < 0.0f) {
-                ++result.radial_brake_requests;
-                if (components.bodylock_radial_motion_bound) {
-                    ++result.radial_brake_bounds;
-                }
-            }
         }
 
         const bool consumed_fresh = plan.source_frame_id != 0 &&
@@ -244,9 +213,7 @@ ScenarioResult run_scenario(
             if (now_ms >= kSteadyBeginMs && bodylock) {
                 fresh_samples.push_back({
                     now_ms,
-                    true_error_y,
                     components.before_recoil_stick.y,
-                    components.requested_assist_stick.y,
                 });
             }
         }
@@ -293,7 +260,6 @@ ScenarioResult run_scenario(
     }
     result.error_p95_abs_px = percentile95_abs(steady_errors);
     result.error_peak_to_peak_px = peak_to_peak(steady_errors);
-    result.output_p95_abs = percentile95_abs(steady_outputs);
     result.output_peak_to_peak = peak_to_peak(steady_outputs);
 
     constexpr int kStableWindowMs = 120;
@@ -358,186 +324,38 @@ ScenarioResult run_scenario(
     return result;
 }
 
-void write_scenario(std::ostream& out, const ScenarioResult& value) {
-    out << std::fixed << std::setprecision(6)
-        << "{\"plant_response_px_per_stick_second\":"
-        << value.plant_response_px_per_stick_second
-        << ",\"control_effect_delay_ms\":"
-        << value.control_effect_delay_ms
-        << ",\"disturbance_at_ms\":" << value.disturbance_at_ms
-        << ",\"disturbance_px\":" << value.disturbance_px
-        << ",\"target_velocity_y_px_per_sec\":"
-        << value.target_velocity_y_px_per_sec
-        << ",\"fresh_observations\":" << value.fresh_observations
-        << ",\"bodylock_active_ms\":" << value.bodylock_active_ms
-        << ",\"target_identity_changes\":"
-        << value.target_identity_changes
-        << ",\"maximum_desired_point_drift\":"
-        << value.maximum_desired_point_drift
-        << ",\"error_p95_abs_px\":" << value.error_p95_abs_px
-        << ",\"error_peak_to_peak_px\":"
-        << value.error_peak_to_peak_px
-        << ",\"output_p95_abs\":" << value.output_p95_abs
-        << ",\"output_peak_to_peak\":"
-        << value.output_peak_to_peak
-        << ",\"significant_output_reversals\":"
-        << value.significant_output_reversals
-        << ",\"median_reversal_interval_ms\":"
-        << value.median_reversal_interval_ms
-        << ",\"inferred_cycle_hz\":" << value.inferred_cycle_hz
-        << ",\"stable_settle_ms\":" << value.stable_settle_ms
-        << ",\"permanent_settle_ms\":" << value.permanent_settle_ms
-        << ",\"minimum_response_scale\":"
-        << value.minimum_response_scale
-        << ",\"maximum_response_scale\":"
-        << value.maximum_response_scale
-        << ",\"final_response_scale\":"
-        << value.final_response_scale
-        << ",\"maximum_response_confidence\":"
-        << value.maximum_response_confidence
-        << ",\"final_response_confidence\":"
-        << value.final_response_confidence
-        << ",\"radial_brake_requests\":"
-        << value.radial_brake_requests
-        << ",\"radial_brake_bounds\":"
-        << value.radial_brake_bounds
-        << ",\"trigger_covered\":"
-        << (value.trigger_covered ? "true" : "false")
-        << ",\"incident_signature\":"
-        << (value.incident_signature ? "true" : "false")
-        << ",\"accuracy_oracle\":"
-        << (value.accuracy_oracle ? "true" : "false")
-        << ",\"settle_oracle\":"
-        << (value.settle_oracle ? "true" : "false")
-        << ",\"reversal_at_ms\":[";
-    for (std::size_t index = 0; index < value.reversal_at_ms.size(); ++index) {
-        if (index != 0) out << ',';
-        out << value.reversal_at_ms[index];
-    }
-    out << "]}";
+// Same seven plants and acceptance checks as the original incident fixture.
+// Keep the controller/capture schedule in run_scenario; reports are diagnostic.
+void check_incident(const native_test::TestContext& context) {
+    std::ofstream report(context.artifact_path("bodylock-high-frequency.csv"));
+    if (!report) throw std::runtime_error("cannot write incident report");
+    report << "scenario,fresh_frames,bodylock_ms,identity_changes,point_drift,p95_error_px,error_peak_to_peak,output_peak_to_peak,reversals,cycle_hz,stable_settle_ms,permanent_settle_ms,min_response,max_response,max_response_confidence,pass\n";
+    bool all_pass = true;
+    const auto check = [&](const ScenarioResult& r, bool require_settle, bool fixed_gain = false) {
+        const bool pass = fixed_gain
+            ? r.minimum_response_scale == 500.f && r.maximum_response_scale == 500.f && r.maximum_response_confidence == 0.f
+            : r.trigger_covered && !r.incident_signature && r.accuracy_oracle && (!require_settle || r.settle_oracle);
+        all_pass &= pass;
+        report << r.name << ',' << r.fresh_observations << ',' << r.bodylock_active_ms << ','
+            << r.target_identity_changes << ',' << r.maximum_desired_point_drift << ','
+            << r.error_p95_abs_px << ',' << r.error_peak_to_peak_px << ',' << r.output_peak_to_peak << ','
+            << r.significant_output_reversals << ',' << r.inferred_cycle_hz << ','
+            << r.stable_settle_ms << ',' << r.permanent_settle_ms << ','
+            << r.minimum_response_scale << ',' << r.maximum_response_scale << ','
+            << r.maximum_response_confidence << ',' << pass << '\n';
+    };
+    check(run_scenario("apex_like_fixed_response", 2375.f, 9), true);
+    check(run_scenario("matched_fallback_response", 500.f, 9), false);
+    check(run_scenario("apex_like_delay_6ms", 2375.f, 6), true);
+    check(run_scenario("apex_like_delay_12ms", 2375.f, 12), true);
+    check(run_scenario("apex_like_calibrated_step", 2375.f, 9, 1000, 20.f), true);
+    check(run_scenario("apex_like_moving_target", 2375.f, 9, 250, 20.f, 80.f), false);
+    check(run_scenario("configured_gain_stays_fixed", 2375.f, 9, 250, 20.f, 0.f, 500.f), false, true);
+    if (!all_pass) throw std::runtime_error("BodyLock incident regression; see bodylock-high-frequency.csv");
 }
 
 }  // namespace
 
-int run_bodylock_high_frequency_incident_regression(int argc, char** argv) {
-    try {
-        const std::filesystem::path output_path =
-            controller_native::incident_fixture::output_path_from_args(
-                argc, argv);
-        // Primary: fixed, high-response Apex-like plant reconstructed from the
-        // incident's delivered-stick -> fresh screen-motion timing. This is a
-        // constant plant, not a reload/sensitivity transition fixture.
-        const ScenarioResult incident = run_scenario(
-            "apex_like_fixed_response", 2'375.0f, 9);
-        // Counterfactual: keep cadence, delay, target, controller and every
-        // input fixed; change only the plant response to the controller's
-        // historical 500 px/(stick*s) fallback.
-        const ScenarioResult matched = run_scenario(
-            "matched_fallback_response", 500.0f, 9);
-
-        // Delay robustness is a protection against over-fitting the correction
-        // to one exact capture. The production causal window is centered on
-        // the incident fit, while ordinary frame/game latency variation must
-        // remain stable without smoothing or weaker authority.
-        const ScenarioResult delay_six = run_scenario(
-            "apex_like_delay_6ms", 2'375.0f, 6);
-        const ScenarioResult delay_twelve = run_scenario(
-            "apex_like_delay_12ms", 2'375.0f, 12);
-        // Re-apply the same 20 px disturbance after the estimator has had a
-        // full second of live observations. This directly checks that the
-        // calibrated model does not trade away correction speed once calibrated.
-        const ScenarioResult calibrated_step = run_scenario(
-            "apex_like_calibrated_step", 2'375.0f, 9, 1'000, 20.0f);
-        // A constant moving target is canceled by the estimator's interval
-        // differencing. Keep this as an efficiency/accuracy guard against
-        // optimizing solely for a stationary target.
-        const ScenarioResult moving_target = run_scenario(
-            "apex_like_moving_target", 2'375.0f, 9, 250, 20.0f, 80.0f);
-
-        const auto unadopted = run_scenario("unadopted_measurement",2375.f,9,250,20.f,0.f,500.f);
-        const bool unadopted_unchanged = unadopted.minimum_response_scale==500.f &&
-            unadopted.maximum_response_scale==500.f && unadopted.maximum_response_confidence==0.f;
-        const bool counterfactual_valid = matched.trigger_covered &&
-            !matched.incident_signature && matched.accuracy_oracle;
-        const bool delay_robustness = delay_six.trigger_covered &&
-            !delay_six.incident_signature && delay_six.accuracy_oracle &&
-            delay_six.settle_oracle && delay_twelve.trigger_covered &&
-            !delay_twelve.incident_signature && delay_twelve.accuracy_oracle &&
-            delay_twelve.settle_oracle;
-        const bool calibrated_step_performance = calibrated_step.trigger_covered &&
-            !calibrated_step.incident_signature &&
-            calibrated_step.accuracy_oracle && calibrated_step.settle_oracle;
-        const bool moving_target_performance = moving_target.trigger_covered &&
-            !moving_target.incident_signature &&
-            moving_target.accuracy_oracle;
-        const bool pass = unadopted_unchanged && incident.trigger_covered &&
-            !incident.incident_signature && incident.accuracy_oracle &&
-            incident.settle_oracle && counterfactual_valid &&
-            delay_robustness && calibrated_step_performance &&
-            moving_target_performance;
-
-        auto report =
-            controller_native::incident_fixture::open_report(output_path);
-        report << "{\n"
-               << "  \"schema_version\": 2,\n"
-               << "  \"incident_id\": "
-                  "\"apex-bodylock-high-frequency-20260812\",\n"
-               << "  \"covariates\": {"
-               << "\"controller_tick_hz\":1000,"
-               << "\"vision_cadence_ms\":\"6/5 alternating\","
-               << "\"vision_result_delay_ms\":"
-               << kVisionResultDelayMs << ','
-               << "\"target_count\":1,"
-               << "\"target_generation\":145,"
-               << "\"right_stick_manual\":\"zero\","
-               << "\"left_stick_manual\":\"zero\","
-               << "\"firing\":false,"
-               << "\"recoil\":false,"
-               << "\"controller_mode\":\"BodyLock\","
-               << "\"desired_point\":\"constant\"},\n"
-               << "  \"incident\": ";
-        write_scenario(report, incident);
-        report << ",\n  \"counterfactual\": ";
-        write_scenario(report, matched);
-        report << ",\n  \"unadopted_measurement\": ";
-        write_scenario(report, unadopted);
-        report << ",\n  \"delay_robustness\": {\"delay_6ms\":";
-        write_scenario(report, delay_six);
-        report << ",\"delay_12ms\":";
-        write_scenario(report, delay_twelve);
-        report << "}";
-        report << ",\n  \"calibrated_step\": ";
-        write_scenario(report, calibrated_step);
-        report << ",\n  \"moving_target\": ";
-        write_scenario(report, moving_target);
-        report << ",\n  \"oracles\": {"
-               << "\"no_incident_signature\":"
-               << (!incident.incident_signature ? "true" : "false") << ','
-               << "\"steady_error_within_8px\":"
-               << (incident.accuracy_oracle ? "true" : "false") << ','
-               << "\"settles_within_250ms\":"
-               << (incident.settle_oracle ? "true" : "false") << ','
-               << "\"counterfactual_valid\":"
-               << (counterfactual_valid ? "true" : "false") << ','
-               << "\"delay_robustness_6_to_12ms\":"
-               << (delay_robustness ? "true" : "false") << ','
-               << "\"calibrated_step_performance\":"
-               << (calibrated_step_performance ? "true" : "false") << ','
-               << "\"moving_target_performance\":"
-               << (moving_target_performance ? "true" : "false") << "},\n"
-               << "  \"pass\": " << (pass ? "true" : "false") << "\n"
-               << "}\n";
-        report.close();
-        std::cout << "Apex BodyLock high-frequency incident: "
-                  << (pass ? "GREEN" : "RED")
-                  << " report=" << output_path.string() << '\n';
-        return pass ? 0 : 1;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 2;
-    }
-}
-
 void register_bodylock_high_frequency_incident_regression(native_test::Registry& registry) {
-    registry.add_incident_entry("BaseBodyLock", "incident_bodylock_high_frequency", "bodylock_high_frequency_incident.json", run_bodylock_high_frequency_incident_regression);
+    registry.add_context_case("BaseBodyLock", "incident_bodylock_high_frequency", check_incident);
 }

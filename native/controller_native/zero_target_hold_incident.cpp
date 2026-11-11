@@ -317,15 +317,80 @@ void native_hold_restarts_on_target_motion(const native_test::TestContext& conte
 }
 
 void register_zero_target_hold_incident(native_test::Registry& registry) {
+    registry.add_context_case("BaseBodyLock", "visible_offset_recovers_under_low_manual_intent", [](const native_test::TestContext& context) {
+        using namespace controller_native;
+        std::ofstream report(context.artifact_path("visible-offset-recovery.csv"));
+        if (!report) throw std::runtime_error("cannot write offset recovery report");
+        report << "seed,case,curve,axis,duration_ms,vision_ms,delay_ms,response,manual,final_error_px,late_peak_px,pass\n";
+        bool all_pass = true;
+        // Full native controller, static target, exact curve/calibration, no
+        // sensor noise or recoil. This isolates position correction from the
+        // deliberately unchanged low-intent manual ownership policy.
+        for (unsigned seed : {20261111u, 8675309u, 3141592653u, 90439u}) {
+            std::mt19937 random(seed);
+            for (int index = 0; index < 24; ++index) {
+                const int axis = index % 2, curve = (index / 2) % 2;
+                const int duration = index % 3 ? 1200 : 4000;
+                const int cadence = std::array<int,3>{4,8,16}[random()%3];
+                const int delay = std::array<int,3>{0,9,15}[random()%3];
+                const float response = std::array<float,3>{1500,3400,5000}[random()%3];
+                const float manual = (random()%2 ? 1.f : -1.f) * (.02f + (random()%1200)*.0001f);
+                auto config = incident_fixture::base_config(100,190);
+                config.ai_aim.normalized_assist_parameters = true;
+                config.ai_aim.manual_intent_begin = .15f;
+                config.ai_aim.manual_intent_full = .30f;
+                config.ai_aim.minimum_position_stick = .5f;
+                config.ai_aim.bodylock_response_time_x_ms = config.ai_aim.bodylock_response_time_y_ms = 10;
+                config.ai_aim.bodylock_output_limit_x = config.ai_aim.bodylock_output_limit_y = 1;
+                config.ai_aim.body_lock_activation_box_px = 150;
+                config.ai_aim.ads_free_initial_scale = response;
+                config.ai_aim.aim_response_effect_delay_ms = delay;
+                config.aim_response_curve.algorithm = curve ? AimResponseCurveAlgorithm::CodDynamicLegacyLut : AimResponseCurveAlgorithm::Linear;
+                double now = 10;
+                NativeGamepadController controller(config, &now);
+                incident_fixture::TargetSpec target;
+                target.selector_generation = 991; target.observation_id = 1;
+                target.has_enemy_cue = target.enemy_identity_confirmed = target.color_classified = true;
+                target.body_height = 40.f + random()%101;
+                std::deque<float> pending(delay,0);
+                float error = 0, late_peak = 0;
+                bool finite = true, admitted = true;
+                for (int tick = 0; tick < duration; ++tick) {
+                    if (tick == 200) error += index%2 ? -5.f : 5.f;
+                    now = 10 + tick*.001;
+                    if (tick%cadence == 0)
+                        controller.submit_vision_snapshot(incident_fixture::observed_snapshot(
+                            target,tick/cadence+1,now,axis?0:error,axis?error:0,tick==0));
+                    auto input = incident_fixture::ads_input();
+                    if (tick >= 250 && tick < 600) {
+                        if (axis) input.right_y = manual; else input.right_x = manual;
+                    }
+                    const auto output = controller.build_output(input);
+                    const auto delivered = forward_aim_response_curve({output.right_x,output.right_y},config.aim_response_curve);
+                    pending.push_back(axis ? -delivered.y : delivered.x);
+                    error -= pending.front()*response*.001f; pending.pop_front();
+                    finite &= incident_fixture::finite_unit(output.right_x) && incident_fixture::finite_unit(output.right_y);
+                    if (tick >= 700) {
+                        const auto& plan = controller.last_target_plan();
+                        admitted &= plan.target_id != 0 && plan.aim_authority > 0 && !plan.manual_exit_requested;
+                        late_peak = std::max(late_peak,std::fabs(error));
+                    }
+                }
+                now += .001;
+                auto released = incident_fixture::ads_input(.1f,-.1f);
+                released.left_trigger = 0;
+                const auto free = controller.build_output(released);
+                const bool pass = finite && admitted && late_peak < 1.f &&
+                    free.right_x == released.right_x && free.right_y == released.right_y;
+                all_pass &= pass;
+                report << seed << ',' << index << ',' << curve << ',' << axis << ',' << duration << ','
+                    << cadence << ',' << delay << ',' << response << ',' << manual << ',' << error << ',' << late_peak << ',' << pass << '\n';
+            }
+        }
+        if (!all_pass) throw std::runtime_error("visible offset must recover with low manual intent; see visible-offset-recovery.csv");
+    });
     registry.add_context_case("BaseBodyLock","zero_target_retains_manual_allocation",zero_target_ownership);
     registry.add_context_case("BaseBodyLock","centered_target_ignores_wrong_low_intent",centered_native_hold);
     registry.add_context_case("BaseBodyLock","hold_evidence_preserves_moving_and_manual_work",hold_evidence_countercontrols);
     registry.add_context_case("BaseBodyLock","native_hold_restarts_on_effective_motion",native_hold_restarts_on_target_motion);
 }
-
-#ifdef ZERO_TARGET_HOLD_STANDALONE
-int main(int argc,char** argv) {
-    native_test::Registry registry;register_zero_target_hold_incident(registry);
-    return native_test::run(registry,argc,argv,"ZeroTargetHoldIncident");
-}
-#endif

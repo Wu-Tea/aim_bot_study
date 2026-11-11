@@ -38,7 +38,6 @@ public:
 }
 
 using TestBody = std::function<void(const TestContext&)>;
-using IncidentEntry = int (*)(int, char**);
 
 struct TestCase {
     std::string suite;
@@ -77,41 +76,6 @@ public:
                 "duplicate native test case: " + suite + "." + name);
         }
         cases_.push_back({std::move(suite), std::move(name), std::move(body)});
-    }
-
-    void add_incident_entry(
-        std::string suite,
-        std::string name,
-        std::filesystem::path artifact_filename,
-        IncidentEntry entry) {
-        if (entry == nullptr || artifact_filename.empty()) {
-            throw std::invalid_argument(
-                "incident registration requires an entry and artifact name");
-        }
-        add_context_case(
-            std::move(suite),
-            std::move(name),
-            [artifact_filename = std::move(artifact_filename), entry](
-                const TestContext& context) {
-                std::filesystem::create_directories(
-                    context.artifact_directory);
-                std::string program = context.case_name;
-                std::string output_option = "--output";
-                std::string output_path =
-                    context.artifact_path(artifact_filename).string();
-                char* arguments[] = {
-                    program.data(), output_option.data(), output_path.data()};
-                const int status = entry(3, arguments);
-                if (status == 3) {
-                    invalid_fixture(
-                        "incident trigger or counterfactual was invalid; see " +
-                        output_path);
-                }
-                if (status != 0) {
-                    throw std::runtime_error(
-                        "incident oracle failed; see " + output_path);
-                }
-            });
     }
 
     const std::vector<TestCase>& cases() const noexcept { return cases_; }
