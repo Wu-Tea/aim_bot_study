@@ -323,6 +323,9 @@ void test_physical_camera_fit_distinguishes_known_manual_from_weapon_disturbance
         cfg.ai_aim.minimum_position_stick=.5f;cfg.ai_aim.arrival_radius_px=2;
         cfg.ai_aim.ads_response_time_ms=60;
         cfg.ai_aim.ads_free_initial_scale=900;
+        // Measurement no longer changes controller latency either. This plant
+        // uses a known 22 ms queue; configure it explicitly for the adoption test.
+        cfg.ai_aim.aim_response_effect_delay_ms=22;
         cfg.ai_aim.bodylock_output_limit_x=cfg.ai_aim.bodylock_output_limit_y=1;
         cfg.ai_aim.ads_output_limit_x=cfg.ai_aim.ads_output_limit_y=1;
         cfg.ai_aim.bodylock_response_time_x_ms=cfg.ai_aim.bodylock_response_time_y_ms=10;
@@ -333,7 +336,7 @@ void test_physical_camera_fit_distinguishes_known_manual_from_weapon_disturbance
         cfg.output_transfer.enabled=false;
         double now=10;NativeGamepadController c(cfg,&now);
         std::deque<pipeline_contract::Vec2f> plant(22);
-        float x=20,y=-18;bool identified=false;float best_response_error=1e9f;
+        float x=20,y=-18;bool identified=false,applied=false;float best_response_error=1e9f;
         for(int tick=0;tick<1500;++tick) {
             now=10+tick*.001;
             if(tick%5==0) {
@@ -344,8 +347,16 @@ void test_physical_camera_fit_distinguishes_known_manual_from_weapon_disturbance
             auto input=f::ads_input(.392f,0,firing);
             auto out=c.build_output(input);
             identified=identified||c.last_output_components().camera_alignment_valid;
-            if(c.last_output_components().camera_alignment_valid)
-                best_response_error=std::min(best_response_error,std::fabs(c.last_target_plan().response_scale-1500));
+            if(c.last_output_components().camera_alignment_valid) {
+                const auto measured=c.learning_snapshot()[1];
+                best_response_error=std::min(best_response_error,std::fabs(measured.learned_scale-1500));
+                if(!applied && std::fabs(measured.learned_scale-1500)<80) {
+                    require_true(c.last_target_plan().response_scale==900,
+                        "measurement cannot replace the user's calibration before explicit adoption");
+                    cfg.ai_aim.ads_free_initial_scale=measured.learned_scale;
+                    c.apply_hot_config(cfg,true);applied=true;
+                }
+            }
             c.observe_delivered_output(out,true,now);
             auto delivered=plant.front();plant.pop_front();
             plant.push_back(forward_aim_response_curve({out.right_x,out.right_y},cfg.aim_response_curve));
@@ -354,9 +365,11 @@ void test_physical_camera_fit_distinguishes_known_manual_from_weapon_disturbance
         require_true(firing ? !identified : identified,
             "physical fit must learn from known delivered manual work but reject weapon-disturbed intervals");
         if(!firing) require_true(best_response_error<80,
-            "held manual must not freeze the physical camera on an incorrect startup prior");
+            "known manual output must independently identify physical camera response");
+        if(!firing) std::cout << "passive-fit adoption response=" << cfg.ai_aim.ads_free_initial_scale
+            << " best_error=" << best_response_error << " final_error=" << std::hypot(x,y) << '\n';
         if(!firing) require_true(std::hypot(x,y)<2.f,
-            "feasible fast motion with held cooperation must reach the point despite a wrong startup prior");
+            "explicitly adopted response and configured delay must restore accurate tracking");
     }
 }
 

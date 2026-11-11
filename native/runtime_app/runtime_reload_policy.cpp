@@ -123,6 +123,9 @@ bool preserve_response_learning_on_reload(const controller_native::RuntimeConfig
 #undef NATIVE_EDITABLE_FLOAT
         if (catalog_retains) continue;
         if (key != "gamepad.detection_haptics.enabled" &&
+            key != "gamepad.ai_aim.aim_response_initial_scale" &&
+            key != "gamepad.ai_aim.body_free_initial_scale" &&
+            key != "gamepad.ai_aim.ads_free_initial_scale" &&
             key != "gamepad.ai_aim.hipfire_multiplier" &&
             key != "gamepad.ai_aim.aim_response_learning_enabled") return false;
     }

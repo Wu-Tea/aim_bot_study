@@ -51,6 +51,26 @@ class TestRuntime:
 
 
 class WebServiceTests(unittest.TestCase):
+    def test_measurement_stage_is_explicit_and_does_not_save_or_reload(self):
+        draft=deepcopy(self.profile)
+        draft['values']['runtime.vision.model_path']='test.engine'
+        saved=self.call('start',draft)['profile']
+        before=self.service.repo.runtime_path(self.service.states[saved['id']][0]).read_bytes()
+        data={'status':0,'regions':[{'effective':500,'learned':1800,'confidence':.99,'samples':20},
+                                  {'effective':500,'learned':0,'confidence':0,'samples':0}]}
+        with patch.object(self.runtime,'learning',return_value=data), patch.object(self.runtime,'reload_config') as reload:
+            result=self.call('learning_stage',{**saved,'camera':0})
+            self.assertEqual(result,{'path':'gamepad.ai_aim.body_free_initial_scale','value':1800})
+            reload.assert_not_called()
+            self.assertFalse(self.service.dispatch('learning_stage',{**saved,'camera':1})['ok'])
+            incompatible=deepcopy(saved)
+            incompatible['curve']['definition']['points']=[[0,0],[.5,.2],[1,1]]
+            incompatible['curve']['algorithm']='custom_lut'
+            self.assertFalse(self.service.dispatch('learning_stage',{**incompatible,'camera':0})['ok'])
+            self.runtime.record=None
+            self.assertFalse(self.service.dispatch('learning_stage',{**saved,'camera':0})['ok'])
+        self.assertEqual(self.service.repo.runtime_path(self.service.states[saved['id']][0]).read_bytes(),before)
+
     def test_learning_export_declares_full_response_units(self):
         data={'regions':[{'effective':5000},{'effective':3000}]}
         with patch.object(self.runtime,'learning',return_value=data), patch.object(self.service,'_export',return_value='saved') as export:

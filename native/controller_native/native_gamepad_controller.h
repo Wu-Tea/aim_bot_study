@@ -4,7 +4,6 @@
 
 #include "ads_acquisition_controller.h"
 #include "ads_reacquisition_reducer.h"
-#include "ads_response_estimator.h"
 #include "aim_response_estimator.h"
 #include "aim_scope_reducer.h"
 #include "assist_activation_reducer.h"
@@ -245,11 +244,9 @@ private:
     OperationIntentClassifier operation_intent_classifier_{};
     OperationIntentOutput last_operation_intent_{};
     TargetCoordinator target_coordinator_{};
-    AimResponseEstimator hipfire_response_estimator_{};
     std::array<CameraResponseAlignment, 2> camera_alignment_{};
     bool response_ads_ = false;
     CaptureEvidenceFilter capture_evidence_{};
-    AimResponseEstimator ads_response_estimator_;
     AdsAcquisitionController ads_controller_{};
     AdsReacquisitionReducer ads_reacquisition_reducer_{};
     BodylockFollowController bodylock_controller_{};
@@ -280,14 +277,16 @@ private:
         aim_response_command_history_{};
     std::size_t aim_response_history_begin_ = 0;
     std::size_t aim_response_history_count_ = 0;
-    std::uint64_t last_aim_response_frame_id_ = 0;
-    std::uint64_t last_aim_response_target_id_ = 0;
-    double last_aim_response_capture_seconds_ = 0.0;
-    pipeline_contract::Vec2f last_aim_response_source_error_px_{};
-    pipeline_contract::Vec2f last_aim_response_motion_anchor_error_px_{};
-    bool has_last_aim_response_motion_anchor_ = false;
-    std::uint64_t last_aim_response_motion_cue_id_ = 0;
-    bool has_last_aim_response_observation_ = false;
+    std::uint64_t last_motion_frame_ = 0;
+    void measure_response(const pipeline_contract::VisionObservationBatch& observations,
+                          double now, bool ads) noexcept;
+    struct MeasurementAnchor {
+        std::uint64_t frame = 0, target = 0, cue = 0;
+        double capture = 0;
+        pipeline_contract::Vec2f point{};
+        int point_kind = 0;
+        bool valid = false;
+    } measurement_anchor_{};
     // Motion and response identification have different measurement durations.
     // One learner's anchor must not decimate the other's fresh observations.
     struct MotionObservationAnchor {

@@ -304,8 +304,31 @@ class WorkspaceService:
         if command == 'learning_export':
             data = self.manager.learning()
             if not data: raise ValueError('当前没有可导出的响应学习数据。')
+            record = self.manager.active() or {}
             return self._export({'learning': data, 'units': 'px/s', 'response_reference': 'normalized_curve_full_scale',
-                'measurement_kind':'controller response estimate, not independent game calibration'}, '响应学习.json')
+                'profile_id':record.get('profile_id'), 'game':record.get('game'), 'curve_binding':record.get('curve_binding'),
+                'measurement_kind':'passive delivered-output response fit; independent of configured response'}, '响应测量.json')
+        if command == 'learning_stage':
+            # Copy a live measurement to a draft only. Saving / applying remains
+            # the existing explicit profile transaction with conflict checks.
+            doc, _ = self._candidate(p)
+            record = self.manager.active()
+            if not self._owns(doc, record):
+                raise ValueError('请先选择正在运行的配置，再填入测量值。')
+            if runtime_curve_binding(projection(doc), doc['game']) != record.get('curve_binding'):
+                raise ValueError('当前曲线与运行中的曲线不同，请先保存并重启后重新测量。')
+            index = p.get('camera')
+            if type(index) is not int or index not in (0, 1):
+                raise ValueError('请选择腰射或开镜测量。')
+            data = self.manager.learning()
+            if not data or data.get('status') == 1:
+                raise ValueError('测量暂不可用，请等待运行状态更新。')
+            value = data['regions'][index]
+            measured = value['learned']
+            if not value['samples'] or not value['confidence'] or not math.isfinite(measured) or measured < 80:
+                raise ValueError('尚未测得可靠响应，请继续移动视角观察人物目标。')
+            return {'path': 'gamepad.ai_aim.' + ('body_free_initial_scale' if index == 0 else 'ads_free_initial_scale'),
+                    'value': measured}
         if command == 'curve_import':
             path = self._choose('open','',('响应曲线 (*.json)',))
             return read_curve(path) if path else None

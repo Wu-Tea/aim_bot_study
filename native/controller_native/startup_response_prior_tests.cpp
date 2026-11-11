@@ -8,6 +8,7 @@
 #include "test_support/native_test_registry.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -407,7 +408,8 @@ void reload_learning_replay(const native_test::TestContext& context) {
                     retain = runtime_app::preserve_response_learning_on_reload(current, candidate);
                     haptics = runtime_app::haptics_only_reload(current, candidate);
                     require(rejected == (scenario == 8) && haptics == (scenario == 7), "reload admission must match the candidate kind");
-                    require(retain == (scenario == 1 || scenario == 2 || scenario == 7), "mixed and no-op reloads keep the existing reset policy");
+                    require(retain == (scenario == 1 || scenario == 2 || scenario == 3 || scenario == 5 || scenario == 7),
+                        "control calibration changes preserve independently measured results");
                     if (!rejected) {
                         if (!haptics) controller.apply_hot_config(candidate.gamepad, retain);
                         current = candidate;
@@ -418,7 +420,7 @@ void reload_learning_replay(const native_test::TestContext& context) {
                 NativeGamepadController cold(current.gamepad);
                 const auto expected = expect_history_reset ? cold.learning_snapshot() : before;
                 for (std::size_t region = 0; region < after.size(); ++region) require(
-                    after[region].scale_px_per_stick_second == expected[region].scale_px_per_stick_second &&
+                    after[region].scale_px_per_stick_second == cold.learning_snapshot()[region].scale_px_per_stick_second &&
                     after[region].learned_scale == expected[region].learned_scale &&
                     after[region].confidence == expected[region].confidence &&
                     after[region].accepted_samples == expected[region].accepted_samples,
@@ -633,9 +635,10 @@ void high_rate_source_keeps_response_learning(const native_test::TestContext& co
             }
             const auto& plan = controller.last_target_plan();
             require(body > hz,"learning replay must sustain the actual BodyLock path");
-            const bool passes = control == 0
-                ? plan.response_confidence > .5f && std::fabs(plan.response_scale-800) < 80
-                : plan.response_confidence == 0 && std::fabs(plan.response_scale-500) < .001f;
+            const auto measured=controller.learning_snapshot()[1];
+            const bool passes = plan.response_confidence==0 && std::fabs(plan.response_scale-500)<.001f &&
+                (control==0 ? measured.confidence>.5f && std::fabs(measured.learned_scale-800)<80
+                            : measured.confidence==0 && measured.accepted_samples==0);
             all_valid = all_valid && passes;
             report << (first ? "":",") << "{\"hz\":" << hz << ",\"axis\":" << axis
                 << ",\"control\":" << control << ",\"body\":" << body
@@ -651,6 +654,66 @@ void high_rate_source_keeps_response_learning(const native_test::TestContext& co
 }
 
 void register_startup_response_prior_tests(native_test::Registry& registry) {
+    registry.add_case("BaseBodyLock", "passive_measurement_fit_timing", [] {
+        CameraResponseAlignment fit;fit.begin_target(1);
+        double elapsed=0;
+        for(int i=0;i<4000;++i) {
+            const double t=10+i*.005;
+            CameraResponseAlignment::Commands commands{};
+            for(int lag=0;lag<CameraResponseAlignment::delay_count;++lag)
+                commands[lag]={float(.2*std::sin((t-lag*.001)*80)+.1*std::cos((t-lag*.001)*137)),0};
+            const auto begin=std::chrono::steady_clock::now();
+            fit.update(t,{float(75+10*t)-1800*commands[8].x,0},commands);
+            elapsed+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-begin).count();
+        }
+        require(fit.estimate().valid && std::fabs(fit.estimate().response-1800)<2,
+            "timed fit must identify response with independently moving target and transport delay");
+        std::cout << "passive response fit us/observation=" << elapsed/4000 << " samples=16 delays=31\n";
+    });
+    registry.add_case("BaseBodyLock", "measurement_is_independent_and_passive", [] {
+        for (unsigned seed : {193u, 2089u, 81973u, 971903u}) for (bool scoped : {false,true})
+        for (int steps : {300,12000}) for (int curve : {0,1,2}) {
+            auto cfg=incident_fixture::base_config(100,200);
+            cfg.ai_aim.normalized_assist_parameters=true;
+            cfg.ai_aim.aim_response_effect_delay_ms=0;
+            cfg.ai_aim.body_free_initial_scale=cfg.ai_aim.ads_free_initial_scale=500;
+            cfg.auto_fire.enabled=false;cfg.recoil.enabled=false;
+            if(curve==1) cfg.aim_response_curve.algorithm=AimResponseCurveAlgorithm::CodDynamicLegacyLut;
+            if(curve==2) {
+                cfg.aim_response_curve.algorithm=AimResponseCurveAlgorithm::CustomLut;
+                cfg.aim_response_curve.custom_count=3;
+                cfg.aim_response_curve.custom_stick[0]=0;cfg.aim_response_curve.custom_stick[1]=.5f;cfg.aim_response_curve.custom_stick[2]=1;
+                cfg.aim_response_curve.custom_response[0]=0;cfg.aim_response_curve.custom_response[1]=.2f;cfg.aim_response_curve.custom_response[2]=1;
+            }
+            auto other=cfg;other.ai_aim.body_free_initial_scale=other.ai_aim.ads_free_initial_scale=5000;
+            auto disabled=cfg;disabled.ai_aim.aim_response_learning_enabled=false;
+            double now=10;NativeGamepadController a(cfg,&now),b(other,&now),off(disabled,&now);
+            incident_fixture::TargetSpec spec;spec.observation_id=spec.selector_generation=1;
+            spec.has_enemy_cue=spec.enemy_identity_confirmed=true;
+            float x=0,y=0;pipeline_contract::Vec2f previous{};
+            for(int i=0;i<steps;++i) {
+                now=10+i*.005;x-=previous.x*1800*.005f;y+=previous.y*1800*.005f;
+                auto snapshot=incident_fixture::observed_snapshot(spec,i+1,now,x,y);
+                auto input=incident_fixture::ads_input();input.left_trigger=scoped?1.f:0.f;
+                a.submit_vision_snapshot(snapshot);b.submit_vision_snapshot(snapshot);off.submit_vision_snapshot(snapshot);
+                const auto out=a.build_output(input),baseline=off.build_output(input);b.build_output(input);
+                require(out.right_x==baseline.right_x && out.right_y==baseline.right_y,
+                    "measurement alone must never change control output");
+                seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;
+                previous={((int)(seed%101)-50)*.004f,((int)((seed>>8)%101)-50)*.004f};
+                const auto stick=inverse_aim_response_curve(previous,cfg.aim_response_curve);
+                GamepadOutputState receipt;receipt.right_x=stick.x;receipt.right_y=stick.y;
+                for(auto* controller:{&a,&b,&off}) controller->observe_delivered_output(receipt,true,now);
+            }
+            const auto av=a.learning_snapshot()[scoped?1:0],bv=b.learning_snapshot()[scoped?1:0];
+            require(av.accepted_samples>0 && std::fabs(av.learned_scale-1800)<20,
+                "independent measurement must identify actual delivered response even without AI activation");
+            require(av.learned_scale==bv.learned_scale && av.confidence==bv.confidence,
+                "identical receipt and vision data must yield identical measurement regardless of user calibration");
+            require(av.scale_px_per_stick_second==500 && bv.scale_px_per_stick_second==5000,
+                "measured values must not replace configured values");
+        }
+    });
     registry.add_case("BaseBodyLock", "physical_scope_uses_one_response_at_every_target_position", [] {
         for (unsigned seed : {41u,2089u,81173u,971903u}) for (int ticks : {300,12000}) {
             auto config=incident_fixture::base_config(100,200);

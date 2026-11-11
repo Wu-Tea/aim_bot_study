@@ -295,3 +295,4 @@
   .window-controls { margin-left: auto; }
   .topbar { flex-wrap: wrap; }
 }
+.measurement-actions { display: flex; flex-wrap: wrap; gap: 8px; }

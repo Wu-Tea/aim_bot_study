@@ -689,7 +689,7 @@ void test_hipfire_ai_and_response_learning_config() {
         runtime_app::preserve_response_learning_on_reload(before, after), "new controls must be hot eligible without discarding learned response");
     auto prior_changed = after;
     prior_changed.effective_values["gamepad.ai_aim.body_free_initial_scale"] = "700";
-    require(!runtime_app::preserve_response_learning_on_reload(after, prior_changed), "changing response priors still requires learning reset");
+    require(runtime_app::preserve_response_learning_on_reload(after, prior_changed), "user calibration must not redefine independent measurements");
     for (const auto* value : {"-0.1", "3.01", "nan", "inf", "0.75junk"}) {
         TempConfig invalid("cod_ai_controls_invalid.toml", std::string("[gamepad.ai_aim]\nhipfire_multiplier=") + value + "\n");
         bool rejected = false;

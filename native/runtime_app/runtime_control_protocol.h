@@ -4,7 +4,7 @@
 #include <cstdint>
 
 namespace runtime_app {
-struct RuntimeLearningRegion { float effective = 500, learned = 500, confidence = 0; std::uint32_t samples = 0; };
+struct RuntimeLearningRegion { float effective = 500, learned = 0, confidence = 0; std::uint32_t samples = 0; };
 enum RuntimeControlStatus : std::uint32_t {
     Idle = 0, Pending = 1, Applied = 2, RestartRequired = 3, Rejected = 4
 };
@@ -18,8 +18,9 @@ struct RuntimeControlSnapshot {
 };
 struct RuntimeControlMemory {
     volatile LONG sequence = 0;
-    // v3: both camera values are px/s at full normalized curve response.
-    std::uint32_t protocol = 3;
+    // v4: effective is user calibration; learned is a passive independent fit.
+    // A cold measurement is zero, never a copy of user configuration.
+    std::uint32_t protocol = 4;
     volatile LONG64 requested_id = 0;
     RuntimeControlSnapshot snapshot;
 };

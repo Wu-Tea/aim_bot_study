@@ -104,7 +104,8 @@ ScenarioResult run_scenario(
     int control_effect_delay_ms,
     int disturbance_at_ms = kDisturbanceAtMs,
     float disturbance_px = kDisturbancePx,
-    float target_velocity_y_px_per_sec = 0.0f) {
+    float target_velocity_y_px_per_sec = 0.0f,
+    float configured_response = 0.f) {
     auto config = controller_native::incident_fixture::base_config(
         1000.0f, 180.0f);
     config.aim_response_curve.algorithm =
@@ -118,6 +119,10 @@ ScenarioResult run_scenario(
     config.ai_aim.body_lock_box_tolerance_px = kSettleRadiusPx;
     config.ai_aim.body_lock_activation_box_px = 150.0f;
     config.ai_aim.visual_authority_enabled = true;
+    // Passive measurement no longer repairs a deliberately wrong control gain.
+    // Stability scenarios now explicitly adopt the known synthetic calibration.
+    config.ai_aim.ads_free_initial_scale = configured_response > 0.f
+        ? configured_response : plant_response_px_per_stick_second;
     config.recoil.enabled = false;
     config.recoil.profile_playback_enabled = false;
 
@@ -440,15 +445,18 @@ int run_bodylock_high_frequency_incident_regression(int argc, char** argv) {
             "apex_like_delay_12ms", 2'375.0f, 12);
         // Re-apply the same 20 px disturbance after the estimator has had a
         // full second of live observations. This directly checks that the
-        // learned model does not trade away correction speed once calibrated.
-        const ScenarioResult learned_step = run_scenario(
-            "apex_like_learned_step", 2'375.0f, 9, 1'000, 20.0f);
+        // calibrated model does not trade away correction speed once calibrated.
+        const ScenarioResult calibrated_step = run_scenario(
+            "apex_like_calibrated_step", 2'375.0f, 9, 1'000, 20.0f);
         // A constant moving target is canceled by the estimator's interval
         // differencing. Keep this as an efficiency/accuracy guard against
         // optimizing solely for a stationary target.
         const ScenarioResult moving_target = run_scenario(
             "apex_like_moving_target", 2'375.0f, 9, 250, 20.0f, 80.0f);
 
+        const auto unadopted = run_scenario("unadopted_measurement",2375.f,9,250,20.f,0.f,500.f);
+        const bool unadopted_unchanged = unadopted.minimum_response_scale==500.f &&
+            unadopted.maximum_response_scale==500.f && unadopted.maximum_response_confidence==0.f;
         const bool counterfactual_valid = matched.trigger_covered &&
             !matched.incident_signature && matched.accuracy_oracle;
         const bool delay_robustness = delay_six.trigger_covered &&
@@ -456,16 +464,16 @@ int run_bodylock_high_frequency_incident_regression(int argc, char** argv) {
             delay_six.settle_oracle && delay_twelve.trigger_covered &&
             !delay_twelve.incident_signature && delay_twelve.accuracy_oracle &&
             delay_twelve.settle_oracle;
-        const bool learned_step_performance = learned_step.trigger_covered &&
-            !learned_step.incident_signature &&
-            learned_step.accuracy_oracle && learned_step.settle_oracle;
+        const bool calibrated_step_performance = calibrated_step.trigger_covered &&
+            !calibrated_step.incident_signature &&
+            calibrated_step.accuracy_oracle && calibrated_step.settle_oracle;
         const bool moving_target_performance = moving_target.trigger_covered &&
             !moving_target.incident_signature &&
             moving_target.accuracy_oracle;
-        const bool pass = incident.trigger_covered &&
+        const bool pass = unadopted_unchanged && incident.trigger_covered &&
             !incident.incident_signature && incident.accuracy_oracle &&
             incident.settle_oracle && counterfactual_valid &&
-            delay_robustness && learned_step_performance &&
+            delay_robustness && calibrated_step_performance &&
             moving_target_performance;
 
         auto report =
@@ -491,13 +499,15 @@ int run_bodylock_high_frequency_incident_regression(int argc, char** argv) {
         write_scenario(report, incident);
         report << ",\n  \"counterfactual\": ";
         write_scenario(report, matched);
+        report << ",\n  \"unadopted_measurement\": ";
+        write_scenario(report, unadopted);
         report << ",\n  \"delay_robustness\": {\"delay_6ms\":";
         write_scenario(report, delay_six);
         report << ",\"delay_12ms\":";
         write_scenario(report, delay_twelve);
         report << "}";
-        report << ",\n  \"learned_step\": ";
-        write_scenario(report, learned_step);
+        report << ",\n  \"calibrated_step\": ";
+        write_scenario(report, calibrated_step);
         report << ",\n  \"moving_target\": ";
         write_scenario(report, moving_target);
         report << ",\n  \"oracles\": {"
@@ -511,8 +521,8 @@ int run_bodylock_high_frequency_incident_regression(int argc, char** argv) {
                << (counterfactual_valid ? "true" : "false") << ','
                << "\"delay_robustness_6_to_12ms\":"
                << (delay_robustness ? "true" : "false") << ','
-               << "\"learned_step_performance\":"
-               << (learned_step_performance ? "true" : "false") << ','
+               << "\"calibrated_step_performance\":"
+               << (calibrated_step_performance ? "true" : "false") << ','
                << "\"moving_target_performance\":"
                << (moving_target_performance ? "true" : "false") << "},\n"
                << "  \"pass\": " << (pass ? "true" : "false") << "\n"

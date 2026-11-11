@@ -54,8 +54,8 @@ export function CurveSettings({ draft, seeds, library, ready, fields, setValue, 
   });
   const stage = (nextInput, nextAi) => { const next=selection(nextInput,nextAi); onStage(next.curve,next.values); };
   return <>
-    <section className="curve-calibration"><div className="sectionhead"><h2>初始响应</h2><label className="curve-learning-toggle">自动学习响应<input type="checkbox" className="switch" checked={!!draft.values['gamepad.ai_aim.aim_response_learning_enabled']} onChange={(e) => setValue('gamepad.ai_aim.aim_response_learning_enabled', e.target.checked)}/></label></div>
-      <div className="curve-prior-grid">{fields.filter((f) => f.path.endsWith('_initial_scale')).map((f) => <label className="stack" key={f.path} htmlFor={'f-' + f.path}>{f.label}<span className="number"><input id={'f-' + f.path} aria-label={f.label} type="number" min="0" step="any" placeholder="自动"
+    <section className="curve-calibration"><div className="sectionhead"><h2>响应标定</h2><label className="curve-learning-toggle">后台测量响应<input type="checkbox" className="switch" checked={!!draft.values['gamepad.ai_aim.aim_response_learning_enabled']} onChange={(e) => setValue('gamepad.ai_aim.aim_response_learning_enabled', e.target.checked)}/></label></div>
+      <div className="curve-prior-grid">{fields.filter((f) => f.path.endsWith('_initial_scale')).map((f) => <label className="stack" key={f.path} htmlFor={'f-' + f.path}>{f.label}<span className="number"><input id={'f-' + f.path} aria-label={f.label} type="number" min="0" step="any" placeholder="默认值"
         aria-invalid={draft.values[f.path] !== 0 && (!Number.isFinite(draft.values[f.path]) || draft.values[f.path] < 80)} value={draft.values[f.path] === 0 ? '' : draft.values[f.path]} onChange={(e) => setValue(f.path,e.target.value === '' ? 0 : Number(e.target.value))}/><span>px/s</span></span></label>)}</div>
     </section>
     <section className="curve-use-selectors">

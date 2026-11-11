@@ -314,9 +314,9 @@ void test_game_transfer_response_feedback() {
             now += .001;
         }
         const auto& plan = controller.last_target_plan();
-        require_true(active_ticks > 50 && plan.target_id != 0 && plan.response_confidence > 0,
-            "response test must actually exercise learning and target ownership");
-        scales[enabled] = plan.response_scale;
+        require_true(active_ticks > 50 && plan.target_id != 0 && plan.response_confidence == 0,
+            "measurement must preserve target ownership without taking over calibration");
+        scales[enabled] = controller.learning_snapshot()[1].learned_scale;
         const auto identity = plan.target_id;
         const auto epoch = controller.ads_epoch();
         const auto learned = controller.learning_snapshot();

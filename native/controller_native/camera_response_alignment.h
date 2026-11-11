@@ -16,7 +16,13 @@ class CameraResponseAlignment {
 public:
     static constexpr int delay_count = 31;
     using Commands = std::array<pipeline_contract::Vec2f, delay_count>;
-    struct Estimate { float response = 0.f; float delay_seconds = .009f; bool valid = false; };
+    struct Estimate {
+        float response = 0.f;
+        float delay_seconds = .009f;
+        bool valid = false;
+        float confidence = 0.f;
+        std::uint32_t accepted_samples = 0;
+    };
 
     void begin_target(std::uint64_t target) noexcept {
         if (target == target_) return;
@@ -70,7 +76,11 @@ public:
         }
         // This is an identification trust boundary. Poor fits retain prior
         // calibration, never grant authority or manufacture target motion.
-        if(best<.08) estimate_=fitted;
+        if(best<.08) {
+            fitted.confidence=static_cast<float>(1.-best);
+            fitted.accepted_samples=estimate_.accepted_samples+1;
+            estimate_=fitted;
+        }
     }
 private:
     struct Sample {double capture=0;pipeline_contract::Vec2f rate{};Commands commands{};};

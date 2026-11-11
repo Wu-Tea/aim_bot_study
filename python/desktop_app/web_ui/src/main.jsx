@@ -878,7 +878,13 @@ function App() {
                         </div>
                       </>
                     ) : page === "feedback" ? (
-                      <Feedback status={status} logs={logs} run={safely} />
+                      <Feedback status={status} logs={logs} run={safely} draft={draft} saved={saved[selected]} owned={owned}
+                        onRevert={(path) => { setValue(path, saved[selected].values[path]); setNotice({ text: '已恢复此项的已保存值。' }); }} onStage={(camera) =>
+                        safely('正在读取测量结果…', async () => {
+                          const result = await rpc('learning_stage', { ...proposal(), camera });
+                          valuesUpdate({ [result.path]: result.value });
+                          setNotice({ text: '测量值已填入配置草稿，尚未生效。保存配置后应用，也可恢复已保存值。' });
+                        })} />
                     ) : !draft ? (
                       <div className="empty">
                         <Library size={45} />

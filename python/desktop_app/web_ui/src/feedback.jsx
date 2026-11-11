@@ -2,7 +2,7 @@ import React from "react";
 import { Gamepad2 } from "lucide-react";
 import { rpc, phases } from "./bridge";
 
-export function Feedback({ status, logs, run }) {
+export function Feedback({ status, logs, run, draft, saved, owned, onStage, onRevert }) {
   const rates = status.rates;
   const rate = (count, duration) =>
     rates?.[duration]
@@ -48,13 +48,13 @@ export function Feedback({ status, logs, run }) {
         <button
           disabled={!status.learning}
           onClick={() =>
-            run("正在导出响应学习…", async () => {
+            run("正在导出响应测量…", async () => {
               const path = await rpc("learning_export");
               return path ? "已导出：" + path : '已取消导出';
             })
           }
         >
-          导出响应学习
+          导出响应测量
         </button>
       </div>
       <p className="note">
@@ -65,11 +65,12 @@ export function Feedback({ status, logs, run }) {
         <table className="profiletable">
           <thead>
             <tr>
-              <th>响应标定</th>
-              <th>当前响应（px/s）</th>
-              <th>学习响应（px/s）</th>
-              <th>置信度</th>
-              <th>样本</th>
+              <th>响应测量</th>
+              <th>运行值（px/s）</th>
+              <th>测得值（px/s）</th>
+              <th>拟合度</th>
+              <th>有效拟合</th>
+              <th>配置草稿</th>
             </tr>
           </thead>
           <tbody>
@@ -78,21 +79,29 @@ export function Feedback({ status, logs, run }) {
               "开镜（ADS）",
             ].map((label, index) => {
               const value = status.learning?.regions[index];
+              const path = 'gamepad.ai_aim.' + (index === 0 ? 'body_free_initial_scale' : 'ads_free_initial_scale');
+              const available = value?.samples > 0 && value.confidence > 0;
+              const staged = available && draft?.values[path] === value.learned;
               return (
                 <tr key={label}>
                   <td>{label}</td>
                   <td>{value?.effective?.toFixed(2) ?? "—"}</td>
-                  <td>{value?.samples ? value.learned.toFixed(2) : "—"}</td>
+                  <td>{available ? value.learned.toFixed(2) : "尚未测得"}</td>
                   <td>
                     {value ? (value.confidence * 100).toFixed(1) + "%" : "—"}
                   </td>
                   <td>{value?.samples ?? "—"}</td>
+                  <td><div className="measurement-actions"><button disabled={!owned || !available || staged} onClick={() => onStage(index)}>
+                    {staged ? draft?.values[path] === saved?.values[path] ? '已保存' : '已填入' : '填入配置'}
+                  </button>{owned && draft?.values[path] !== saved?.values[path] &&
+                    <button onClick={() => onRevert(path)}>恢复已保存值</button>}</div></td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+      <p className="small muted">测量结果不会自动应用。填入配置后，保存配置才会生效。</p>
     </>
   );
 }

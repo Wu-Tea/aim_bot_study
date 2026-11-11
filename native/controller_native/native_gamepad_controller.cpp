@@ -188,22 +188,18 @@ BodylockFollowControllerConfig bodylock_config(const GamepadRuntimeConfig& confi
 }
 
 float initial_response_scale(const GamepadRuntimeConfig& config) {
-    // A learned-response prior is separate from the calibrated baseline that
-    // defines the BodyLock horizon. Mouse adapters retain their own calibration.
+    // Explicit user calibration is the only control gain. Passive measurement
+    // never replaces it. Mouse adapters retain their own calibration.
     return !config.ai_aim.adapter_direct_mouse_manual &&
             config.ai_aim.aim_response_initial_scale > 0.0f
         ? config.ai_aim.aim_response_initial_scale
         : config.ai_aim.adapter_response_px_per_second;
 }
 
-AimResponseEstimatorConfig response_estimator_config(const GamepadRuntimeConfig& config) {
-    AimResponseEstimatorConfig result{};
-    result.fallback_scale = initial_response_scale(config);
-    if (!config.ai_aim.adapter_direct_mouse_manual) {
-        if (config.ai_aim.body_free_initial_scale > 0.0f)
-            result.fallback_scale = config.ai_aim.body_free_initial_scale;
-    }
-    return result;
+float configured_response(const GamepadRuntimeConfig& config, bool ads) {
+    const float value = ads ? config.ai_aim.ads_free_initial_scale : config.ai_aim.body_free_initial_scale;
+    return !config.ai_aim.adapter_direct_mouse_manual && value > 0.f
+        ? value : initial_response_scale(config);
 }
 
 AimDynamicsShaperConfig dynamics_config(const GamepadRuntimeConfig& config) {
@@ -214,18 +210,6 @@ AimDynamicsShaperConfig dynamics_config(const GamepadRuntimeConfig& config) {
         result.bodylock_max_force={config.ai_aim.body_lock_max_ai_force,config.ai_aim.body_lock_max_ai_force_y};
         result.bodylock_authority_budget_scale=config.ai_aim.adapter_force_budget_scale;
     }
-    return result;
-}
-
-AimResponseEstimatorConfig ads_response_estimator_config(const GamepadRuntimeConfig& config) {
-    AimResponseEstimatorConfig result{};
-    result.fallback_scale = initial_response_scale(config);
-    if (!config.ai_aim.adapter_direct_mouse_manual) {
-        if (config.ai_aim.ads_free_initial_scale > 0.0f)
-            result.fallback_scale = config.ai_aim.ads_free_initial_scale;
-    }
-    // Both physical cameras use the same robust estimator. A camera state
-    // must not switch fitting algorithms when acquisition becomes follow.
     return result;
 }
 
@@ -267,8 +251,6 @@ NativeGamepadController::NativeGamepadController(
     : config_(config),
       intent_filter_(intent_filter_config(config)),
       target_coordinator_(coordinator_config(config)),
-      hipfire_response_estimator_(response_estimator_config(config)),
-      ads_response_estimator_(ads_response_estimator_config(config)),
       ads_controller_(ads_config(config)),
       ads_reacquisition_reducer_({
           config.ai_aim.body_lock_activation_box_px,
@@ -343,24 +325,80 @@ void NativeGamepadController::submit_vision_snapshot(const ControllerVisionSnaps
 }
 
 std::array<AimResponseEstimate, 2> NativeGamepadController::learning_snapshot() const noexcept {
-    return {hipfire_response_estimator_.estimate(), ads_response_estimator_.estimate()};
+    std::array<AimResponseEstimate,2> result{};
+    for (int i=0;i<2;++i) {
+        const auto fit=camera_alignment_[i].estimate();
+        result[i]={configured_response(config_,i==1),fit.confidence,fit.accepted_samples,fit.response};
+    }
+    return result;
+}
+
+void NativeGamepadController::measure_response(
+    const pipeline_contract::VisionObservationBatch& observations, double now, bool ads) noexcept {
+    auto& fit=camera_alignment_[ads ? 1 : 0];
+    auto& anchor=measurement_anchor_;
+    if (!config_.ai_aim.aim_response_learning_enabled || config_.ai_aim.adapter_direct_mouse_manual) {
+        anchor={}; fit.invalidate_evidence(); return;
+    }
+    if (!observations.frame_id || observations.frame_id==anchor.frame) return;
+    anchor.frame=observations.frame_id;
+    const double capture=observations.source_time_seconds;
+    const pipeline_contract::VisionCandidate* person=nullptr;
+    if (!observations.selector_cue_continuation && !observations.selector_cue_acquisition)
+        for (std::size_t i=0;i<observations.count;++i)
+            if (observations.candidates[i].source_id==observations.preferred_source_id) {
+                person=&observations.candidates[i]; break;
+            }
+    // Admission depends on delivered evidence and direct person observations,
+    // never on an AI plan, configured gain, authority, or activation state.
+    if (!person || !person->has_body_box || !person->has_aim_point || person->reliability<.75f ||
+        !std::isfinite(capture) || capture>now+.001 || now-capture>.1) {
+        anchor.valid=false; fit.invalidate_evidence(); return;
+    }
+    const auto target=observations.selector_identity_protocol
+        ? observations.selector_target_generation : person->source_id;
+    auto point=person->aim_px;
+    int kind=0;std::uint64_t cue=0;
+    const auto& box=person->body_box_px;
+    if (person->has_motion_anchor && person->motion_anchor_score>=.45f &&
+        person->motion_anchor_px.x>=box.x && person->motion_anchor_px.x<=box.x+box.w &&
+        person->motion_anchor_px.y>=box.y && person->motion_anchor_px.y<=box.y+box.h) {
+        point=person->motion_anchor_px;kind=1;
+    }
+    if (observations.selector_identity_protocol && observations.motion_cue_id) {
+        point=observations.motion_cue_px;cue=observations.motion_cue_id;kind=2;
+    }
+    if (!target || !pipeline_contract::finite(point)) {
+        anchor.valid=false;fit.invalidate_evidence();return;
+    }
+    const double interval=capture-anchor.capture;
+    const bool same=anchor.valid && target==anchor.target && cue==anchor.cue && kind==anchor.point_kind &&
+        !observations.selector_target_changed && interval>0 && interval<=.030;
+    if (same && interval<.005-1e-9) return;
+    if (same) {
+        CameraResponseAlignment::Commands commands{};
+        bool complete=true;
+        for (int lag=0;lag<CameraResponseAlignment::delay_count;++lag) {
+            pipeline_contract::Vec2f unused{};bool ambiguous=false,disturbed=false;
+            complete=average_aim_response_command(anchor.capture-lag*.001,capture-lag*.001,
+                &commands[lag],&unused,&ambiguous,&disturbed) && !disturbed && complete;
+        }
+        if (complete) {
+            fit.begin_target(target);
+            fit.update(capture,{float((point.x-anchor.point.x)/interval),float((point.y-anchor.point.y)/interval)},commands);
+        } else fit.invalidate_evidence();
+    } else fit.invalidate_evidence();
+    anchor={observations.frame_id,target,cue,capture,point,kind,true};
 }
 
 void NativeGamepadController::clear_learning() noexcept {
     capture_evidence_.reset();
     for (auto& alignment : camera_alignment_) alignment.reset();
     aim_response_effect_delay_seconds_=std::clamp(config_.ai_aim.aim_response_effect_delay_ms,0.f,30.f)*.001;
-    hipfire_response_estimator_.reset();
-    ads_response_estimator_.reset();
     aim_response_command_history_ = {};
     aim_response_history_begin_ = aim_response_history_count_ = 0;
-    last_aim_response_frame_id_ = last_aim_response_target_id_ = 0;
-    last_aim_response_capture_seconds_ = 0.0;
-    last_aim_response_source_error_px_ = {};
-    last_aim_response_motion_anchor_error_px_ = {};
-    has_last_aim_response_motion_anchor_ = false;
-    last_aim_response_motion_cue_id_ = 0;
-    has_last_aim_response_observation_ = false;
+    measurement_anchor_ = {};
+    last_motion_frame_ = 0;
     motion_observation_anchor_ = {};
     bodylock_target_motion_observer_.reset();
     // ACKs, frame pairs and excitation anchors from the old configuration may
@@ -393,9 +431,6 @@ void NativeGamepadController::apply_hot_config(const GamepadRuntimeConfig& confi
     recoil_ = RecoilReducer(config_.recoil);
     auto_fire_gate_.reconfigure(config_.auto_fire, config_.ai_aim);
     if (!preserve_learning) {
-        // Install the new priors and invalidate old evidence as one decision.
-        hipfire_response_estimator_ = AimResponseEstimator(response_estimator_config(config_));
-        ads_response_estimator_ = AimResponseEstimator(ads_response_estimator_config(config_));
         clear_learning();
     }
 }
@@ -762,20 +797,17 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         // Camera state, not acquisition/follow stage, owns calibration. A
         // scope transition cannot join exposure intervals from two cameras.
         response_ads_ = response_ads;
-        hipfire_response_estimator_.begin_target(0);
-        ads_response_estimator_.begin_target(0);
-        has_last_aim_response_observation_ = false;
+        measurement_anchor_ = {};
         motion_observation_anchor_ = {};
         bodylock_target_motion_observer_.begin_target(0);
         for (auto& alignment : camera_alignment_) alignment.invalidate_evidence();
         aim_response_effect_delay_seconds_ = std::clamp(config_.ai_aim.aim_response_effect_delay_ms,0.f,30.f)*.001;
     }
     auto& camera_alignment = camera_alignment_[response_ads ? 1 : 0];
-    const auto aim_response_before_update = response_ads ? ads_response_estimator_.estimate() : hipfire_response_estimator_.estimate();
-    control_feedback.aim_response_px_per_stick_second =
-        aim_response_before_update.scale_px_per_stick_second;
-    // estimate() already blends toward its safe fallback while confidence is low.
-    control_feedback.aim_response_confidence = aim_response_before_update.confidence;
+    measure_response(observations, now, response_ads);
+    const float active_response = configured_response(config_, response_ads);
+    control_feedback.aim_response_px_per_stick_second = active_response;
+    control_feedback.aim_response_confidence = 0.f;
     constexpr double kFiringDisturbanceWindowSeconds = 0.075;
     control_feedback.firing_recently =
         manual_fire_pressed(physical) ||
@@ -815,12 +847,8 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
     const bool canonical_gamepad = config_.ai_aim.normalized_assist_parameters &&
         !config_.ai_aim.adapter_direct_mouse_manual;
     if (plan.target_id != 0) {
-        plan.response_scale = std::max(50.0f, aim_response_before_update.scale_px_per_stick_second);
-        plan.response_confidence = aim_response_before_update.confidence;
-    }
-    if (canonical_gamepad && camera_alignment.estimate().valid) {
-        plan.response_scale = camera_alignment.estimate().response;
-        aim_response_effect_delay_seconds_ = camera_alignment.estimate().delay_seconds;
+        plan.response_scale = std::max(50.0f, active_response);
+        plan.response_confidence = 0.f;
     }
     if (plan.cue_continuation) {
         // A same-generation cue may continue ADS identity, but must not create
@@ -902,10 +930,9 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         plan.selector_target_generation;
     last_acquisition_trace_.selector_target_changed =
         plan.selector_target_changed;
-    const bool new_observed_frame = observations.count > 0 &&
-        !plan.cue_continuation &&
-        observations.frame_id != 0 &&
-        observations.frame_id != last_aim_response_frame_id_;
+    const bool new_observed_frame = observations.count > 0 && !plan.cue_continuation &&
+        observations.frame_id != 0 && observations.frame_id != last_motion_frame_;
+    if (new_observed_frame) last_motion_frame_ = observations.frame_id;
     const double capture_seconds = observations.source_time_seconds;
     pipeline_contract::Vec2f motion_anchor_error_px{};
     bool has_motion_anchor = false;
@@ -949,105 +976,6 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
         motion_anchor_error_px = {observations.motion_cue_px.x-screen_center.x,
                                   observations.motion_cue_px.y-screen_center.y};
     }
-    if (new_observed_frame) {
-        bool advance_response_anchor = true;
-        const bool same_response_target =
-            has_last_aim_response_observation_ &&
-            plan.target_id != 0 &&
-            plan.target_id == last_aim_response_target_id_;
-        if (!same_response_target) {
-            hipfire_response_estimator_.begin_target(plan.target_id);
-            ads_response_estimator_.begin_target(plan.target_id);
-        } else {
-            const double interval_seconds =
-                capture_seconds - last_aim_response_capture_seconds_;
-            // The estimators own a minimum measurement duration. Keep the
-            // source anchor until that duration is available; replacing it on
-            // every rejected high-rate frame starves estimation indefinitely.
-            // Invalid time must prime a new interval; physical scope transitions reset anchors above.
-            advance_response_anchor = !std::isfinite(interval_seconds) ||
-                interval_seconds <= 0.0 ||
-                static_cast<float>(interval_seconds) >=
-                    AimResponseEstimatorConfig{}.minimum_interval_seconds;
-            pipeline_contract::Vec2f average_stick{};
-            pipeline_contract::Vec2f average_tracking_stick{};
-            bool manual_ambiguous = false;
-            const bool command_window_available =
-                advance_response_anchor &&
-                std::isfinite(interval_seconds) && interval_seconds > 0.0 &&
-                average_aim_response_command(
-                    last_aim_response_capture_seconds_ -
-                        aim_response_effect_delay_seconds_,
-                    capture_seconds - aim_response_effect_delay_seconds_,
-                    &average_stick,
-                    &average_tracking_stick,
-                    &manual_ambiguous);
-            if (command_window_available && motion_cue_id==last_aim_response_motion_cue_id_) {
-                // Corresponding person pixels measure camera/target motion;
-                // a semantic box-derived aim point can shift as box geometry
-                // changes even when those pixels do not. Keep D and geometry
-                // ownership out of this derivative. Legacy observations with
-                // no supported correspondence retain their source-point
-                // measurement; never subtract one domain from the other.
-                const bool pixel_pair = has_motion_anchor &&
-                    has_last_aim_response_motion_anchor_;
-                const auto measured_position = pixel_pair
-                    ? motion_anchor_error_px : source_error_px;
-                const auto previous_position = pixel_pair
-                    ? last_aim_response_motion_anchor_error_px_
-                    : last_aim_response_source_error_px_;
-                const pipeline_contract::Vec2f observed_error_rate{
-                    static_cast<float>(
-                        (measured_position.x - previous_position.x) /
-                        interval_seconds),
-                    static_cast<float>(
-                        (measured_position.y - previous_position.y) /
-                        interval_seconds),
-                };
-                if (config_.ai_aim.aim_response_learning_enabled && !response_ads) {
-                    hipfire_response_estimator_.update({
-                        average_stick,
-                        observed_error_rate,
-                        plan.target_id,
-                        static_cast<float>(interval_seconds),
-                        plan.reliability,
-                        // Manual/fire ambiguity is rejected by the causally
-                        // aligned command ledger instead of target acceleration.
-                        0.0f,
-                        plan.lifecycle ==
-                            pipeline_contract::TargetLifecycle::Observed,
-                        manual_ambiguous,
-                    });
-                }
-                if (config_.ai_aim.aim_response_learning_enabled &&
-                    response_ads) {
-                    ads_response_estimator_.update({
-                        average_stick,
-                        observed_error_rate,
-                        plan.target_id,
-                        static_cast<float>(interval_seconds),
-                        plan.reliability,
-                        0.0f,
-                        plan.lifecycle ==
-                            pipeline_contract::TargetLifecycle::Observed,
-                        manual_ambiguous,
-                    });
-                }
-            }
-        }
-        last_aim_response_frame_id_ = observations.frame_id;
-        if (advance_response_anchor) {
-            last_aim_response_target_id_ = plan.target_id;
-            last_aim_response_capture_seconds_ = capture_seconds;
-            last_aim_response_source_error_px_ = source_error_px;
-            last_aim_response_motion_anchor_error_px_ = motion_anchor_error_px;
-            has_last_aim_response_motion_anchor_ = has_motion_anchor;
-            last_aim_response_motion_cue_id_ = motion_cue_id;
-            has_last_aim_response_observation_ = plan.target_id != 0 &&
-                std::isfinite(capture_seconds) &&
-                pipeline_contract::finite(source_error_px);
-        }
-    }
     // A persistent marker spans person/hold changes without changing motion
     // coordinates. Other references still require their own capture pair.
     // Response calibration above requires a direct person, even with a cue.
@@ -1078,36 +1006,6 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
                 const bool pixel_pair = has_motion_anchor && motion_anchor.has_motion_anchor;
                 const auto current = pixel_pair ? motion_anchor_error_px : source_error_px;
                 const auto previous = pixel_pair ? motion_anchor.motion_anchor_error_px : motion_anchor.source_error_px;
-                if (canonical_gamepad && config_.ai_aim.aim_response_learning_enabled &&
-                    plan.direct_person_observation && !disturbed && plan.reliability >= .75f) {
-                    // This physical fit observes the complete delivered vector.
-                    // Known manual input is excitation, not unknown camera work.
-                    // Weapon disturbance still invalidates every fitted interval;
-                    // the legacy estimators above keep their ambiguity policy.
-                    CameraResponseAlignment::Commands commands{};
-                    bool complete = true;
-                    for(int lag=0;lag<CameraResponseAlignment::delay_count;++lag) {
-                        pipeline_contract::Vec2f unused{};bool uncertain=false, disturbance=false;
-                        complete = average_aim_response_command(
-                            motion_anchor.capture_seconds-lag*.001,
-                            capture_seconds-lag*.001, &commands[lag], &unused, &uncertain, &disturbance) &&
-                            !disturbance && complete;
-                    }
-                    camera_alignment.begin_target(plan.target_id);
-                    if(complete) camera_alignment.update(capture_seconds,
-                        {float((current.x-previous.x)/motion_interval),
-                         float((current.y-previous.y)/motion_interval)}, commands);
-                    if(camera_alignment.estimate().valid) {
-                        plan.response_scale=camera_alignment.estimate().response;
-                        aim_response_effect_delay_seconds_=camera_alignment.estimate().delay_seconds;
-                        // Re-align this very observation before estimating target
-                        // motion. A calibration update must not mix time domains.
-                        average_aim_response_command(
-                            motion_anchor.capture_seconds-aim_response_effect_delay_seconds_,
-                            capture_seconds-aim_response_effect_delay_seconds_,
-                            &delivered,&tracking,&ambiguous);
-                    }
-                }
                 auto measured_rate=pipeline_contract::Vec2f{
                     float((current.x-previous.x)/motion_interval),float((current.y-previous.y)/motion_interval)};
                 if(canonical_gamepad) {
@@ -1653,8 +1551,7 @@ ControlFrame NativeGamepadController::resolve_control_frame() {
 void NativeGamepadController::reset_after_input_discontinuity() {
     // A lost release/repress is a new control lifecycle, not a continuous
     // held gesture. Preserve calibrated response, never old target authority.
-    const auto response = hipfire_response_estimator_;
-    const auto ads_response = ads_response_estimator_;
+    const auto measurements = camera_alignment_;
     const auto epoch = ads_epoch_;
     const auto next_tick = next_controller_tick_id_;
     const auto next_command = next_command_sequence_;
@@ -1662,10 +1559,8 @@ void NativeGamepadController::reset_after_input_discontinuity() {
     ads_epoch_ = epoch;
     next_controller_tick_id_ = next_tick;
     next_command_sequence_ = next_command;
-    hipfire_response_estimator_ = response;
-    ads_response_estimator_ = ads_response;
-    hipfire_response_estimator_.begin_target(0);
-    ads_response_estimator_.begin_target(0);
+    camera_alignment_ = measurements;
+    for (auto& measurement : camera_alignment_) measurement.invalidate_evidence();
 }
 
 bool NativeGamepadController::expire_visual_output(
@@ -1697,6 +1592,7 @@ bool NativeGamepadController::expire_visual_output(
 }
 
 void NativeGamepadController::invalidate_delivery_history() noexcept {
+    measurement_anchor_ = {};
     capture_evidence_.reset();
     aim_response_history_begin_ = aim_response_history_count_ = 0;
     for (auto& alignment : camera_alignment_) alignment.invalidate_evidence();
